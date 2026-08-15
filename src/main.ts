@@ -6,6 +6,7 @@ import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
 import { createModelFileBundle, modelFormat, type ModelFileBundle } from './lib/modelFiles';
 import { cloneModelScene, disposeModel, geometryUVChannels } from './lib/modelScene';
+import { prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport } from './lib/modelPreview';
 import { createPreset, deletePreset, loadPresetLibrary, parsePreset, serializePreset, upsertPreset, type ConversionPreset } from './lib/presets';
 
@@ -25,6 +26,7 @@ type State = {
   saturation: number;
   paletteFilter: PaletteCategory | 'all';
   uvMap: string;
+  lodLevel: number;
 };
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -48,6 +50,7 @@ const state: State = {
   saturation: 5,
   paletteFilter: 'all',
   uvMap: 'uv',
+  lodLevel: 0,
 };
 
 app.innerHTML = `
@@ -70,6 +73,7 @@ app.innerHTML = `
           </div>
           <div class="toolbar-actions">
             <label class="uv-control" id="uvControl" hidden><span>UV map</span><select id="uvMap" aria-label="Model UV map"></select></label>
+            <label class="uv-control" id="lodControl" hidden><span>LOD</span><select id="lodMap" aria-label="Model LOD level"></select></label>
             <span class="dimension-badge" id="dimensionBadge">128 × 92 PX</span>
           </div>
         </div>
@@ -212,6 +216,8 @@ const originalModelHost = document.querySelector<HTMLDivElement>('#originalModel
 const processedModelHost = document.querySelector<HTMLDivElement>('#processedModelHost')!;
 const uvControl = document.querySelector<HTMLLabelElement>('#uvControl')!;
 const uvMapSelect = document.querySelector<HTMLSelectElement>('#uvMap')!;
+const lodControl = document.querySelector<HTMLLabelElement>('#lodControl')!;
+const lodMapSelect = document.querySelector<HTMLSelectElement>('#lodMap')!;
 const presetList = document.querySelector<HTMLDivElement>('#presetList')!;
 const presetName = document.querySelector<HTMLInputElement>('#presetName')!;
 const presetDescription = document.querySelector<HTMLInputElement>('#presetDescription')!;
@@ -225,6 +231,7 @@ let modelBundle: ModelFileBundle | null = null;
 let originalViewport: ModelViewport | null = null;
 let processedViewport: ModelViewport | null = null;
 let modelUVChannels: string[] = [];
+let modelLodLevels: number[] = [];
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
@@ -299,6 +306,11 @@ function renderUVControl(): void {
   uvMapSelect.innerHTML = modelUVChannels.map((channel, index) => `<option value="${channel}" ${channel === state.uvMap ? 'selected' : ''}>UV ${index + 1} · ${channel}</option>`).join('');
 }
 
+function renderLodControl(): void {
+  lodControl.hidden = modelLodLevels.length <= 1;
+  lodMapSelect.innerHTML = modelLodLevels.map((level) => `<option value="${level}" ${level === state.lodLevel ? 'selected' : ''}>LOD ${level}</option>`).join('');
+}
+
 function applyModelUV(channel: string): void {
   state.uvMap = channel;
   const originalStatus = originalViewport?.applyUV(channel);
@@ -309,6 +321,12 @@ function applyModelUV(channel: string): void {
   }
 }
 
+function applyModelLod(level: number): void {
+  state.lodLevel = level;
+  originalViewport?.applyLOD(level);
+  processedViewport?.applyLOD(level);
+}
+
 function closeModelPreview(): void {
   originalViewport?.dispose();
   processedViewport?.dispose();
@@ -317,11 +335,13 @@ function closeModelPreview(): void {
   processedViewport = null;
   modelBundle = null;
   modelUVChannels = [];
+  modelLodLevels = [];
   originalModelHost.hidden = true;
   processedModelHost.hidden = true;
   originalCanvas.hidden = false;
   previewCanvas.hidden = false;
   renderUVControl();
+  renderLodControl();
 }
 
 async function setModel(files: File[]): Promise<void> {
@@ -331,24 +351,30 @@ async function setModel(files: File[]): Promise<void> {
     const loaded = await loadModel(bundle, files);
     closeModelPreview();
     modelBundle = bundle;
+    const lodPreparation = prepareModelLods(loaded.scene);
+    modelLodLevels = lodPreparation.levels;
+    state.lodLevel = modelLodLevels[0] ?? 0;
     modelUVChannels = geometryUVChannels(loaded.scene);
     state.uvMap = modelUVChannels[0] ?? 'uv';
     originalViewport = new ModelViewport(originalModelHost);
     processedViewport = new ModelViewport(processedModelHost);
     originalViewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
     processedViewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
+    originalViewport.applyLOD(state.lodLevel);
+    processedViewport.applyLOD(state.lodLevel);
     disposeModel(loaded.scene);
     originalModelHost.hidden = false;
     processedModelHost.hidden = false;
     originalCanvas.hidden = true;
     previewCanvas.hidden = true;
     renderUVControl();
+    renderLodControl();
     if (modelUVChannels.length) applyModelUV(state.uvMap);
     originalViewport.applyImage(state.source);
     processedViewport.applyImage(renderedCanvas);
     updatePreviewBadge();
     document.querySelector('#fileName')!.textContent = modelBundle.primary.name;
-    showToast(`Loaded ${modelBundle.primary.name}`);
+    showToast(`Loaded ${modelBundle.primary.name}${lodPreparation.collidersRemoved ? ` · ${lodPreparation.collidersRemoved} colliders removed` : ''}`);
     bundle = null;
   } catch (error) {
     if (modelBundle === bundle) closeModelPreview();
@@ -711,6 +737,7 @@ modelInput.addEventListener('change', () => {
   modelInput.value = '';
 });
 uvMapSelect.addEventListener('change', () => applyModelUV(uvMapSelect.value));
+lodMapSelect.addEventListener('change', () => applyModelLod(Number(lodMapSelect.value)));
 const dropZone = document.querySelector<HTMLDivElement>('#dropZone')!;
 ['dragenter', 'dragover'].forEach((type) => dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.add('dragging'); }));
 ['dragleave', 'drop'].forEach((type) => dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.remove('dragging'); }));

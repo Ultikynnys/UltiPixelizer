@@ -16,6 +16,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import type { ModelFileBundle } from './modelFiles';
+import { applyLodLevel } from './modelLod';
 import { applyTextureToModel, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject } from './modelScene';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
@@ -114,6 +115,10 @@ export class ModelViewport {
 
   applyUV(name: string): { fallbackMeshes: number; missingMeshes: number } {
     return this.model ? applyUVChannel(this.model, name) : { fallbackMeshes: 0, missingMeshes: 0 };
+  }
+
+  applyLOD(level: number): number {
+    return this.model ? applyLodLevel(this.model, level) : 0;
   }
 
   private resize(): void {
