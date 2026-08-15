@@ -19,6 +19,9 @@ import { imageNormalMapPixels, type NormalFormat } from './lib/normal';
 import { safeFileName } from './lib/strings';
 import { DEFAULT_SUN_DIRECTION, type DirectionVector } from './lib/sunDirection';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
+import exampleModelUrl from '../Example/Book.fbx?url';
+import exampleBaseColorUrl from '../Example/BaseColorExample.png?url';
+import exampleNormalUrl from '../Example/NormalExample.png?url';
 
 type SourceImage = CanvasImageSource & { width: number; height: number };
 
@@ -1613,10 +1616,32 @@ function bindAdjustmentEvents(): void {
   });
 }
 
+async function fetchExampleFile(url: string, name: string, type: string): Promise<File> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to load ${name} (${response.status})`);
+  return new File([await response.blob()], name, { type });
+}
+
+async function loadExampleAssets(): Promise<void> {
+  try {
+    const [baseColor, normal, model] = await Promise.all([
+      fetchExampleFile(exampleBaseColorUrl, 'BaseColorExample.png', 'image/png'),
+      fetchExampleFile(exampleNormalUrl, 'NormalExample.png', 'image/png'),
+      fetchExampleFile(exampleModelUrl, 'Book.fbx', 'application/octet-stream'),
+    ]);
+    await setTexture('base', baseColor);
+    await setTexture('normal', normal);
+    await setModel([model]);
+  } catch (error) {
+    console.warn('Example assets could not be loaded; using the sample texture.', error);
+  }
+}
+
 syncControlsFromState();
 renderTextureRibbon();
 applyPreviewMode();
 render();
+void loadExampleAssets();
 
 document.querySelector('#resolution')!.addEventListener('input', (event) => updateResolution(Number((event.target as HTMLInputElement).value)));
 document.querySelector('#resolution')!.addEventListener('change', renderScheduler.flush);

@@ -4,3 +4,4 @@ coverage/
 .reasonix/
 *.log
 .DS_Store
+Thumbs.db
