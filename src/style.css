@@ -38,8 +38,22 @@ button { color: inherit; }
 .button-quiet { background: transparent; color: var(--muted); justify-self: end; padding-right: 0; }
 .button-quiet:hover { color: var(--paper); }
 .topbar-actions { align-items: center; display: flex; gap: 6px; }
-.topbar-link { gap: 8px; text-decoration: none; }
-.topbar-link svg { flex: none; }
+.brand-group { align-items: center; display: flex; gap: 14px; min-width: 0; }
+.brand-group .build-version { flex: none; }
+.circle-link {
+  align-items: center; background: #30302e; border: 1px solid #464642; border-radius: 999px;
+  color: var(--muted); display: inline-flex; flex: none; gap: 8px; height: 32px; justify-content: center;
+  overflow: hidden; text-decoration: none; white-space: nowrap; width: 32px;
+  transition: background-color .22s ease, border-color .22s ease, color .22s ease, width .22s ease;
+}
+.circle-link svg { flex: none; }
+.circle-link .circle-label { font-size: 11px; font-weight: 700; letter-spacing: .02em; max-width: 0; opacity: 0; overflow: hidden; transition: max-width .22s ease, opacity .15s ease; }
+.circle-link:hover, .circle-link:focus-visible { background: #3a3a37; color: var(--paper); }
+.circle-link:hover .circle-label, .circle-link:focus-visible .circle-label { max-width: 170px; opacity: 1; }
+.circle-github:hover, .circle-github:focus-visible { width: 108px; }
+.circle-kofi:hover, .circle-kofi:focus-visible { width: 200px; }
+.circle-kofi { color: #ff6433; }
+.circle-kofi:hover, .circle-kofi:focus-visible { color: #ff8566; }
 .button-primary { background: var(--accent); color: #fff; }
 .button-primary:hover { background: #ff704f; }
 .button-secondary { background: #373734; border: 1px solid #50504b; color: var(--paper); }
@@ -80,6 +94,17 @@ button { color: inherit; }
 .processed-pane .canvas-frame { border-color: #57574f; box-shadow: 0 22px 70px rgba(0,0,0,.32); }
 .drop-hint { background: rgba(23,23,22,.85); border: 1px solid var(--line); bottom: 18px; color: var(--muted); font: 400 9px 'DM Mono', monospace; letter-spacing: .08em; opacity: 0; padding: 8px 10px; position: absolute; text-transform: uppercase; transform: translateY(6px); transition: .2s; }
 .canvas-stage:hover .drop-hint, .canvas-stage.dragging .drop-hint { opacity: 1; transform: none; }
+.preview-mode-toggle {
+  align-items: center; background: rgba(23,23,22,.92); border: 1px solid #4b4b47; border-radius: 3px;
+  display: flex; gap: 2px; padding: 3px; position: absolute; right: 14px; top: 14px; z-index: 10;
+}
+.preview-mode-toggle[hidden] { display: none; }
+.preview-mode-toggle button {
+  background: transparent; border: 0; border-radius: 2px; color: var(--muted); cursor: pointer;
+  font: 700 9px 'Manrope', system-ui, sans-serif; letter-spacing: .08em; padding: 6px 12px;
+}
+.preview-mode-toggle button:hover { color: var(--paper); }
+.preview-mode-toggle button.active { background: var(--accent); color: #fff; }
 .preview-footer { align-items: center; border-top: 1px solid var(--line); display: grid; gap: 12px; grid-template-columns: 1fr auto auto; min-height: 82px; padding: 15px 28px; }
 .file-meta { align-items: center; display: flex; gap: 12px; min-width: 0; }
 .meta-icon { align-items: center; background: #30302e; border: 1px solid #464642; color: var(--lime); display: flex; font-size: 17px; height: 38px; justify-content: center; width: 38px; }
@@ -90,17 +115,20 @@ button { color: inherit; }
 .file-button input { height: 1px; opacity: 0; position: absolute; width: 1px; }
 
 .texture-ribbon { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 10px; padding: 12px 28px; }
-.texture-ribbon-label { color: var(--muted); flex: 0 0 auto; font: 500 8px 'DM Mono', monospace; letter-spacing: .08em; margin-right: 2px; text-transform: uppercase; }
 .texture-slot { align-items: center; background: #1c1c1b; border: 1px dashed #55554f; border-radius: 3px; cursor: pointer; display: flex; flex-direction: column; gap: 5px; height: 66px; justify-content: center; min-width: 82px; padding: 6px 8px; position: relative; }
 .texture-slot:hover { border-color: var(--lime); }
 .texture-slot:focus-visible { outline: 1px solid var(--paper); outline-offset: 2px; }
 .texture-slot.dragging { border-color: var(--lime); box-shadow: inset 0 0 0 1px var(--lime); }
+.texture-slot.disabled { cursor: not-allowed; opacity: .45; }
+.texture-slot.disabled:hover { border-color: #55554f; }
+.texture-slot.disabled:focus-visible { outline-color: var(--muted); }
+.texture-slot-model { max-width: 150px; }
 .texture-slot-preview { align-items: center; display: flex; height: 30px; justify-content: center; overflow: hidden; width: 40px; }
 .texture-slot-preview canvas { display: block; image-rendering: pixelated; height: 100%; object-fit: cover; width: 100%; }
 .texture-slot-empty-mark { color: var(--lime); font: 500 18px 'DM Mono', monospace; line-height: 1; }
 .texture-slot-label { color: var(--muted); font: 500 8px 'DM Mono', monospace; letter-spacing: .06em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
 .texture-slot.filled .texture-slot-label { color: var(--paper); }
-.texture-slot-clear { align-items: center; background: #1f1f1e; border: 1px solid #55554f; border-radius: 2px; bottom: 4px; color: #d7d3c8; cursor: pointer; display: none; font: 500 10px 'DM Mono', monospace; height: 16px; justify-content: center; left: 4px; line-height: 1; padding: 0; position: absolute; width: 16px; }
+.texture-slot-clear { align-items: center; background: #1f1f1e; border: 1px solid #55554f; border-radius: 2px; bottom: 4px; color: #d7d3c8; cursor: pointer; display: none; font: 500 10px 'DM Mono', monospace; height: 16px; justify-content: center; line-height: 1; padding: 0; position: absolute; right: 4px; width: 16px; }
 .texture-slot.filled .texture-slot-clear { display: flex; }
 .texture-slot-clear:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
 .ao-generate-button { margin-top: 16px; width: 100%; }
@@ -203,7 +231,6 @@ button { color: inherit; }
 
 @media (max-width: 620px) {
   .topbar { height: 62px; padding: 0 16px; }
-  .topbar-actions a.button { font-size: 11px; padding: 10px 12px; }
   .preview-toolbar { min-height: 74px; padding: 14px 16px; }
   .preview-toolbar h1 { max-width: 48vw; }
   .canvas-stage { padding: 14px 10px; }

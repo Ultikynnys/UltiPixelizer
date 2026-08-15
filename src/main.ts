@@ -84,23 +84,25 @@ const state: State = {
 app.innerHTML = `
   <div class="app-shell">
     <header class="topbar">
-      <a class="brand" href="#" aria-label="UltiPixelizer home">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <span>ULTI<span>PIXELIZER</span></span>
+      <div class="brand-group">
+        <a class="brand" href="#" aria-label="UltiPixelizer home">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span>ULTI<span>PIXELIZER</span></span>
+        </a>
         <span class="build-version" title="Build version and commit">${buildLabel}</span>
-      </a>
+        <a class="circle-link circle-github" href="https://github.com/Ultikynnys/UltiPixelizer" target="_blank" rel="noopener noreferrer" aria-label="GitHub repository">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+          <span class="circle-label">GitHub</span>
+        </a>
+        <a class="circle-link circle-kofi" href="https://ko-fi.com/r60dr60d" target="_blank" rel="noopener noreferrer" aria-label="Support the developer on Ko-fi">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M11.351 2.715c-2.7 0-4.986.025-6.83.26C2.078 3.285 0 5.154 0 8.61c0 3.506.182 6.13 1.585 8.493 1.584 2.701 4.233 4.182 7.662 4.182h.83c4.209 0 6.494-2.234 7.637-4a9.5 9.5 0 0 0 1.091-2.338C21.792 14.688 24 12.22 24 9.208v-.415c0-3.247-2.13-5.507-5.792-5.87-1.558-.156-2.65-.208-6.857-.208m0 1.947c4.208 0 5.09.052 6.571.182 2.624.311 4.13 1.584 4.13 4v.39c0 2.156-1.792 3.844-3.87 3.844h-.935l-.156.649c-.208 1.013-.597 1.818-1.039 2.546-.909 1.428-2.545 3.064-5.922 3.064h-.805c-2.571 0-4.831-.883-6.078-3.195-1.09-2-1.298-4.155-1.298-7.506 0-2.181.857-3.402 3.012-3.714 1.533-.233 3.559-.26 6.39-.26m6.547 2.287c-.416 0-.65.234-.65.546v2.935c0 .311.234.545.65.545 1.324 0 2.051-.754 2.051-2s-.727-2.026-2.052-2.026m-10.39.182c-1.818 0-3.013 1.48-3.013 3.142 0 1.533.858 2.857 1.949 3.897.727.701 1.87 1.429 2.649 1.896a1.47 1.47 0 0 0 1.507 0c.78-.467 1.922-1.195 2.623-1.896 1.117-1.039 1.974-2.364 1.974-3.897 0-1.662-1.247-3.142-3.039-3.142-1.065 0-1.792.545-2.338 1.298-.493-.753-1.246-1.298-2.312-1.298"/></svg>
+          <span class="circle-label">Support the developer!</span>
+        </a>
+      </div>
       <div class="topbar-actions">
         <button class="button button-quiet" id="saveButton" type="button">Save</button>
         <button class="button button-quiet" id="loadButton" type="button">Load</button>
         <button class="button button-quiet" id="resetButton" type="button">Reset settings</button>
-        <a class="button button-secondary topbar-link" href="https://github.com/Ultikynnys/UltiPixelizer" target="_blank" rel="noopener noreferrer">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.17-.02-2.12-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.35.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.18a10.9 10.9 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.83 1.18 3.09 0 4.42-2.69 5.39-5.26 5.68.41.36.78 1.06.78 2.14 0 1.54-.01 2.79-.01 3.17 0 .3.2.67.8.55A11.52 11.52 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>
-          GitHub
-        </a>
-        <a class="button button-primary topbar-link" href="https://ko-fi.com/r60dr60d" target="_blank" rel="noopener noreferrer">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/></svg>
-          Donate
-        </a>
         <input id="loadConfigInput" type="file" accept=".json,application/json" hidden />
       </div>
     </header>
@@ -124,8 +126,7 @@ app.innerHTML = `
           </div>
         </div>
 
-        <div class="texture-ribbon" id="textureRibbon" aria-label="Texture channels">
-          <span class="texture-ribbon-label">Channels</span>
+        <div class="texture-ribbon" id="textureRibbon" aria-label="Texture sources">
           ${TEXTURE_CHANNELS.map((channel) => `
             <div class="texture-slot" data-texture="${channel.id}" tabindex="0" aria-label="${channel.label} texture slot">
               <span class="texture-slot-preview"><span class="texture-slot-empty-mark">+</span></span>
@@ -133,7 +134,13 @@ app.innerHTML = `
               <button class="texture-slot-clear" data-clear-texture="${channel.id}" type="button" aria-label="Clear ${channel.label}">×</button>
             </div>
           `).join('')}
+          <div class="texture-slot texture-slot-model" data-model-slot tabindex="0" aria-label="Model bundle slot">
+            <span class="texture-slot-preview"><span class="texture-slot-empty-mark">+</span></span>
+            <span class="texture-slot-label">+Model</span>
+            <button class="texture-slot-clear" data-clear-model type="button" aria-label="Clear model">×</button>
+          </div>
           <input id="textureInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
+          <input id="modelInput" type="file" multiple accept=".fbx,.obj,.mtl,.gltf,.glb,.bin,image/*" hidden />
         </div>
 
         <div class="canvas-stage" id="dropZone">
@@ -148,6 +155,10 @@ app.innerHTML = `
             </figure>
           </div>
           <div class="drop-hint" id="dropHint">Drop an image or model bundle anywhere</div>
+          <div class="preview-mode-toggle" id="previewModeToggle" hidden role="group" aria-label="Preview mode">
+            <button type="button" data-preview-mode="2d" class="active">2D</button>
+            <button type="button" data-preview-mode="3d">3D</button>
+          </div>
         </div>
 
         <footer class="preview-footer">
@@ -155,10 +166,6 @@ app.innerHTML = `
             <span class="meta-icon">▧</span>
             <div><strong id="footerFileName">${textures.base.name}</strong><small id="sourceDimensions">640 × 461 source</small></div>
           </div>
-          <label class="button button-secondary file-button">
-            <input id="modelInput" type="file" multiple accept=".fbx,.obj,.mtl,.gltf,.glb,.bin,image/*" />
-            Load model
-          </label>
           <button class="button button-primary" id="exportButton" type="button">Export PNG <span>↓</span></button>
         </footer>
       </section>
@@ -283,6 +290,7 @@ const toast = document.querySelector<HTMLDivElement>('#toast')!;
 const loadConfigInput = document.querySelector<HTMLInputElement>('#loadConfigInput')!;
 const textureRibbon = document.querySelector<HTMLDivElement>('#textureRibbon')!;
 const textureInput = document.querySelector<HTMLInputElement>('#textureInput')!;
+const previewModeToggle = document.querySelector<HTMLDivElement>('#previewModeToggle')!;
 const aoIntensityInput = document.querySelector<HTMLInputElement>('#aoIntensity')!;
 const aoIntensityValue = document.querySelector<HTMLOutputElement>('#aoIntensityValue')!;
 const aoDistanceInput = document.querySelector<HTMLInputElement>('#aoDistance')!;
@@ -293,6 +301,7 @@ let editingCustomKey: string | null = null;
 let toastTimer = 0;
 let renderedCanvas = document.createElement('canvas');
 let modelBundle: ModelFileBundle | null = null;
+let previewMode: '2d' | '3d' = '2d';
 let originalViewport: ModelViewport | null = null;
 let processedViewport: ModelViewport | null = null;
 let modelUVChannels: string[] = [];
@@ -485,6 +494,7 @@ function renderTextureRibbon(): void {
     const preview = slotElement.querySelector<HTMLElement>('.texture-slot-preview');
     const label = slotElement.querySelector<HTMLElement>('.texture-slot-label');
     slotElement.classList.toggle('filled', !!data.image);
+    slotElement.classList.toggle('disabled', !modelBundle && channel.id !== 'base');
     if (preview) {
       if (data.image) {
         const canvas = document.createElement('canvas');
@@ -497,6 +507,12 @@ function renderTextureRibbon(): void {
       }
     }
     if (label) label.textContent = data.image ? channel.label : `+${channel.label}`;
+  }
+  const modelSlot = document.querySelector<HTMLElement>('[data-model-slot]');
+  if (modelSlot) {
+    const label = modelSlot.querySelector<HTMLElement>('.texture-slot-label');
+    modelSlot.classList.toggle('filled', !!modelBundle);
+    if (label) label.textContent = modelBundle ? modelBundle.primary.name : '+Model';
   }
 }
 
@@ -521,6 +537,18 @@ function applySunDirection(): void {
   processedViewport?.setSunDirection(state.sunAzimuth, state.sunElevation);
 }
 
+function applyPreviewMode(): void {
+  const threeD = modelBundle !== null && previewMode === '3d';
+  originalModelHost.hidden = !threeD;
+  processedModelHost.hidden = !threeD;
+  originalCanvas.hidden = threeD;
+  previewCanvas.hidden = threeD;
+  previewModeToggle.hidden = modelBundle === null;
+  previewModeToggle.querySelectorAll<HTMLButtonElement>('[data-preview-mode]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.previewMode === previewMode);
+  });
+}
+
 function closeModelPreview(): void {
   originalViewport?.dispose();
   processedViewport?.dispose();
@@ -532,10 +560,8 @@ function closeModelPreview(): void {
   modelLodLevels = [];
   disposeAOScene(aoBakeScene);
   aoBakeScene = null;
-  originalModelHost.hidden = true;
-  processedModelHost.hidden = true;
-  originalCanvas.hidden = false;
-  previewCanvas.hidden = false;
+  previewMode = '2d';
+  applyPreviewMode();
   renderUVControl();
   renderLodControl();
   renderSunControl();
@@ -562,15 +588,14 @@ async function setModel(files: File[]): Promise<void> {
     originalViewport.applyLOD(state.lodLevel);
     processedViewport.applyLOD(state.lodLevel);
     disposeModel(loaded.scene);
-    originalModelHost.hidden = false;
-    processedModelHost.hidden = false;
-    originalCanvas.hidden = true;
-    previewCanvas.hidden = true;
+    previewMode = '3d';
+    applyPreviewMode();
     renderUVControl();
     renderLodControl();
     renderSunControl();
     applySunDirection();
     if (modelUVChannels.length) applyModelUV(state.uvMap);
+    renderTextureRibbon();
     render();
     document.querySelector('#fileName')!.textContent = modelBundle.primary.name;
     showToast(`Loaded ${modelBundle.primary.name}${lodPreparation.collidersRemoved ? ` · ${lodPreparation.collidersRemoved} colliders removed` : ''}`);
@@ -894,6 +919,18 @@ function clearTexture(channel: TextureChannelId): void {
   render();
 }
 
+function clearModel(): void {
+  renderScheduler.cancel();
+  closeModelPreview();
+  const base = textures.base.image;
+  document.querySelector('#fileName')!.textContent = textures.base.name;
+  document.querySelector('#footerFileName')!.textContent = textures.base.name;
+  document.querySelector('#sourceDimensions')!.textContent = `${base?.width ?? 640} × ${base?.height ?? 461} source`;
+  renderTextureRibbon();
+  render();
+  showToast('Model cleared');
+}
+
 async function setTexture(channel: TextureChannelId, file: File): Promise<void> {
   if (!file.type.startsWith('image/')) {
     showToast('Please choose an image file.');
@@ -958,6 +995,7 @@ bindAdjustmentEvents();
 updatePatternControls();
 updateAOControls();
 renderTextureRibbon();
+applyPreviewMode();
 render();
 
 document.querySelector('#resolution')!.addEventListener('input', (event) => updateResolution(Number((event.target as HTMLInputElement).value)));
@@ -1105,22 +1143,43 @@ importCustomPaletteInput.addEventListener('change', async () => {
 
 textureRibbon.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
+  if (target.closest('[data-clear-model]')) {
+    clearModel();
+    return;
+  }
   const clearButton = target.closest<HTMLButtonElement>('[data-clear-texture]');
   if (clearButton?.dataset.clearTexture) {
     clearTexture(clearButton.dataset.clearTexture as TextureChannelId);
     return;
   }
+  if (target.closest('[data-model-slot]')) {
+    modelInput.click();
+    return;
+  }
   const slot = target.closest<HTMLElement>('[data-texture]');
   if (!slot?.dataset.texture) return;
+  if (slot.classList.contains('disabled')) {
+    showToast('Load a model to enable AO and Normal maps.');
+    return;
+  }
   pendingTextureChannel = slot.dataset.texture as TextureChannelId;
   textureInput.click();
 });
 textureRibbon.addEventListener('keydown', (event) => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
   const target = event.target as HTMLElement;
+  if (target.closest('[data-model-slot]')) {
+    event.preventDefault();
+    modelInput.click();
+    return;
+  }
   const slot = target.closest<HTMLElement>('[data-texture]');
   if (!slot?.dataset.texture || target.closest('button')) return;
   event.preventDefault();
+  if (slot.classList.contains('disabled')) {
+    showToast('Load a model to enable AO and Normal maps.');
+    return;
+  }
   pendingTextureChannel = slot.dataset.texture as TextureChannelId;
   textureInput.click();
 });
@@ -1131,22 +1190,41 @@ textureInput.addEventListener('change', () => {
   pendingTextureChannel = null;
   if (file && channel) void setTexture(channel, file);
 });
+function bindSlotDragState(slot: HTMLElement): void {
+  ['dragenter', 'dragover'].forEach((type) => slot.addEventListener(type, (event) => { event.preventDefault(); slot.classList.add('dragging'); }));
+  ['dragleave', 'drop'].forEach((type) => slot.addEventListener(type, (event) => { event.preventDefault(); slot.classList.remove('dragging'); }));
+}
+
 TEXTURE_CHANNELS.forEach((channel) => {
   const slot = document.querySelector<HTMLElement>(`[data-texture="${channel.id}"]`);
   if (!slot) return;
-  ['dragenter', 'dragover'].forEach((type) => slot.addEventListener(type, (event) => { event.preventDefault(); slot.classList.add('dragging'); }));
-  ['dragleave', 'drop'].forEach((type) => slot.addEventListener(type, (event) => { event.preventDefault(); slot.classList.remove('dragging'); }));
+  bindSlotDragState(slot);
   slot.addEventListener('drop', (event) => {
+    if (slot.classList.contains('disabled')) return;
     const files = Array.from(event.dataTransfer?.files ?? []);
     const image = files.find((file) => file.type.startsWith('image/'));
     if (image) void setTexture(channel.id, image);
   });
 });
+const modelSlot = document.querySelector<HTMLElement>('[data-model-slot]');
+if (modelSlot) {
+  bindSlotDragState(modelSlot);
+  modelSlot.addEventListener('drop', (event) => {
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    if (files.some((file) => modelFormat(file.name))) void setModel(files);
+  });
+}
 const modelInput = document.querySelector<HTMLInputElement>('#modelInput')!;
 modelInput.addEventListener('change', () => {
   const files = Array.from(modelInput.files ?? []);
   if (files.length) void setModel(files);
   modelInput.value = '';
+});
+previewModeToggle.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-preview-mode]');
+  if (!button?.dataset.previewMode) return;
+  previewMode = button.dataset.previewMode as '2d' | '3d';
+  applyPreviewMode();
 });
 uvMapSelect.addEventListener('change', () => applyModelUV(uvMapSelect.value));
 lodMapSelect.addEventListener('change', () => applyModelLod(Number(lodMapSelect.value)));
