@@ -69,8 +69,7 @@ export function loadImageFile(file: File): Promise<HTMLImageElement> {
   });
 }
 
-export function downloadText(content: string, name: string, type = 'application/json'): void {
-  const blob = new Blob([content], { type });
+function triggerDownload(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.download = name;
@@ -79,14 +78,12 @@ export function downloadText(content: string, name: string, type = 'application/
   URL.revokeObjectURL(url);
 }
 
+export function downloadText(content: string, name: string, type = 'application/json'): void {
+  triggerDownload(new Blob([content], { type }), name);
+}
+
 export function downloadCanvas(canvas: HTMLCanvasElement, name: string): void {
   canvas.toBlob((blob) => {
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.download = name;
-    link.href = url;
-    link.click();
-    URL.revokeObjectURL(url);
+    if (blob) triggerDownload(blob, name);
   }, 'image/png');
 }

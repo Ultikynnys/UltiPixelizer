@@ -11,6 +11,7 @@ import { loadModel, ModelViewport } from './lib/modelPreview';
 import { createPreset, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
 import { applyAO, imageAOFactors } from './lib/ao';
 import { bakeMeshAO } from './lib/aoBake';
+import { safeFileName } from './lib/strings';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
 
 type SourceImage = CanvasImageSource & { width: number; height: number };
@@ -295,6 +296,8 @@ const aoIntensityInput = document.querySelector<HTMLInputElement>('#aoIntensity'
 const aoIntensityValue = document.querySelector<HTMLOutputElement>('#aoIntensityValue')!;
 const aoDistanceInput = document.querySelector<HTMLInputElement>('#aoDistance')!;
 const aoDistanceValue = document.querySelector<HTMLOutputElement>('#aoDistanceValue')!;
+const strengthInput = document.querySelector<HTMLInputElement>('#strength')!;
+const strengthValue = document.querySelector<HTMLOutputElement>('#strengthValue')!;
 const generateAoButton = document.querySelector<HTMLButtonElement>('#generateAoButton')!;
 let savedCustomPalettes = loadCustomPalettes(localStorage);
 let editingCustomKey: string | null = null;
@@ -484,6 +487,10 @@ function updateAOControls(): void {
   aoIntensityValue.textContent = `${Math.round(state.aoIntensity * 100)}%`;
   aoDistanceInput.value = String(state.aoDistance);
   aoDistanceValue.textContent = `${state.aoDistance.toFixed(2)}×`;
+}
+
+function setActiveMode(mode: DitherMode): void {
+  document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.classList.toggle('active', button.dataset.mode === mode));
 }
 
 function renderTextureRibbon(): void {
@@ -730,7 +737,7 @@ function exportPaletteByKey(key: string): void {
   try {
     const palette = savedCustomPalettes.find((entry) => entry.key === key);
     if (!palette) return;
-    const safeName = palette.name.replace(/[^a-z0-9-_]+/gi, '-').replace(/^-|-$/g, '') || 'custom-palette';
+    const safeName = safeFileName(palette.name, 'custom-palette');
     downloadText(serializeCustomPalette(palette), `${safeName}.palette.json`);
     showToast(`Custom palette “${palette.name}” exported`);
   } catch (error) {
@@ -777,6 +784,40 @@ function activePaletteSnapshot() {
     description: state.customColors.length ? `Custom colors based on ${base.name}` : base.description,
     colors: [...currentColors()],
   };
+}
+
+type RangeBinding = {
+  input: HTMLInputElement;
+  output: HTMLElement;
+  format: (value: number) => string;
+  apply: (value: number) => void;
+};
+
+function bindRange({ input, output, format, apply }: RangeBinding): void {
+  input.addEventListener('input', (event) => {
+    const value = Number((event.target as HTMLInputElement).value);
+    apply(value);
+    output.textContent = format(value);
+    renderScheduler.request();
+  });
+  input.addEventListener('change', renderScheduler.flush);
+}
+
+function syncControlsFromState(): void {
+  strengthInput.value = String(Math.round(state.strength * 100));
+  strengthValue.textContent = `${Math.round(state.strength * 100)}%`;
+  stripeAngleInput.value = String(state.stripeAngle);
+  stripeAngleValue.textContent = `${state.stripeAngle}°`;
+  noiseScaleInput.value = String(state.noiseScale);
+  noiseScaleValue.textContent = `${state.noiseScale} px`;
+  seedInput.value = String(state.seed);
+  seedValue.textContent = String(state.seed);
+  setActiveMode(state.mode);
+  updatePatternControls();
+  updateAOControls();
+  renderAdjustments();
+  bindAdjustmentEvents();
+  renderPalettes();
 }
 
 const CONFIG_FILE_NAME = 'ditherlab-settings.json';
@@ -868,20 +909,7 @@ function applyPreset(preset: ConversionPreset): void {
   editingCustomKey = selectedCustom?.key ?? null;
   customPaletteName.value = selectedCustom?.name ?? preset.palette.name;
   customPaletteDescription.value = selectedCustom?.description ?? preset.palette.description;
-  (document.querySelector('#strength') as HTMLInputElement).value = String(Math.round(preset.strength * 100));
-  document.querySelector('#strengthValue')!.textContent = `${Math.round(preset.strength * 100)}%`;
-  stripeAngleInput.value = String(preset.stripeAngle);
-  stripeAngleValue.textContent = `${preset.stripeAngle}°`;
-  noiseScaleInput.value = String(preset.noiseScale);
-  noiseScaleValue.textContent = `${preset.noiseScale} px`;
-  seedInput.value = String(preset.seed);
-  seedValue.textContent = String(preset.seed);
-  document.querySelectorAll('[data-mode]').forEach((button) => button.classList.toggle('active', (button as HTMLElement).dataset.mode === preset.mode));
-  updatePatternControls();
-  updateAOControls();
-  renderAdjustments();
-  bindAdjustmentEvents();
-  renderPalettes();
+  syncControlsFromState();
   updateResolution(preset.resolution, true);
   if (modelUVChannels.includes(preset.uvMap)) {
     uvMapSelect.value = preset.uvMap;
@@ -904,13 +932,17 @@ function textureLabel(channel: TextureChannelId): string {
   return TEXTURE_CHANNELS.find((entry) => entry.id === channel)?.label ?? 'Texture';
 }
 
+function updateFileMeta(name: string, width: number, height: number, updateHeading = true): void {
+  if (updateHeading) document.querySelector('#fileName')!.textContent = name;
+  document.querySelector('#footerFileName')!.textContent = name;
+  document.querySelector('#sourceDimensions')!.textContent = `${width} × ${height} source`;
+}
+
 function clearTexture(channel: TextureChannelId): void {
   if (channel === 'base') {
     textures.base.image = sample;
     textures.base.name = 'sample-landscape.png';
-    document.querySelector('#fileName')!.textContent = textures.base.name;
-    document.querySelector('#footerFileName')!.textContent = textures.base.name;
-    document.querySelector('#sourceDimensions')!.textContent = `${sample.width} × ${sample.height} source`;
+    updateFileMeta(textures.base.name, sample.width, sample.height);
   } else {
     textures[channel].image = null;
     textures[channel].name = '';
@@ -923,9 +955,7 @@ function clearModel(): void {
   renderScheduler.cancel();
   closeModelPreview();
   const base = textures.base.image;
-  document.querySelector('#fileName')!.textContent = textures.base.name;
-  document.querySelector('#footerFileName')!.textContent = textures.base.name;
-  document.querySelector('#sourceDimensions')!.textContent = `${base?.width ?? 640} × ${base?.height ?? 461} source`;
+  updateFileMeta(textures.base.name, base?.width ?? 640, base?.height ?? 461);
   renderTextureRibbon();
   render();
   showToast('Model cleared');
@@ -942,9 +972,7 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
     textures[channel].image = image;
     textures[channel].name = file.name;
     if (channel === 'base') {
-      if (!modelBundle) document.querySelector('#fileName')!.textContent = file.name;
-      document.querySelector('#footerFileName')!.textContent = file.name;
-      document.querySelector('#sourceDimensions')!.textContent = `${image.width} × ${image.height} source`;
+      updateFileMeta(file.name, image.width, image.height, !modelBundle);
     }
     renderTextureRibbon();
     render();
@@ -960,40 +988,26 @@ function reset(): void {
   editingCustomKey = null;
   customPaletteName.value = '';
   customPaletteDescription.value = '';
-  (document.querySelector('#strength') as HTMLInputElement).value = '85';
-  document.querySelector('#strengthValue')!.textContent = '85%';
-  stripeAngleInput.value = '45';
-  stripeAngleValue.textContent = '45°';
-  noiseScaleInput.value = '1';
-  noiseScaleValue.textContent = '1 px';
-  seedInput.value = '1';
-  seedValue.textContent = '1';
-  document.querySelectorAll('[data-mode]').forEach((button) => button.classList.toggle('active', (button as HTMLElement).dataset.mode === 'floyd'));
-  updatePatternControls();
-  updateAOControls();
-  renderAdjustments();
-  bindAdjustmentEvents();
-  renderPalettes();
+  syncControlsFromState();
   updateResolution(128, true);
   showToast('Settings reset');
 }
 
 function bindAdjustmentEvents(): void {
   (['brightness', 'contrast', 'saturation'] as const).forEach((key) => {
-    document.querySelector<HTMLInputElement>(`#${key}`)?.addEventListener('input', (event) => {
-      state[key] = Number((event.target as HTMLInputElement).value);
-      document.querySelector(`#${key}Value`)!.textContent = `${state[key] > 0 ? '+' : ''}${state[key]}`;
-      renderScheduler.request();
+    const input = document.querySelector<HTMLInputElement>(`#${key}`);
+    const output = document.querySelector<HTMLElement>(`#${key}Value`);
+    if (!input || !output) return;
+    bindRange({
+      input,
+      output,
+      format: (value) => `${value > 0 ? '+' : ''}${value}`,
+      apply: (value) => { state[key] = value; },
     });
-    document.querySelector<HTMLInputElement>(`#${key}`)?.addEventListener('change', renderScheduler.flush);
   });
 }
 
-renderPalettes();
-renderAdjustments();
-bindAdjustmentEvents();
-updatePatternControls();
-updateAOControls();
+syncControlsFromState();
 renderTextureRibbon();
 applyPreviewMode();
 render();
@@ -1001,47 +1015,46 @@ render();
 document.querySelector('#resolution')!.addEventListener('input', (event) => updateResolution(Number((event.target as HTMLInputElement).value)));
 document.querySelector('#resolution')!.addEventListener('change', renderScheduler.flush);
 document.querySelectorAll<HTMLButtonElement>('[data-resolution]').forEach((button) => button.addEventListener('click', () => updateResolution(Number(button.dataset.resolution), true)));
-document.querySelector('#strength')!.addEventListener('input', (event) => {
-  const value = Number((event.target as HTMLInputElement).value);
-  state.strength = value / 100;
-  document.querySelector('#strengthValue')!.textContent = `${value}%`;
-  renderScheduler.request();
+bindRange({
+  input: strengthInput,
+  output: strengthValue,
+  format: (value) => `${value}%`,
+  apply: (value) => { state.strength = value / 100; },
 });
-document.querySelector('#strength')!.addEventListener('change', renderScheduler.flush);
-stripeAngleInput.addEventListener('input', (event) => {
-  state.stripeAngle = Number((event.target as HTMLInputElement).value);
-  stripeAngleValue.textContent = `${state.stripeAngle}°`;
-  renderScheduler.request();
+bindRange({
+  input: stripeAngleInput,
+  output: stripeAngleValue,
+  format: (value) => `${value}°`,
+  apply: (value) => { state.stripeAngle = value; },
 });
-stripeAngleInput.addEventListener('change', renderScheduler.flush);
-noiseScaleInput.addEventListener('input', (event) => {
-  state.noiseScale = Number((event.target as HTMLInputElement).value);
-  noiseScaleValue.textContent = `${state.noiseScale} px`;
-  renderScheduler.request();
+bindRange({
+  input: noiseScaleInput,
+  output: noiseScaleValue,
+  format: (value) => `${value} px`,
+  apply: (value) => { state.noiseScale = value; },
 });
-noiseScaleInput.addEventListener('change', renderScheduler.flush);
-seedInput.addEventListener('input', (event) => {
-  state.seed = Number((event.target as HTMLInputElement).value);
-  seedValue.textContent = String(state.seed);
-  renderScheduler.request();
+bindRange({
+  input: seedInput,
+  output: seedValue,
+  format: (value) => String(value),
+  apply: (value) => { state.seed = value; },
 });
-seedInput.addEventListener('change', renderScheduler.flush);
-aoIntensityInput.addEventListener('input', (event) => {
-  const value = Number((event.target as HTMLInputElement).value);
-  state.aoIntensity = value / 100;
-  aoIntensityValue.textContent = `${value}%`;
-  renderScheduler.request();
+bindRange({
+  input: aoIntensityInput,
+  output: aoIntensityValue,
+  format: (value) => `${value}%`,
+  apply: (value) => { state.aoIntensity = value / 100; },
 });
-aoIntensityInput.addEventListener('change', renderScheduler.flush);
-aoDistanceInput.addEventListener('input', (event) => {
-  state.aoDistance = Number((event.target as HTMLInputElement).value);
-  aoDistanceValue.textContent = `${state.aoDistance.toFixed(2)}×`;
+bindRange({
+  input: aoDistanceInput,
+  output: aoDistanceValue,
+  format: (value) => `${value.toFixed(2)}×`,
+  apply: (value) => { state.aoDistance = value; },
 });
-aoDistanceInput.addEventListener('change', renderScheduler.flush);
 generateAoButton.addEventListener('click', generateAo);
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.addEventListener('click', () => {
   state.mode = button.dataset.mode as DitherMode;
-  document.querySelectorAll('[data-mode]').forEach((item) => item.classList.toggle('active', item === button));
+  setActiveMode(state.mode);
   updatePatternControls();
   render();
 }));
@@ -1141,6 +1154,15 @@ importCustomPaletteInput.addEventListener('change', async () => {
   }
 });
 
+function pickTextureFromSlot(slot: HTMLElement): void {
+  if (slot.classList.contains('disabled')) {
+    showToast('Load a model to enable AO and Normal maps.');
+    return;
+  }
+  pendingTextureChannel = slot.dataset.texture as TextureChannelId;
+  textureInput.click();
+}
+
 textureRibbon.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
   if (target.closest('[data-clear-model]')) {
@@ -1157,13 +1179,7 @@ textureRibbon.addEventListener('click', (event) => {
     return;
   }
   const slot = target.closest<HTMLElement>('[data-texture]');
-  if (!slot?.dataset.texture) return;
-  if (slot.classList.contains('disabled')) {
-    showToast('Load a model to enable AO and Normal maps.');
-    return;
-  }
-  pendingTextureChannel = slot.dataset.texture as TextureChannelId;
-  textureInput.click();
+  if (slot?.dataset.texture) pickTextureFromSlot(slot);
 });
 textureRibbon.addEventListener('keydown', (event) => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -1176,12 +1192,7 @@ textureRibbon.addEventListener('keydown', (event) => {
   const slot = target.closest<HTMLElement>('[data-texture]');
   if (!slot?.dataset.texture || target.closest('button')) return;
   event.preventDefault();
-  if (slot.classList.contains('disabled')) {
-    showToast('Load a model to enable AO and Normal maps.');
-    return;
-  }
-  pendingTextureChannel = slot.dataset.texture as TextureChannelId;
-  textureInput.click();
+  pickTextureFromSlot(slot);
 });
 textureInput.addEventListener('change', () => {
   const file = textureInput.files?.[0];
@@ -1237,8 +1248,7 @@ sunElevationInput.addEventListener('input', () => {
   applySunDirection();
 });
 const dropZone = document.querySelector<HTMLDivElement>('#dropZone')!;
-['dragenter', 'dragover'].forEach((type) => dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.add('dragging'); }));
-['dragleave', 'drop'].forEach((type) => dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.remove('dragging'); }));
+bindSlotDragState(dropZone);
 dropZone.addEventListener('drop', (event) => {
   const files = Array.from(event.dataTransfer?.files ?? []);
   if (files.some((file) => modelFormat(file.name))) void setModel(files);
@@ -1258,7 +1268,7 @@ document.querySelector('#saveButton')!.addEventListener('click', saveConfig);
 document.querySelector('#loadButton')!.addEventListener('click', loadConfig);
 document.querySelector('#resetButton')!.addEventListener('click', reset);
 document.querySelector('#exportButton')!.addEventListener('click', () => {
-  const safeName = textures.base.name.replace(/\.[^.]+$/, '').replace(/[^a-z0-9-_]+/gi, '-');
+  const safeName = safeFileName(textures.base.name.replace(/\.[^.]+$/, ''));
   downloadCanvas(renderedCanvas, `${safeName}-dithered.png`);
   showToast(`Exported ${renderedCanvas.width} × ${renderedCanvas.height} PNG`);
 });

@@ -60,14 +60,16 @@ export function applyUVChannel(object: Object3D, requested: string): { fallbackM
   return { fallbackMeshes, missingMeshes };
 }
 
+export function materialsOf(mesh: Mesh): Material[] {
+  return Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+}
+
 export function cloneModelScene(source: Object3D): Object3D {
   const clone = cloneSkeleton(source);
   clone.traverse((child) => {
     if (!(child instanceof Mesh)) return;
     child.geometry = child.geometry.clone();
-    child.material = Array.isArray(child.material)
-      ? child.material.map((material) => material.clone())
-      : child.material.clone();
+    child.material = materialsOf(child).map((material) => material.clone());
   });
   return clone;
 }
@@ -111,8 +113,7 @@ export function applyTextureToModel(object: Object3D, texture: Texture): number 
   let materialCount = 0;
   object.traverse((child) => {
     if (!(child instanceof Mesh)) return;
-    const materials = Array.isArray(child.material) ? child.material : [child.material];
-    materials.forEach((material) => {
+    materialsOf(child).forEach((material) => {
       applyTextureToMaterial(material, texture);
       materialCount += 1;
     });
@@ -139,8 +140,7 @@ export function disposeModel(object: Object3D): void {
   object.traverse((child) => {
     if (!(child instanceof Mesh)) return;
     child.geometry.dispose();
-    const materials = Array.isArray(child.material) ? child.material : [child.material];
-    materials.forEach((material) => {
+    materialsOf(child).forEach((material) => {
       Object.values(material).forEach((value) => { if (value instanceof Texture) textures.add(value); });
       material.dispose();
     });

@@ -17,7 +17,7 @@ import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import type { ModelFileBundle } from './modelFiles';
 import { applyLodLevel } from './modelLod';
-import { applyTextureToModel, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject } from './modelScene';
+import { applyTextureToModel, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject, materialsOf } from './modelScene';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
 
@@ -101,8 +101,7 @@ export class ModelViewport {
     this.model.traverse((child) => {
       if (!('isMesh' in child)) return;
       const mesh = child as import('three').Mesh;
-      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      materials.forEach((material) => {
+      materialsOf(mesh).forEach((material) => {
         const map = (material as import('three').Material & { map?: import('three').Texture | null }).map;
         if (map) previousTextures.add(map);
       });

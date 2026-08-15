@@ -1,4 +1,7 @@
 import { isPalette, type Palette } from './palettes';
+import { createStoredCollection, type StorageLike } from './storage';
+import { slugify } from './strings';
+export type { StorageLike } from './storage';
 
 export const CUSTOM_PALETTE_VERSION = 1;
 export const CUSTOM_PALETTE_STORAGE_KEY = 'ultipixelizer:custom-palettes:v1';
@@ -11,7 +14,6 @@ export type CustomPalette = Palette & {
   updatedAt: string;
 };
 
-export type StorageLike = Pick<Storage, 'getItem' | 'setItem'>;
 
 export function isCustomPalette(value: unknown): value is CustomPalette {
   if (!isPalette(value) || value.category !== 'custom') return false;
@@ -23,15 +25,11 @@ export function isCustomPalette(value: unknown): value is CustomPalette {
     && typeof candidate.updatedAt === 'string' && !Number.isNaN(Date.parse(candidate.updatedAt));
 }
 
-function slug(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'palette';
-}
-
 export function createCustomPalette(name: string, description: string, colors: string[], now = new Date(), key?: string): CustomPalette {
   const normalizedName = name.trim();
   const palette: CustomPalette = {
     version: CUSTOM_PALETTE_VERSION,
-    key: key ?? `custom-${now.getTime()}-${slug(normalizedName)}`,
+    key: key ?? `custom-${now.getTime()}-${slugify(normalizedName, 'palette', 40)}`,
     name: normalizedName,
     description: description.trim() || 'Custom color palette',
     category: 'custom',
@@ -70,37 +68,26 @@ export function serializeCustomPalette(palette: CustomPalette): string {
   return JSON.stringify(palette, null, 2);
 }
 
+const customPaletteLibrary = createStoredCollection<CustomPalette>({
+  storageKey: CUSTOM_PALETTE_STORAGE_KEY,
+  validate: isCustomPalette,
+  clone: (palette) => ({ ...palette, colors: [...palette.colors] }),
+  invalidSaveMessage: 'Custom palette library contains invalid data.',
+  saveErrorMessage: 'Could not save custom palettes. Browser storage may be full or blocked.',
+});
+
 export function loadCustomPalettes(storage: StorageLike): CustomPalette[] {
-  try {
-    const raw = storage.getItem(CUSTOM_PALETTE_STORAGE_KEY);
-    if (!raw) return [];
-    const value: unknown = JSON.parse(raw);
-    return Array.isArray(value) ? value.filter(isCustomPalette).map((palette) => ({ ...palette, colors: [...palette.colors] })) : [];
-  } catch {
-    return [];
-  }
+  return customPaletteLibrary.load(storage);
 }
 
 export function saveCustomPalettes(storage: StorageLike, palettes: CustomPalette[]): void {
-  if (!palettes.every(isCustomPalette)) throw new Error('Custom palette library contains invalid data.');
-  try {
-    storage.setItem(CUSTOM_PALETTE_STORAGE_KEY, JSON.stringify(palettes));
-  } catch {
-    throw new Error('Could not save custom palettes. Browser storage may be full or blocked.');
-  }
+  customPaletteLibrary.save(storage, palettes);
 }
 
 export function upsertCustomPalette(storage: StorageLike, palette: CustomPalette): CustomPalette[] {
-  const library = loadCustomPalettes(storage);
-  const index = library.findIndex((entry) => entry.key === palette.key);
-  if (index >= 0) library[index] = palette;
-  else library.unshift(palette);
-  saveCustomPalettes(storage, library);
-  return library;
+  return customPaletteLibrary.upsert(storage, palette, (entry) => entry.key);
 }
 
 export function deleteCustomPalette(storage: StorageLike, key: string): CustomPalette[] {
-  const library = loadCustomPalettes(storage).filter((palette) => palette.key !== key);
-  saveCustomPalettes(storage, library);
-  return library;
+  return customPaletteLibrary.remove(storage, key, (entry) => entry.key);
 }

@@ -25,6 +25,7 @@ const BAYER_4 = [
 
 const thresholdModes = new Set<DitherMode>(['ordered', 'cross', 'stripes', 'noise', 'checker']);
 const clamp = (value: number) => Math.max(0, Math.min(255, value));
+const LUMA = { red: 0.299, green: 0.587, blue: 0.114 };
 
 export function patternThreshold(mode: DitherMode, x: number, y: number, stripeAngle = 45, noiseScale = 1, seed = 0): number {
   switch (mode) {
@@ -64,7 +65,7 @@ export function nearestColor(color: RGB, palette: RGB[]): RGB {
     const red = color[0] - candidate[0];
     const green = color[1] - candidate[1];
     const blue = color[2] - candidate[2];
-    const distance = red * red * 0.299 + green * green * 0.587 + blue * blue * 0.114;
+    const distance = red * red * LUMA.red + green * green * LUMA.green + blue * blue * LUMA.blue;
     if (distance < bestDistance) {
       bestDistance = distance;
       best = candidate;
@@ -79,7 +80,7 @@ export function adjustColor(color: RGB, brightness: number, contrast: number, sa
   let red = contrastFactor * (color[0] - 128) + 128 + brightnessOffset;
   let green = contrastFactor * (color[1] - 128) + 128 + brightnessOffset;
   let blue = contrastFactor * (color[2] - 128) + 128 + brightnessOffset;
-  const gray = red * 0.299 + green * 0.587 + blue * 0.114;
+  const gray = red * LUMA.red + green * LUMA.green + blue * LUMA.blue;
   const saturationFactor = 1 + saturation / 100;
   red = gray + (red - gray) * saturationFactor;
   green = gray + (green - gray) * saturationFactor;

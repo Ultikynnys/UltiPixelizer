@@ -1,5 +1,8 @@
 import { isPalette, type Palette } from './palettes';
 import type { DitherMode } from './dither';
+import { createStoredCollection, type StorageLike } from './storage';
+import { slugify } from './strings';
+export type { StorageLike } from './storage';
 
 export const PRESET_VERSION = 1;
 export const PRESET_STORAGE_KEY = 'ditherlab:conversion-presets:v1';
@@ -31,7 +34,6 @@ export type ConversionPreset = ConversionConfig & {
   createdAt: string;
 };
 
-export type StorageLike = Pick<Storage, 'getItem' | 'setItem'>;
 
 const finiteInRange = (value: unknown, minimum: number, maximum: number): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
@@ -65,7 +67,7 @@ export function createPreset(name: string, description: string, config: Conversi
   if (!normalizedName) throw new Error('Preset name is required.');
   return {
     version: PRESET_VERSION,
-    id: `${now.getTime()}-${normalizedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'preset'}`,
+    id: `${now.getTime()}-${slugify(normalizedName, 'preset')}`,
     name: normalizedName,
     description: description.trim(),
     createdAt: now.toISOString(),
@@ -111,33 +113,25 @@ export function parsePreset(json: string): ConversionPreset {
   return value;
 }
 
+const presetLibrary = createStoredCollection<ConversionPreset>({
+  storageKey: PRESET_STORAGE_KEY,
+  validate: isConversionPreset,
+  migrate: migratePreset,
+  invalidSaveMessage: 'Preset library contains invalid data.',
+});
+
 export function loadPresetLibrary(storage: StorageLike): ConversionPreset[] {
-  const raw = storage.getItem(PRESET_STORAGE_KEY);
-  if (!raw) return [];
-  try {
-    const value: unknown = JSON.parse(raw);
-    return Array.isArray(value) ? value.map(migratePreset).filter(isConversionPreset) : [];
-  } catch {
-    return [];
-  }
+  return presetLibrary.load(storage);
 }
 
 export function savePresetLibrary(storage: StorageLike, presets: ConversionPreset[]): void {
-  if (!presets.every(isConversionPreset)) throw new Error('Preset library contains invalid data.');
-  storage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presets));
+  presetLibrary.save(storage, presets);
 }
 
 export function upsertPreset(storage: StorageLike, preset: ConversionPreset): ConversionPreset[] {
-  const library = loadPresetLibrary(storage);
-  const matchingIndex = library.findIndex((entry) => entry.name.toLowerCase() === preset.name.toLowerCase());
-  if (matchingIndex >= 0) library[matchingIndex] = preset;
-  else library.unshift(preset);
-  savePresetLibrary(storage, library);
-  return library;
+  return presetLibrary.upsert(storage, preset, (entry) => entry.name.toLowerCase());
 }
 
 export function deletePreset(storage: StorageLike, id: string): ConversionPreset[] {
-  const library = loadPresetLibrary(storage).filter((preset) => preset.id !== id);
-  savePresetLibrary(storage, library);
-  return library;
+  return presetLibrary.remove(storage, id, (entry) => entry.id);
 }
