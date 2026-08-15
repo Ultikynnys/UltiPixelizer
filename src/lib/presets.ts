@@ -4,7 +4,7 @@ import { createStoredCollection, type StorageLike } from './storage';
 import { slugify } from './strings';
 export type { StorageLike } from './storage';
 
-export const PRESET_VERSION = 3;
+export const PRESET_VERSION = 4;
 export const PRESET_STORAGE_KEY = 'ultipixelizer:conversion-presets:v1';
 
 export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'none'];
@@ -29,6 +29,7 @@ export type ConversionConfig = {
   sunIntensity: number;
   ambientColor: string;
   ambientIntensity: number;
+  lightmapContribution: number;
 };
 
 export type ConversionPreset = ConversionConfig & {
@@ -69,6 +70,7 @@ export function isConversionPreset(value: unknown): value is ConversionPreset {
     && finiteInRange(preset.sunIntensity, 0, 10)
     && typeof preset.ambientColor === 'string' && /^#[0-9a-f]{6}$/i.test(preset.ambientColor)
     && finiteInRange(preset.ambientIntensity, 0, 5)
+    && finiteInRange(preset.lightmapContribution, 0, 1)
     && isPalette(preset.palette);
 }
 
@@ -98,7 +100,8 @@ function migratePreset(value: unknown): unknown {
     const { aoIntensity, ...rest } = preset;
     preset = { ...rest, version: 2, aoBias: 0, aoScale: typeof aoIntensity === 'number' ? aoIntensity : 1 };
   }
-  if (preset.version === 2) preset = { ...preset, version: PRESET_VERSION };
+  if (preset.version === 2) preset = { ...preset, version: 3 };
+  if (preset.version === 3) preset = { ...preset, version: PRESET_VERSION };
   if (preset.version !== PRESET_VERSION) return value;
   const migrated: Record<string, unknown> = { ...preset };
   if (migrated.mode === 'diagonal') {
@@ -119,6 +122,7 @@ function migratePreset(value: unknown): unknown {
   if (migrated.sunIntensity === undefined) migrated.sunIntensity = 2.8;
   if (migrated.ambientColor === undefined) migrated.ambientColor = '#ffffff';
   if (migrated.ambientIntensity === undefined) migrated.ambientIntensity = 2.2;
+  if (migrated.lightmapContribution === undefined) migrated.lightmapContribution = 1;
   return migrated;
 }
 

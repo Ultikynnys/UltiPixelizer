@@ -18,6 +18,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
 import { applyTextureToModel, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject, materialsOf } from './modelScene';
+import { sunDirectionVector } from './sunGizmo';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
 
@@ -142,14 +143,8 @@ export class ModelViewport {
   }
 
   setSunDirection(azimuthDeg: number, elevationDeg: number): void {
-    const azimuth = (azimuthDeg * Math.PI) / 180;
-    const elevation = (elevationDeg * Math.PI) / 180;
-    const cosElevation = Math.cos(elevation);
-    this.sun.position.set(
-      cosElevation * Math.cos(azimuth),
-      Math.sin(elevation),
-      cosElevation * Math.sin(azimuth),
-    );
+    const direction = sunDirectionVector(azimuthDeg, elevationDeg);
+    this.sun.position.set(direction.x, direction.y, direction.z);
   }
 
   setSunEnabled(enabled: boolean): void {

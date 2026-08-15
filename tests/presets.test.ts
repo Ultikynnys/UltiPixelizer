@@ -40,6 +40,7 @@ const config: ConversionConfig = {
   sunIntensity: 3.4,
   ambientColor: '#8fb4ff',
   ambientIntensity: 0.6,
+  lightmapContribution: 0.75,
 };
 
 let storage: MemoryStorage;
@@ -109,6 +110,15 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...base, sunColor: 'white' })).toBe(false);
     expect(isConversionPreset({ ...base, sunIntensity: 10.1 })).toBe(false);
     expect(isConversionPreset({ ...base, ambientIntensity: -0.1 })).toBe(false);
+  });
+
+  it('migrates and validates lightmap contribution', () => {
+    const current = createPreset('Legacy lightmap', '', config);
+    const { lightmapContribution: _removed, ...legacy } = current;
+    expect(parsePreset(JSON.stringify({ ...legacy, version: 3 })).lightmapContribution).toBe(1);
+    expect(isConversionPreset({ ...current, lightmapContribution: 0 })).toBe(true);
+    expect(isConversionPreset({ ...current, lightmapContribution: 1 })).toBe(true);
+    expect(isConversionPreset({ ...current, lightmapContribution: 1.01 })).toBe(false);
   });
 
   it('persists, replaces by case-insensitive name, and deletes named presets', () => {

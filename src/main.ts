@@ -5,12 +5,14 @@ import { processImageData, type DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
 import { createModelFileBundle, modelFormat, type ModelFileBundle, type WorldAxis } from './lib/modelFiles';
-import { cloneModelScene, disposeModel, geometryUVChannels } from './lib/modelScene';
+import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels } from './lib/modelScene';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
 import { createPreset, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
 import { applyAO, imageAOFactors } from './lib/ao';
 import { bakeMeshAO } from './lib/aoBake';
+import { applyLightmap, imageLightmapPixels, lightmapMatchesBaseColor } from './lib/lightmap';
+import { bakeMeshLightmap } from './lib/lightmapBake';
 import { safeFileName } from './lib/strings';
 import { hemisphereToSunDirection, sunDirectionToHemisphere } from './lib/sunGizmo';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
@@ -54,6 +56,7 @@ type State = {
   aoBias: number;
   aoScale: number;
   aoDistance: number;
+  lightmapContribution: number;
 };
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -117,6 +120,7 @@ const state: State = {
   aoBias: 0,
   aoScale: 1,
   aoDistance: 2,
+  lightmapContribution: 1,
 };
 
 app.innerHTML = `
@@ -300,6 +304,20 @@ app.innerHTML = `
           <input class="range" id="aoDistance" type="range" min="0.05" max="3" step="0.05" value="2" aria-label="Ambient occlusion distance" />
           <button class="button button-secondary ao-generate-button" id="generateAoButton" type="button">Generate AO</button>
         </section>
+
+        <section class="panel lightmap-panel">
+          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTMAP BAKE / 06</p><h2>Baked lighting</h2></div></div>
+          <p class="panel-description">Bake the current sun and ambient lighting into UV space, or load a matching custom lightmap.</p>
+          <label class="control-row"><span><strong>Contribution</strong><small>White to full lightmap</small></span><output id="lightmapContributionValue">100%</output></label>
+          <input class="range" id="lightmapContribution" type="range" min="0" max="100" step="1" value="100" aria-label="Lightmap contribution" />
+          <div class="lightmap-status" id="lightmapStatus">No lightmap loaded</div>
+          <div class="lightmap-actions">
+            <button class="button button-secondary" id="bakeLightmapButton" type="button">Bake Lighting</button>
+            <button class="button button-secondary" id="loadLightmapButton" type="button">Load Image</button>
+            <button class="button button-quiet" id="clearLightmapButton" type="button" disabled>Clear</button>
+          </div>
+          <input id="lightmapInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+        </section>
       </aside>
     </main>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -375,6 +393,13 @@ const aoDistanceValue = document.querySelector<HTMLOutputElement>('#aoDistanceVa
 const strengthInput = document.querySelector<HTMLInputElement>('#strength')!;
 const strengthValue = document.querySelector<HTMLOutputElement>('#strengthValue')!;
 const generateAoButton = document.querySelector<HTMLButtonElement>('#generateAoButton')!;
+const lightmapContributionInput = document.querySelector<HTMLInputElement>('#lightmapContribution')!;
+const lightmapContributionValue = document.querySelector<HTMLOutputElement>('#lightmapContributionValue')!;
+const lightmapStatus = document.querySelector<HTMLDivElement>('#lightmapStatus')!;
+const bakeLightmapButton = document.querySelector<HTMLButtonElement>('#bakeLightmapButton')!;
+const loadLightmapButton = document.querySelector<HTMLButtonElement>('#loadLightmapButton')!;
+const clearLightmapButton = document.querySelector<HTMLButtonElement>('#clearLightmapButton')!;
+const lightmapInput = document.querySelector<HTMLInputElement>('#lightmapInput')!;
 let savedCustomPalettes = loadCustomPalettes(localStorage);
 let editingCustomKey: string | null = null;
 let toastTimer = 0;
@@ -387,6 +412,7 @@ let processedViewport: ModelViewport | null = null;
 let modelUVChannels: string[] = [];
 let modelLodLevels: number[] = [];
 let aoBakeScene: Object3D | null = null;
+const lightmap: TextureSlot = { image: null, name: '' };
 let pendingTextureChannel: TextureChannelId | null = null;
 
 function escapeHtml(value: string): string {
@@ -459,6 +485,33 @@ function currentAOFactors(width: number, height: number): Uint8ClampedArray | nu
   return imageAOFactors(source, width, height);
 }
 
+function currentLightmapPixels(width: number, height: number): Uint8ClampedArray | null {
+  return lightmap.image ? imageLightmapPixels(lightmap.image, width, height) : null;
+}
+
+function pixelsToCanvas(pixels: Uint8ClampedArray, width: number, height: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas is unavailable.');
+  const imageData = context.createImageData(width, height);
+  imageData.data.set(pixels);
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+function renderLightmapControls(): void {
+  const active = lightmap.image !== null;
+  lightmapContributionInput.value = String(Math.round(state.lightmapContribution * 100));
+  lightmapContributionValue.textContent = `${Math.round(state.lightmapContribution * 100)}%`;
+  lightmapStatus.textContent = active && lightmap.image
+    ? `${lightmap.name} · ${lightmap.image.width} × ${lightmap.image.height}`
+    : 'No lightmap loaded';
+  clearLightmapButton.disabled = !active;
+  bakeLightmapButton.disabled = aoBakeScene === null;
+}
+
 function computeAO(): void {
   const scene = aoBakeScene;
   if (!scene) {
@@ -468,6 +521,44 @@ function computeAO(): void {
   }
   textures.ao.image = factorsToCanvas(bakeMeshAO(scene, AO_BAKE_SIZE, AO_BAKE_SIZE, { samples: 64, distance: state.aoDistance }), AO_BAKE_SIZE);
   textures.ao.name = 'Generated AO';
+}
+
+function bakeLighting(): void {
+  if (!aoBakeScene) {
+    showToast('Load a model to bake lighting');
+    return;
+  }
+  showToast('Baking lighting…');
+  window.setTimeout(() => {
+    try {
+      const baseColor = textures.base.image!;
+      const pixels = bakeMeshLightmap(aoBakeScene!, baseColor.width, baseColor.height, {
+        sunAzimuth: state.sun.azimuth,
+        sunElevation: state.sun.elevation,
+        sunColor: state.sun.color,
+        sunIntensity: state.sun.intensity,
+        sunEnabled: state.sun.enabled,
+        ambientColor: state.ambient.color,
+        ambientIntensity: state.ambient.intensity,
+      });
+      lightmap.image = pixelsToCanvas(pixels, baseColor.width, baseColor.height);
+      lightmap.name = 'Baked lighting';
+      renderLightmapControls();
+      applySun();
+      render();
+      showToast('Lighting baked');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not bake lighting.');
+    }
+  }, 30);
+}
+
+function clearLightmap(): void {
+  lightmap.image = null;
+  lightmap.name = '';
+  renderLightmapControls();
+  applySun();
+  render();
 }
 
 function generateAo(): void {
@@ -514,6 +605,8 @@ function litCanvas(image: CanvasImageSource, width: number, height: number): HTM
   const data = context.getImageData(0, 0, width, height);
   const aoFactors = currentAOFactors(width, height);
   if (aoFactors) applyAO(data.data, aoFactors, state.aoBias, state.aoScale);
+  const lightmapPixels = currentLightmapPixels(width, height);
+  if (lightmapPixels) applyLightmap(data.data, lightmapPixels, state.lightmapContribution);
   context.putImageData(data, 0, 0);
   return canvas;
 }
@@ -530,6 +623,8 @@ function render(): void {
   const sourceData = renderContext.getImageData(0, 0, width, height);
   const aoFactors = currentAOFactors(width, height);
   if (aoFactors) applyAO(sourceData.data, aoFactors, state.aoBias, state.aoScale);
+  const lightmapPixels = currentLightmapPixels(width, height);
+  if (lightmapPixels) applyLightmap(sourceData.data, lightmapPixels, state.lightmapContribution);
 
   renderContext.putImageData(processImageData(sourceData, {
     palette: currentColors(), mode: state.mode, strength: state.strength,
@@ -572,11 +667,16 @@ function renderWorldAxisControl(): void {
 
 function renderSunControl(): void {
   sunControlElements.control.hidden = modelBundle === null || (originalPreviewMode !== '3d' && processedPreviewMode !== '3d');
+  const lightmapActive = lightmap.image !== null;
   sunControlElements.enabled.checked = state.sun.enabled;
-  sunControlElements.control.classList.toggle('off', !state.sun.enabled);
-  sunControlElements.gizmo.disabled = !state.sun.enabled;
-  sunControlElements.color.disabled = !state.sun.enabled;
-  sunControlElements.intensity.disabled = !state.sun.enabled;
+  sunControlElements.enabled.disabled = lightmapActive;
+  sunControlElements.control.classList.toggle('off', !state.sun.enabled || lightmapActive);
+  sunControlElements.control.classList.toggle('lightmap-active', lightmapActive);
+  sunControlElements.gizmo.disabled = !state.sun.enabled || lightmapActive;
+  sunControlElements.color.disabled = !state.sun.enabled || lightmapActive;
+  sunControlElements.intensity.disabled = !state.sun.enabled || lightmapActive;
+  sunControlElements.ambientColor.disabled = lightmapActive;
+  sunControlElements.ambientIntensity.disabled = lightmapActive;
   sunControlElements.color.value = state.sun.color;
   sunControlElements.intensity.value = String(state.sun.intensity);
   sunControlElements.intensityValue.textContent = state.sun.intensity.toFixed(1);
@@ -612,6 +712,7 @@ function updateAOControls(): void {
   aoScaleValue.textContent = `${state.aoScale.toFixed(2)}×`;
   aoDistanceInput.value = String(state.aoDistance);
   aoDistanceValue.textContent = `${state.aoDistance.toFixed(2)}×`;
+  renderLightmapControls();
 }
 
 function setActiveMode(mode: DitherMode): void {
@@ -649,7 +750,9 @@ function renderTextureRibbon(): void {
 }
 
 function applyModelUV(channel: string): void {
+  if (channel !== state.uvMap && lightmap.image) clearLightmap();
   state.uvMap = channel;
+  if (aoBakeScene) applyUVChannel(aoBakeScene, channel);
   const originalStatus = originalViewport?.applyUV(channel);
   processedViewport?.applyUV(channel);
   if (originalStatus) {
@@ -659,25 +762,28 @@ function applyModelUV(channel: string): void {
 }
 
 function applyModelLod(level: number): void {
+  if (level !== state.lodLevel && lightmap.image) clearLightmap();
   state.lodLevel = level;
   originalViewport?.applyLOD(level);
   processedViewport?.applyLOD(level);
+  if (aoBakeScene) applyLodLevel(aoBakeScene, level);
 }
 
 function applySun(): void {
   renderSunControl();
+  const lightmapActive = lightmap.image !== null;
   originalViewport?.setSunDirection(state.sun.azimuth, state.sun.elevation);
-  originalViewport?.setSunEnabled(state.sun.enabled);
+  originalViewport?.setSunEnabled(state.sun.enabled && !lightmapActive);
   originalViewport?.setSunColor(state.sun.color);
   originalViewport?.setSunIntensity(state.sun.intensity);
-  originalViewport?.setAmbientColor(state.ambient.color);
-  originalViewport?.setAmbientIntensity(state.ambient.intensity);
+  originalViewport?.setAmbientColor(lightmapActive ? '#ffffff' : state.ambient.color);
+  originalViewport?.setAmbientIntensity(lightmapActive ? Math.PI : state.ambient.intensity);
   processedViewport?.setSunDirection(state.sun.azimuth, state.sun.elevation);
-  processedViewport?.setSunEnabled(state.sun.enabled);
+  processedViewport?.setSunEnabled(state.sun.enabled && !lightmapActive);
   processedViewport?.setSunColor(state.sun.color);
   processedViewport?.setSunIntensity(state.sun.intensity);
-  processedViewport?.setAmbientColor(state.ambient.color);
-  processedViewport?.setAmbientIntensity(state.ambient.intensity);
+  processedViewport?.setAmbientColor(lightmapActive ? '#ffffff' : state.ambient.color);
+  processedViewport?.setAmbientIntensity(lightmapActive ? Math.PI : state.ambient.intensity);
 }
 
 function applyWorldAxis(): void {
@@ -712,6 +818,9 @@ function closeModelPreview(): void {
   modelLodLevels = [];
   disposeAOScene(aoBakeScene);
   aoBakeScene = null;
+  lightmap.image = null;
+  lightmap.name = '';
+  renderLightmapControls();
   originalPreviewMode = '2d';
   processedPreviewMode = '2d';
   applyPreviewMode();
@@ -1025,6 +1134,7 @@ function currentConfig() {
     sunIntensity: state.sun.intensity,
     ambientColor: state.ambient.color,
     ambientIntensity: state.ambient.intensity,
+    lightmapContribution: state.lightmapContribution,
   };
 }
 
@@ -1082,6 +1192,7 @@ function applyPreset(preset: ConversionPreset): void {
     aoDistance: preset.aoDistance,
     sun: { ...state.sun, color: preset.sunColor, intensity: preset.sunIntensity },
     ambient: { color: preset.ambientColor, intensity: preset.ambientIntensity },
+    lightmapContribution: preset.lightmapContribution,
     paletteSnapshot: undefined,
     customColors: [],
   });
@@ -1121,6 +1232,7 @@ function updateFileMeta(name: string, width: number, height: number, updateHeadi
 
 function clearTexture(channel: TextureChannelId): void {
   if (channel === 'base') {
+    if (lightmap.image) clearLightmap();
     textures.base.image = sample;
     textures.base.name = 'sample-landscape.png';
     updateFileMeta(textures.base.name, sample.width, sample.height);
@@ -1150,6 +1262,7 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
   try {
     const image = await loadImageFile(file);
     renderScheduler.cancel();
+    if (channel === 'base' && lightmap.image) clearLightmap();
     textures[channel].image = image;
     textures[channel].name = file.name;
     if (channel === 'base') {
@@ -1165,7 +1278,9 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
 
 function reset(): void {
   renderScheduler.cancel();
-  Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5, stripeAngle: 45, noiseScale: 1, seed: 1, aoBias: 0, aoScale: 1, aoDistance: 2, sun: { azimuth: 45, elevation: 45, enabled: true, color: '#ffffff', intensity: 2.8 }, ambient: { color: '#ffffff', intensity: 2.2 } });
+  Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5, stripeAngle: 45, noiseScale: 1, seed: 1, aoBias: 0, aoScale: 1, aoDistance: 2, lightmapContribution: 1, sun: { azimuth: 45, elevation: 45, enabled: true, color: '#ffffff', intensity: 2.8 }, ambient: { color: '#ffffff', intensity: 2.2 } });
+  lightmap.image = null;
+  lightmap.name = '';
   editingCustomKey = null;
   customPaletteName.value = '';
   customPaletteDescription.value = '';
@@ -1239,7 +1354,36 @@ bindRange({
   format: (value) => `${value.toFixed(2)}×`,
   apply: (value) => { state.aoDistance = value; },
 });
+bindRange({
+  input: lightmapContributionInput,
+  output: lightmapContributionValue,
+  format: (value) => `${value}%`,
+  apply: (value) => { state.lightmapContribution = value / 100; },
+});
 generateAoButton.addEventListener('click', generateAo);
+bakeLightmapButton.addEventListener('click', bakeLighting);
+loadLightmapButton.addEventListener('click', () => lightmapInput.click());
+clearLightmapButton.addEventListener('click', clearLightmap);
+lightmapInput.addEventListener('change', async () => {
+  const file = lightmapInput.files?.[0];
+  lightmapInput.value = '';
+  if (!file) return;
+  try {
+    const image = await loadImageFile(file);
+    const baseColor = textures.base.image!;
+    if (!lightmapMatchesBaseColor(image, baseColor)) {
+      throw new Error(`Lightmap must match BaseColor: expected ${baseColor.width} × ${baseColor.height}, received ${image.width} × ${image.height}.`);
+    }
+    lightmap.image = image;
+    lightmap.name = file.name;
+    renderLightmapControls();
+    applySun();
+    render();
+    showToast(`Lightmap ${file.name} loaded`);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not load lightmap.');
+  }
+});
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.addEventListener('click', () => {
   state.mode = button.dataset.mode as DitherMode;
   setActiveMode(state.mode);

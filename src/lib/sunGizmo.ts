@@ -8,6 +8,8 @@ export type HemispherePoint = {
   y: number;
 };
 
+export type DirectionVector = { x: number; y: number; z: number };
+
 const clamp = (value: number, minimum: number, maximum: number): number =>
   Math.min(Math.max(value, minimum), maximum);
 
@@ -24,6 +26,18 @@ export function sunDirectionToHemisphere(azimuth: number, elevation: number): He
   return {
     x: Math.cos(azimuthRadians) * radius,
     y: Math.sin(azimuthRadians) * radius,
+  };
+}
+
+/** Converts gizmo angles to the world-space direction used by the viewport and bakers. */
+export function sunDirectionVector(azimuth: number, elevation: number): DirectionVector {
+  const azimuthRadians = (wrapDegrees(azimuth) * Math.PI) / 180;
+  const elevationRadians = (clamp(elevation, 0, 90) * Math.PI) / 180;
+  const cosElevation = Math.cos(elevationRadians);
+  return {
+    x: cosElevation * Math.cos(azimuthRadians),
+    y: Math.sin(elevationRadians),
+    z: cosElevation * Math.sin(azimuthRadians),
   };
 }
 

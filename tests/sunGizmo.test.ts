@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hemisphereToSunDirection, sunDirectionToHemisphere } from '../src/lib/sunGizmo';
+import { hemisphereToSunDirection, sunDirectionToHemisphere, sunDirectionVector } from '../src/lib/sunGizmo';
 
 describe('sun sphere gizmo projection', () => {
   it('places the zenith in the center and horizon on the rim', () => {
@@ -31,6 +31,13 @@ describe('sun sphere gizmo projection', () => {
     const point = sunDirectionToHemisphere(-90, 100);
     expect(point).toEqual({ x: 0, y: 0 });
     expect(sunDirectionToHemisphere(-90, -10).y).toBeCloseTo(-1);
+  });
+
+  it('converts angles to the viewport world-space direction', () => {
+    expect(sunDirectionVector(0, 0)).toEqual({ x: 1, y: 0, z: 0 });
+    expect(sunDirectionVector(90, 0).x).toBeCloseTo(0);
+    expect(sunDirectionVector(90, 0).z).toBeCloseTo(1);
+    expect(sunDirectionVector(270, 90)).toEqual(expect.objectContaining({ y: 1 }));
   });
 
   it('round-trips directions on the upper hemisphere', () => {
