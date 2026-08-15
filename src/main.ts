@@ -123,7 +123,6 @@ app.innerHTML = `
               <label class="sun-axis"><span>Azimuth</span><input id="sunAzimuth" class="range sun-range" type="range" min="0" max="360" value="45" aria-label="Sun azimuth" /></label>
               <label class="sun-axis"><span>Elevation</span><input id="sunElevation" class="range sun-range" type="range" min="0" max="90" value="45" aria-label="Sun elevation" /></label>
             </div>
-            <span class="dimension-badge" id="dimensionBadge">128 × 92 PX</span>
           </div>
         </div>
 
@@ -147,11 +146,11 @@ app.innerHTML = `
         <div class="canvas-stage" id="dropZone">
           <div class="comparison-grid" aria-label="Original and dithered texture comparison">
             <figure class="preview-pane original-pane">
-              <figcaption><span>01</span> Original</figcaption>
+              <figcaption><span>01</span> Original <span class="fig-dims" id="sourceDimensions">640 × 461</span></figcaption>
               <div class="canvas-frame"><canvas id="originalCanvas" aria-label="Original texture preview"></canvas><div class="model-host" id="originalModelHost" hidden></div></div>
             </figure>
             <figure class="preview-pane processed-pane">
-              <figcaption><span>02</span> Dithered</figcaption>
+              <figcaption><span>02</span> Dithered <span class="fig-dims" id="processedDimensions">128 × 92 PX</span></figcaption>
               <div class="canvas-frame"><canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas><div class="model-host" id="processedModelHost" hidden></div></div>
             </figure>
           </div>
@@ -163,10 +162,6 @@ app.innerHTML = `
         </div>
 
         <footer class="preview-footer">
-          <div class="file-meta">
-            <span class="meta-icon">▧</span>
-            <div><strong id="footerFileName">${textures.base.name}</strong><small id="sourceDimensions">640 × 461 source</small></div>
-          </div>
           <button class="button button-primary" id="exportButton" type="button">Export PNG <span>↓</span></button>
         </footer>
       </section>
@@ -346,11 +341,12 @@ function dimensions(): { width: number; height: number } {
 }
 
 function updatePreviewBadge(width?: number, height?: number): void {
+  const badge = document.querySelector('#processedDimensions')!;
   if (modelBundle) {
     const format = modelFormat(modelBundle.primary.name)?.toUpperCase();
-    document.querySelector('#dimensionBadge')!.textContent = `${format} · ${modelUVChannels.length} UV MAP${modelUVChannels.length === 1 ? '' : 'S'}`;
+    badge.textContent = `${format} · ${modelUVChannels.length} UV MAP${modelUVChannels.length === 1 ? '' : 'S'}`;
   } else if (width && height) {
-    document.querySelector('#dimensionBadge')!.textContent = `${width} × ${height} PX`;
+    badge.textContent = `${width} × ${height} PX`;
   }
 }
 
@@ -934,8 +930,7 @@ function textureLabel(channel: TextureChannelId): string {
 
 function updateFileMeta(name: string, width: number, height: number, updateHeading = true): void {
   if (updateHeading) document.querySelector('#fileName')!.textContent = name;
-  document.querySelector('#footerFileName')!.textContent = name;
-  document.querySelector('#sourceDimensions')!.textContent = `${width} × ${height} source`;
+  document.querySelector('#sourceDimensions')!.textContent = `${width} × ${height}`;
 }
 
 function clearTexture(channel: TextureChannelId): void {
