@@ -22,7 +22,6 @@ body { background: var(--ink); color: var(--paper); }
 button, input { font: inherit; }
 button, summary, .file-button { -webkit-tap-highlight-color: transparent; }
 button { color: inherit; }
-button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:focus-within { outline: 2px solid var(--lime); outline-offset: 2px; }
 
 .topbar {
   align-items: center; background: rgba(23,23,22,.96); border-bottom: 1px solid var(--line); display: flex;
@@ -39,6 +38,8 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
 .button-quiet { background: transparent; color: var(--muted); justify-self: end; padding-right: 0; }
 .button-quiet:hover { color: var(--paper); }
 .topbar-actions { align-items: center; display: flex; gap: 6px; }
+.topbar-link { gap: 8px; text-decoration: none; }
+.topbar-link svg { flex: none; }
 .button-primary { background: var(--accent); color: #fff; }
 .button-primary:hover { background: #ff704f; }
 .button-secondary { background: #373734; border: 1px solid #50504b; color: var(--paper); }
@@ -133,6 +134,15 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
 .swatch-strip span { background: var(--swatch); display: block; height: 20px; min-width: 10px; }
 .custom-palette { border-top: 1px solid #3c3c38; margin-top: 15px; padding-top: 13px; }
 .custom-palette summary { color: #aaa9a1; cursor: pointer; display: flex; font-size: 10px; justify-content: space-between; list-style: none; }
+.palette-editor { border: 0; margin: 0; min-width: 0; padding: 0; }
+.palette-editor:disabled { filter: grayscale(1); opacity: .45; pointer-events: none; }
+.ao-modes { display: grid; gap: 5px; grid-template-columns: repeat(3, 1fr); margin-bottom: 16px; }
+.ao-modes button { background: #32322f; border: 1px solid #484843; border-radius: 2px; color: var(--muted); cursor: pointer; font: 500 9px 'DM Mono', monospace; padding: 9px 6px; text-transform: uppercase; }
+.ao-modes button:hover, .ao-modes button.active { background: var(--paper); border-color: var(--paper); color: var(--ink); }
+.ao-import { margin-bottom: 2px; }
+.ao-file-name { color: var(--muted); display: block; font: 400 9px 'DM Mono', monospace; margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ao-invert { align-items: center; color: var(--muted); cursor: pointer; display: flex; font: 400 9px 'DM Mono', monospace; gap: 7px; margin-top: 14px; }
+.ao-invert input { accent-color: var(--lime); }
 .palette-editor-fields { display: grid; gap: 8px; margin-top: 14px; }
 .palette-editor-fields label { display: grid; gap: 5px; }
 .palette-editor-fields label > span { color: var(--muted); font: 500 8px 'DM Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
@@ -145,9 +155,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
 .custom-color button { align-items: center; background: #20201f; border: 1px solid #55554f; border-radius: 50%; color: #d7d3c8; cursor: pointer; display: flex; font-size: 10px; height: 15px; justify-content: center; padding: 0; position: absolute; right: 0; top: 16px; width: 15px; }
 .custom-color-add { align-items: center; background: transparent; border: 1px dashed #5a5a54; color: var(--muted); cursor: pointer; display: flex; font: 500 15px 'DM Mono', monospace; height: 25px; justify-content: center; line-height: 1; padding: 0; width: 25px; }
 .custom-color-add:hover { border-color: var(--lime); color: var(--paper); }
-.palette-editor-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-.palette-editor-actions .button { font-size: 9px; padding: 8px 10px; }
-
 .mode-grid { display: grid; gap: 6px; grid-template-columns: repeat(2,1fr); }
 .mode-button { background: #30302e; border: 1px solid #454541; border-radius: 2px; cursor: pointer; display: grid; gap: 2px; grid-template-columns: 40px 1fr; padding: 8px; text-align: left; }
 .mode-button.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -187,6 +194,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
 
 @media (max-width: 620px) {
   .topbar { height: 62px; padding: 0 16px; }
+  .topbar-actions a.button { font-size: 11px; padding: 10px 12px; }
   .preview-toolbar { min-height: 74px; padding: 14px 16px; }
   .preview-toolbar h1 { max-width: 48vw; }
   .canvas-stage { padding: 14px 10px; }

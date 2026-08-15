@@ -6,6 +6,9 @@ export const PRESET_STORAGE_KEY = 'ditherlab:conversion-presets:v1';
 
 export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'none'];
 
+export type AoMode = 'none' | 'import' | 'generate';
+export const aoModes: AoMode[] = ['none', 'import', 'generate'];
+
 export type ConversionConfig = {
   resolution: number;
   mode: DitherMode;
@@ -18,6 +21,9 @@ export type ConversionConfig = {
   uvMap: string;
   stripeAngle: number;
   noiseScale: number;
+  aoMode: AoMode;
+  aoIntensity: number;
+  aoInvert: boolean;
 };
 
 export type ConversionPreset = ConversionConfig & {
@@ -49,8 +55,11 @@ export function isConversionPreset(value: unknown): value is ConversionPreset {
     && finiteInRange(preset.saturation, -100, 100)
     && typeof preset.paletteKey === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/i.test(preset.paletteKey)
     && typeof preset.uvMap === 'string' && /^uv\d*$/.test(preset.uvMap)
-    && finiteInRange(preset.stripeAngle, 0, 90)
+    && finiteInRange(preset.stripeAngle, 0, 135)
     && finiteInRange(preset.noiseScale, 1, 32)
+    && aoModes.includes(preset.aoMode as AoMode)
+    && finiteInRange(preset.aoIntensity, 0, 1)
+    && typeof preset.aoInvert === 'boolean'
     && isPalette(preset.palette);
 }
 
@@ -88,6 +97,9 @@ function migratePreset(value: unknown): unknown {
   if (migrated.stripeAngle === undefined) migrated.stripeAngle = 45;
   if (migrated.noiseScale === undefined) migrated.noiseScale = 1;
   if (migrated.uvMap === undefined) migrated.uvMap = 'uv';
+  if (migrated.aoMode === undefined) migrated.aoMode = 'none';
+  if (migrated.aoIntensity === undefined) migrated.aoIntensity = 1;
+  if (migrated.aoInvert === undefined) migrated.aoInvert = false;
   return migrated;
 }
 

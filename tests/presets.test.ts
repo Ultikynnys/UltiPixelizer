@@ -32,6 +32,9 @@ const config: ConversionConfig = {
   uvMap: 'uv2',
   stripeAngle: 45,
   noiseScale: 1,
+  aoMode: 'none',
+  aoIntensity: 1,
+  aoInvert: false,
 };
 
 let storage: MemoryStorage;
@@ -61,6 +64,13 @@ describe('conversion presets', () => {
     expect(() => parsePreset(JSON.stringify({ version: 99 }))).toThrow('invalid or unsupported');
     expect(() => serializePreset({} as never)).toThrow('invalid preset');
     expect(isConversionPreset(null)).toBe(false);
+  });
+
+  it('accepts stripe angles up to 135 degrees', () => {
+    const base = createPreset('Boundary', '', config);
+    expect(isConversionPreset({ ...base, stripeAngle: 0 })).toBe(true);
+    expect(isConversionPreset({ ...base, stripeAngle: 135 })).toBe(true);
+    expect(isConversionPreset({ ...base, stripeAngle: 136 })).toBe(false);
   });
 
   it('persists, replaces by case-insensitive name, and deletes named presets', () => {

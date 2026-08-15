@@ -6,9 +6,12 @@ import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
 import { createModelFileBundle, modelFormat, type ModelFileBundle } from './lib/modelFiles';
 import { cloneModelScene, disposeModel, geometryUVChannels } from './lib/modelScene';
-import { prepareModelLods } from './lib/modelLod';
+import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport } from './lib/modelPreview';
-import { createPreset, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
+import { createPreset, parsePreset, serializePreset, type AoMode, type ConversionPreset } from './lib/presets';
+import { applyAO, imageAOFactors } from './lib/ao';
+import { bakeMeshAO } from './lib/aoBake';
+import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
 
 type SourceImage = CanvasImageSource & { width: number; height: number };
 
@@ -31,6 +34,9 @@ type State = {
   sunElevation: number;
   stripeAngle: number;
   noiseScale: number;
+  aoMode: AoMode;
+  aoIntensity: number;
+  aoInvert: boolean;
 };
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -59,6 +65,9 @@ const state: State = {
   sunElevation: 45,
   stripeAngle: 45,
   noiseScale: 1,
+  aoMode: 'none',
+  aoIntensity: 1,
+  aoInvert: false,
 };
 
 app.innerHTML = `
@@ -73,6 +82,15 @@ app.innerHTML = `
         <button class="button button-quiet" id="saveButton" type="button">Save</button>
         <button class="button button-quiet" id="loadButton" type="button">Load</button>
         <button class="button button-quiet" id="resetButton" type="button">Reset settings</button>
+        <a class="button button-secondary topbar-link" href="https://github.com/Ultikynnys/UltiPixelizer" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.17-.02-2.12-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.35.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.18a10.9 10.9 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.83 1.18 3.09 0 4.42-2.69 5.39-5.26 5.68.41.36.78 1.06.78 2.14 0 1.54-.01 2.79-.01 3.17 0 .3.2.67.8.55A11.52 11.52 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>
+          GitHub
+        </a>
+        <a class="button button-primary topbar-link" href="https://ko-fi.com/r60dr60d" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/></svg>
+          Donate
+        </a>
+        <input id="loadConfigInput" type="file" accept=".json,application/json" hidden />
       </div>
     </header>
 
@@ -160,15 +178,15 @@ app.innerHTML = `
           </div>
           <details class="custom-palette" open>
             <summary>Custom palette editor <span>+</span></summary>
-            <div class="palette-editor-fields">
-              <label><span>Name</span><input id="customPaletteName" maxlength="60" placeholder="Palette name" /></label>
-              <label><span>Description</span><input id="customPaletteDescription" maxlength="160" placeholder="Palette description" /></label>
-            </div>
-            <div id="customColors" class="custom-colors"></div>
-            <div class="palette-editor-actions">
-              <label class="button button-secondary file-button"><input id="importCustomPalette" type="file" accept="application/json,.json" />Import</label>
-            </div>
+            <fieldset class="palette-editor" id="paletteEditor">
+              <div class="palette-editor-fields">
+                <label><span>Name</span><input id="customPaletteName" maxlength="60" placeholder="Palette name" /></label>
+                <label><span>Description</span><input id="customPaletteDescription" maxlength="160" placeholder="Palette description" /></label>
+              </div>
+              <div id="customColors" class="custom-colors"></div>
+            </fieldset>
           </details>
+          <input id="importCustomPalette" type="file" accept="application/json,.json" hidden />
         </section>
 
         <section class="panel">
@@ -187,7 +205,7 @@ app.innerHTML = `
           <input class="range" id="strength" type="range" min="0" max="100" value="85" aria-label="Dither strength" />
           <div class="stripe-angle-control" id="stripeAngleControl" hidden>
             <label class="control-row"><span><strong>Stripe angle</strong><small>Band direction</small></span><output id="stripeAngleValue">45°</output></label>
-            <input class="range" id="stripeAngle" type="range" min="0" max="90" value="45" aria-label="Stripe angle" />
+            <input class="range" id="stripeAngle" type="range" min="0" max="135" value="45" aria-label="Stripe angle" />
           </div>
           <div class="noise-scale-control" id="noiseScaleControl" hidden>
             <label class="control-row"><span><strong>Noise scale</strong><small>Grain size</small></span><output id="noiseScaleValue">1 px</output></label>
@@ -198,6 +216,22 @@ app.innerHTML = `
         <section class="panel adjustments">
           <div class="panel-heading compact"><div><p class="eyebrow">TONE CONTROL / 04</p><h2>Adjustments</h2></div></div>
           <div id="adjustmentControls"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING / 05</p><h2>Baked AO</h2></div></div>
+          <div class="ao-modes" role="group" aria-label="Ambient occlusion source">
+            <button class="active" type="button" data-ao-mode="none">Off</button>
+            <button type="button" data-ao-mode="import">Import</button>
+            <button type="button" data-ao-mode="generate">Generate</button>
+          </div>
+          <div class="ao-import" id="aoImportControl" hidden>
+            <label class="button button-secondary file-button"><input id="aoInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />Import AO image</label>
+            <span class="ao-file-name" id="aoName">No AO image</span>
+          </div>
+          <label class="control-row"><span><strong>AO intensity</strong><small>Occlusion amount</small></span><output id="aoIntensityValue">100%</output></label>
+          <input class="range" id="aoIntensity" type="range" min="0" max="100" value="100" aria-label="Ambient occlusion intensity" />
+          <label class="ao-invert" id="aoInvertControl" hidden><input id="aoInvert" type="checkbox" /> Invert red channel (ORM)</label>
         </section>
       </aside>
     </main>
@@ -213,6 +247,7 @@ const activeSwatches = document.querySelector<HTMLDivElement>('#activeSwatches')
 const customColors = document.querySelector<HTMLDivElement>('#customColors')!;
 const customPaletteName = document.querySelector<HTMLInputElement>('#customPaletteName')!;
 const customPaletteDescription = document.querySelector<HTMLInputElement>('#customPaletteDescription')!;
+const paletteEditor = document.querySelector<HTMLFieldSetElement>('#paletteEditor')!;
 const originalModelHost = document.querySelector<HTMLDivElement>('#originalModelHost')!;
 const processedModelHost = document.querySelector<HTMLDivElement>('#processedModelHost')!;
 const uvControl = document.querySelector<HTMLLabelElement>('#uvControl')!;
@@ -229,6 +264,14 @@ const noiseScaleControl = document.querySelector<HTMLDivElement>('#noiseScaleCon
 const noiseScaleInput = document.querySelector<HTMLInputElement>('#noiseScale')!;
 const noiseScaleValue = document.querySelector<HTMLOutputElement>('#noiseScaleValue')!;
 const toast = document.querySelector<HTMLDivElement>('#toast')!;
+const loadConfigInput = document.querySelector<HTMLInputElement>('#loadConfigInput')!;
+const aoImportControl = document.querySelector<HTMLDivElement>('#aoImportControl')!;
+const aoInput = document.querySelector<HTMLInputElement>('#aoInput')!;
+const aoName = document.querySelector<HTMLSpanElement>('#aoName')!;
+const aoIntensityInput = document.querySelector<HTMLInputElement>('#aoIntensity')!;
+const aoIntensityValue = document.querySelector<HTMLOutputElement>('#aoIntensityValue')!;
+const aoInvertControl = document.querySelector<HTMLLabelElement>('#aoInvertControl')!;
+const aoInvertInput = document.querySelector<HTMLInputElement>('#aoInvert')!;
 let savedCustomPalettes = loadCustomPalettes(localStorage);
 let editingCustomKey: string | null = null;
 let toastTimer = 0;
@@ -238,6 +281,10 @@ let originalViewport: ModelViewport | null = null;
 let processedViewport: ModelViewport | null = null;
 let modelUVChannels: string[] = [];
 let modelLodLevels: number[] = [];
+let aoImage: SourceImage | null = null;
+let aoImageName = '';
+let generatedAoCanvas: HTMLCanvasElement | null = null;
+let aoBakeScene: Object3D | null = null;
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
@@ -280,6 +327,73 @@ function updatePreviewBadge(width?: number, height?: number): void {
   }
 }
 
+const AO_BAKE_SIZE = 512;
+
+function factorsToCanvas(factors: Uint8ClampedArray, size: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas is unavailable.');
+  const imageData = context.createImageData(size, size);
+  for (let i = 0; i < factors.length; i += 1) {
+    const value = factors[i];
+    const offset = i * 4;
+    imageData.data[offset] = value;
+    imageData.data[offset + 1] = value;
+    imageData.data[offset + 2] = value;
+    imageData.data[offset + 3] = 255;
+  }
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+function currentAOFactors(width: number, height: number): Uint8ClampedArray | null {
+  if (state.aoMode === 'none') return null;
+  const source = state.aoMode === 'import' ? aoImage : generatedAoCanvas;
+  if (!source) return null;
+  return imageAOFactors(source, width, height, state.aoMode === 'import' && state.aoInvert);
+}
+
+function computeAO(): void {
+  const scene = aoBakeScene;
+  generatedAoCanvas = scene ? factorsToCanvas(bakeMeshAO(scene, AO_BAKE_SIZE, AO_BAKE_SIZE), AO_BAKE_SIZE) : null;
+}
+
+function generateAo(): void {
+  const scene = aoBakeScene;
+  if (!scene) {
+    showToast('Load a model to generate AO');
+    return;
+  }
+  showToast('Generating AO…');
+  window.setTimeout(() => {
+    try {
+      generatedAoCanvas = factorsToCanvas(bakeMeshAO(scene, AO_BAKE_SIZE, AO_BAKE_SIZE), AO_BAKE_SIZE);
+      render();
+      showToast('Ambient occlusion generated');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not generate ambient occlusion.');
+    }
+  }, 30);
+}
+
+function buildAOScene(source: Object3D): Object3D {
+  const clone = cloneModelScene(source);
+  const dummy = new MeshBasicMaterial();
+  clone.traverse((child) => {
+    if (child instanceof Mesh) child.material = dummy;
+  });
+  return clone;
+}
+
+function disposeAOScene(scene: Object3D | null): void {
+  if (!scene) return;
+  scene.traverse((child) => {
+    if (child instanceof Mesh) child.geometry.dispose();
+  });
+}
+
 function render(): void {
   const { width, height } = dimensions();
   renderedCanvas = document.createElement('canvas');
@@ -289,6 +403,15 @@ function render(): void {
   if (!renderContext) return;
   renderContext.drawImage(state.source, 0, 0, width, height);
   const sourceData = renderContext.getImageData(0, 0, width, height);
+
+  const aoFactors = currentAOFactors(width, height);
+  if (aoFactors) applyAO(sourceData.data, aoFactors, state.aoIntensity);
+
+  const litSource = document.createElement('canvas');
+  litSource.width = width;
+  litSource.height = height;
+  litSource.getContext('2d')?.putImageData(sourceData, 0, 0);
+
   renderContext.putImageData(processImageData(sourceData, {
     palette: currentColors(), mode: state.mode, strength: state.strength,
     brightness: state.brightness, contrast: state.contrast, saturation: state.saturation,
@@ -300,10 +423,10 @@ function render(): void {
   previewCanvas.getContext('2d')?.drawImage(renderedCanvas, 0, 0);
   originalCanvas.width = width;
   originalCanvas.height = height;
-  originalCanvas.getContext('2d')?.drawImage(state.source, 0, 0, width, height);
+  originalCanvas.getContext('2d')?.drawImage(litSource, 0, 0);
   updatePreviewBadge(width, height);
   if (originalViewport && processedViewport) {
-    originalViewport.applyImage(state.source);
+    originalViewport.applyImage(litSource);
     processedViewport.applyImage(renderedCanvas);
   }
 }
@@ -325,6 +448,16 @@ function renderSunControl(): void {
 function updatePatternControls(): void {
   stripeAngleControl.hidden = state.mode !== 'stripes';
   noiseScaleControl.hidden = state.mode !== 'noise';
+}
+
+function updateAOControls(): void {
+  document.querySelectorAll<HTMLButtonElement>('[data-ao-mode]').forEach((button) => button.classList.toggle('active', button.dataset.aoMode === state.aoMode));
+  aoImportControl.hidden = state.aoMode !== 'import';
+  aoInvertControl.hidden = state.aoMode !== 'import';
+  aoIntensityInput.value = String(Math.round(state.aoIntensity * 100));
+  aoIntensityValue.textContent = `${Math.round(state.aoIntensity * 100)}%`;
+  aoInvertInput.checked = state.aoInvert;
+  aoName.textContent = aoImage ? aoImageName : 'No AO image';
 }
 
 function applyModelUV(channel: string): void {
@@ -357,6 +490,9 @@ function closeModelPreview(): void {
   modelBundle = null;
   modelUVChannels = [];
   modelLodLevels = [];
+  disposeAOScene(aoBakeScene);
+  aoBakeScene = null;
+  generatedAoCanvas = null;
   originalModelHost.hidden = true;
   processedModelHost.hidden = true;
   originalCanvas.hidden = false;
@@ -378,6 +514,9 @@ async function setModel(files: File[]): Promise<void> {
     state.lodLevel = modelLodLevels[0] ?? 0;
     modelUVChannels = geometryUVChannels(loaded.scene);
     state.uvMap = modelUVChannels[0] ?? 'uv';
+    aoBakeScene = buildAOScene(loaded.scene);
+    applyLodLevel(aoBakeScene, state.lodLevel);
+    generatedAoCanvas = null;
     originalViewport = new ModelViewport(originalModelHost);
     processedViewport = new ModelViewport(processedModelHost);
     originalViewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
@@ -394,9 +533,8 @@ async function setModel(files: File[]): Promise<void> {
     renderSunControl();
     applySunDirection();
     if (modelUVChannels.length) applyModelUV(state.uvMap);
-    originalViewport.applyImage(state.source);
-    processedViewport.applyImage(renderedCanvas);
-    updatePreviewBadge();
+    if (state.aoMode === 'generate') computeAO();
+    render();
     document.querySelector('#fileName')!.textContent = modelBundle.primary.name;
     showToast(`Loaded ${modelBundle.primary.name}${lodPreparation.collidersRemoved ? ` · ${lodPreparation.collidersRemoved} colliders removed` : ''}`);
     bundle = null;
@@ -410,6 +548,10 @@ async function setModel(files: File[]): Promise<void> {
 function representativeColors(input: string[], limit = 16): string[] {
   if (input.length <= limit) return input;
   return Array.from({ length: limit }, (_, index) => input[Math.round(index * (input.length - 1) / (limit - 1))]);
+}
+
+function activePaletteIsCustom(): boolean {
+  return state.customColors.length > 0 || savedCustomPalettes.some((palette) => palette.key === state.paletteKey);
 }
 
 function renderPalettes(): void {
@@ -433,6 +575,10 @@ function renderPalettes(): void {
       <span class="palette-card-new-icon">+</span>
       <span class="palette-card-new-label">Create new palette</span>
     </button>
+    <button type="button" class="palette-card palette-card-new" data-import-palette aria-label="Import palette">
+      <span class="palette-card-new-icon">↓</span>
+      <span class="palette-card-new-label">Import palette</span>
+    </button>
   ` : '');
   const palette = currentPalette();
   const selectedColors = currentColors();
@@ -448,6 +594,7 @@ function renderPalettes(): void {
   `).join('') + `
     <button type="button" class="custom-color-add" data-add-color aria-label="Add color">+</button>
   `;
+  paletteEditor.disabled = !activePaletteIsCustom();
 }
 
 function renderAdjustments(): void {
@@ -570,7 +717,18 @@ function activePaletteSnapshot() {
   };
 }
 
-const SAVED_CONFIG_KEY = 'ditherlab.saved-config';
+const CONFIG_FILE_NAME = 'ditherlab-settings.json';
+const CONFIG_FILE_TYPE = { description: 'JSON settings', accept: { 'application/json': ['.json'] } };
+
+function serializeConfig(): string {
+  return serializePreset(createPreset('saved', '', currentConfig()));
+}
+
+async function applyConfigFile(file: File): Promise<void> {
+  if (file.size > 1_000_000) throw new Error('Settings file is too large.');
+  applyPreset(parsePreset(await file.text()));
+  showToast('Settings loaded');
+}
 
 function currentConfig() {
   return {
@@ -585,28 +743,40 @@ function currentConfig() {
     uvMap: state.uvMap,
     stripeAngle: state.stripeAngle,
     noiseScale: state.noiseScale,
+    aoMode: state.aoMode,
+    aoIntensity: state.aoIntensity,
+    aoInvert: state.aoInvert,
   };
 }
 
-function saveConfig(): void {
+async function saveConfig(): Promise<void> {
+  const content = serializeConfig();
   try {
-    localStorage.setItem(SAVED_CONFIG_KEY, serializePreset(createPreset('saved', '', currentConfig())));
+    if (typeof window.showSaveFilePicker === 'function') {
+      const handle = await window.showSaveFilePicker({ suggestedName: CONFIG_FILE_NAME, types: [CONFIG_FILE_TYPE] });
+      const writable = await handle.createWritable();
+      await writable.write(content);
+      await writable.close();
+    } else {
+      downloadText(content, CONFIG_FILE_NAME);
+    }
     showToast('Settings saved');
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return;
     showToast(error instanceof Error ? error.message : 'Could not save settings.');
   }
 }
 
-function loadConfig(): void {
-  const raw = localStorage.getItem(SAVED_CONFIG_KEY);
-  if (!raw) {
-    showToast('No saved settings yet');
-    return;
-  }
+async function loadConfig(): Promise<void> {
   try {
-    applyPreset(parsePreset(raw));
-    showToast('Settings loaded');
+    if (typeof window.showOpenFilePicker === 'function') {
+      const [handle] = await window.showOpenFilePicker({ types: [CONFIG_FILE_TYPE], multiple: false });
+      await applyConfigFile(await handle.getFile());
+    } else {
+      loadConfigInput.click();
+    }
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return;
     showToast(error instanceof Error ? error.message : 'Could not load settings.');
   }
 }
@@ -626,6 +796,9 @@ function applyPreset(preset: ConversionPreset): void {
     uvMap: preset.uvMap,
     stripeAngle: preset.stripeAngle,
     noiseScale: preset.noiseScale,
+    aoMode: preset.aoMode,
+    aoIntensity: preset.aoIntensity,
+    aoInvert: preset.aoInvert,
     paletteSnapshot: matchesCatalog ? undefined : { ...preset.palette, colors: [...preset.palette.colors] },
     customColors: matchesCatalog ? [] : [...preset.palette.colors],
   });
@@ -641,6 +814,7 @@ function applyPreset(preset: ConversionPreset): void {
   noiseScaleValue.textContent = `${preset.noiseScale} px`;
   document.querySelectorAll('[data-mode]').forEach((button) => button.classList.toggle('active', (button as HTMLElement).dataset.mode === preset.mode));
   updatePatternControls();
+  updateAOControls();
   renderAdjustments();
   bindAdjustmentEvents();
   renderPalettes();
@@ -684,7 +858,7 @@ async function setSource(file: File): Promise<void> {
 
 function reset(): void {
   renderScheduler.cancel();
-  Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5, stripeAngle: 45, noiseScale: 1 });
+  Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5, stripeAngle: 45, noiseScale: 1, aoMode: 'none', aoIntensity: 1, aoInvert: false });
   editingCustomKey = null;
   customPaletteName.value = '';
   customPaletteDescription.value = '';
@@ -696,6 +870,7 @@ function reset(): void {
   noiseScaleValue.textContent = '1 px';
   document.querySelectorAll('[data-mode]').forEach((button) => button.classList.toggle('active', (button as HTMLElement).dataset.mode === 'floyd'));
   updatePatternControls();
+  updateAOControls();
   renderAdjustments();
   bindAdjustmentEvents();
   renderPalettes();
@@ -718,6 +893,7 @@ renderPalettes();
 renderAdjustments();
 bindAdjustmentEvents();
 updatePatternControls();
+updateAOControls();
 render();
 
 document.querySelector('#resolution')!.addEventListener('input', (event) => updateResolution(Number((event.target as HTMLInputElement).value)));
@@ -742,6 +918,39 @@ noiseScaleInput.addEventListener('input', (event) => {
   renderScheduler.request();
 });
 noiseScaleInput.addEventListener('change', renderScheduler.flush);
+document.querySelectorAll<HTMLButtonElement>('[data-ao-mode]').forEach((button) => button.addEventListener('click', () => {
+  state.aoMode = button.dataset.aoMode as AoMode;
+  updateAOControls();
+  if (state.aoMode === 'generate') generateAo();
+  else render();
+}));
+aoInput.addEventListener('change', async () => {
+  const file = aoInput.files?.[0];
+  if (!file) return;
+  try {
+    const image = await loadImageFile(file);
+    aoImage = image;
+    aoImageName = file.name;
+    aoName.textContent = file.name;
+    render();
+    showToast('AO image loaded');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not load AO image.');
+  } finally {
+    aoInput.value = '';
+  }
+});
+aoIntensityInput.addEventListener('input', (event) => {
+  const value = Number((event.target as HTMLInputElement).value);
+  state.aoIntensity = value / 100;
+  aoIntensityValue.textContent = `${value}%`;
+  renderScheduler.request();
+});
+aoIntensityInput.addEventListener('change', renderScheduler.flush);
+aoInvertInput.addEventListener('change', () => {
+  state.aoInvert = aoInvertInput.checked;
+  render();
+});
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.addEventListener('click', () => {
   state.mode = button.dataset.mode as DitherMode;
   document.querySelectorAll('[data-mode]').forEach((item) => item.classList.toggle('active', item === button));
@@ -757,6 +966,10 @@ paletteFilters.addEventListener('click', (event) => {
 });
 paletteGrid.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
+  if (target.closest<HTMLButtonElement>('[data-import-palette]')) {
+    importCustomPaletteInput.click();
+    return;
+  }
   if (target.closest<HTMLButtonElement>('[data-new-palette]')) {
     createNewPalette();
     return;
@@ -865,6 +1078,16 @@ dropZone.addEventListener('drop', (event) => {
   const files = Array.from(event.dataTransfer?.files ?? []);
   if (files.some((file) => modelFormat(file.name))) void setModel(files);
   else if (files[0]) void setSource(files[0]);
+});
+loadConfigInput.addEventListener('change', async () => {
+  const file = loadConfigInput.files?.[0];
+  loadConfigInput.value = '';
+  if (!file) return;
+  try {
+    await applyConfigFile(file);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not load settings.');
+  }
 });
 document.querySelector('#saveButton')!.addEventListener('click', saveConfig);
 document.querySelector('#loadButton')!.addEventListener('click', loadConfig);
