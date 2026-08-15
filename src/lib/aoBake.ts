@@ -13,8 +13,8 @@ import { MeshBVH } from 'three-mesh-bvh';
 export type BakeAOMLOptions = {
   /** Hemisphere samples per vertex. Higher = smoother, slower. */
   samples?: number;
-  /** Occlusion search radius. Defaults to twice the mesh bounding-sphere radius. */
-  maxDistance?: number;
+  /** Occlusion reach as a multiple of the mesh bounding-sphere radius. Default 2. */
+  distance?: number;
   /** Random source for sample directions (inject a seeded PRNG for tests). */
   random?: () => number;
 };
@@ -129,7 +129,7 @@ export function bakeMeshAO(scene: Object3D, width: number, height: number, optio
   occluder.setAttribute('position', new BufferAttribute(new Float32Array(worldPositions), 3));
   occluder.computeBoundingSphere();
   const radius = occluder.boundingSphere?.radius ?? 1;
-  const maxDistance = options.maxDistance ?? radius * 2;
+  const maxDistance = radius * (options.distance ?? 2);
   const epsilon = Math.max(radius * 1e-3, 1e-4);
 
   const bvh = worldPositions.length ? new MeshBVH(occluder) : null;
