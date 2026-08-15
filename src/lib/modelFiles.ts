@@ -1,6 +1,17 @@
 export type ModelFormat = 'fbx' | 'obj' | 'gltf' | 'glb';
 
 const modelExtensions = new Set<ModelFormat>(['fbx', 'obj', 'gltf', 'glb']);
+const imageResourcePattern = /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
+const missingImageUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+const missingResourceUrl = 'data:application/octet-stream;base64,';
+
+function safelyDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
 
 export function fileExtension(name: string): string {
   return name.split('.').pop()?.toLowerCase() ?? '';
@@ -21,7 +32,7 @@ export function findPrimaryModel(files: Iterable<Pick<File, 'name'>>): Pick<File
 function normalizedResourceKeys(name: string): string[] {
   const clean = name.replace(/\\/g, '/').replace(/^\.\//, '');
   const basename = clean.split('/').pop() ?? clean;
-  return Array.from(new Set([clean, basename, decodeURIComponent(clean), decodeURIComponent(basename)])).map((key) => key.toLowerCase());
+  return Array.from(new Set([clean, basename, safelyDecodeURIComponent(clean), safelyDecodeURIComponent(basename)])).map((key) => key.toLowerCase());
 }
 
 export type ModelFileBundle = {
@@ -56,10 +67,12 @@ export function createModelFileBundle(filesInput: FileList | File[]): ModelFileB
     primaryUrl,
     manager: {
       resolveURL(url: string): string {
-        const decoded = decodeURIComponent(url).replace(/\\/g, '/');
+        if (/^data:/i.test(url) || createdUrls.has(url)) return url;
+        const decoded = safelyDecodeURIComponent(url).replace(/\\/g, '/');
         const basename = decoded.split('/').pop() ?? decoded;
-        const embeddedResource = /^(?:data|blob):/i.test(url);
-        return urls.get(decoded.toLowerCase()) ?? urls.get(basename.toLowerCase()) ?? (embeddedResource ? url : 'data:application/octet-stream;base64,');
+        const uploadedResource = urls.get(decoded.toLowerCase()) ?? urls.get(basename.toLowerCase());
+        if (uploadedResource) return uploadedResource;
+        return imageResourcePattern.test(decoded) ? missingImageUrl : missingResourceUrl;
       },
     },
     revoke(): void {

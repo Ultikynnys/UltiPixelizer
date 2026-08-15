@@ -48,15 +48,21 @@ describe('model scene processing', () => {
     expect(texture.generateMipmaps).toBe(false);
   });
 
-  it('deep-clones mutable geometry and materials', () => {
+  it('deep-clones mutable geometry, materials, and textures', () => {
     const root = new Object3D();
     const sourceMesh = mesh(['uv'], 2);
+    const sourceMaterials = sourceMesh.material as MeshBasicMaterial[];
+    const texture = new Texture();
+    sourceMaterials.forEach((material) => { material.map = texture; });
     root.add(sourceMesh);
     const clone = cloneModelScene(root);
     const clonedMesh = clone.children[0] as Mesh;
+    const clonedMaterials = clonedMesh.material as MeshBasicMaterial[];
     expect(clonedMesh.geometry).not.toBe(sourceMesh.geometry);
     expect(clonedMesh.material).not.toBe(sourceMesh.material);
     expect(Array.isArray(clonedMesh.material)).toBe(true);
+    expect(clonedMaterials[0].map).not.toBe(texture);
+    expect(clonedMaterials[0].map).toBe(clonedMaterials[1].map);
   });
 
   it('fits cameras for populated and empty objects', () => {
@@ -71,7 +77,7 @@ describe('model scene processing', () => {
     expect(camera.aspect).toBe(1);
   });
 
-  it('disposes geometry, materials, textures, and closeable images', () => {
+  it('disposes geometry, materials, and textures without closing shared image sources', () => {
     const root = new Object3D();
     const item = mesh(['uv']);
     const texture = new Texture();
@@ -86,6 +92,6 @@ describe('model scene processing', () => {
     expect(geometryDispose).toHaveBeenCalledOnce();
     expect(materialDispose).toHaveBeenCalledOnce();
     expect(textureDispose).toHaveBeenCalledOnce();
-    expect(close).toHaveBeenCalledOnce();
+    expect(close).not.toHaveBeenCalled();
   });
 });

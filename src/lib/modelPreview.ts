@@ -1,13 +1,13 @@
 import {
   AnimationClip,
   AnimationMixer,
-  Clock,
   DirectionalLight,
   HemisphereLight,
   LoadingManager,
   Object3D,
   PerspectiveCamera,
   Scene,
+  Timer,
   WebGLRenderer,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -57,7 +57,7 @@ export class ModelViewport {
   private readonly camera = new PerspectiveCamera(45, 1, 0.01, 1000);
   private readonly renderer: WebGLRenderer;
   private readonly controls: OrbitControls;
-  private readonly clock = new Clock();
+  private readonly timer = new Timer();
   private readonly resizeObserver: ResizeObserver;
   private readonly sun = new DirectionalLight(0xffffff, 2.8);
   private model: Object3D | null = null;
@@ -77,6 +77,7 @@ export class ModelViewport {
     this.scene.add(this.sun);
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
+    this.timer.connect(document);
     this.animate();
   }
 
@@ -139,9 +140,10 @@ export class ModelViewport {
     this.camera.updateProjectionMatrix();
   }
 
-  private animate = (): void => {
+  private animate = (timestamp?: number): void => {
     this.frame = requestAnimationFrame(this.animate);
-    this.mixer?.update(this.clock.getDelta());
+    this.timer.update(timestamp);
+    this.mixer?.update(this.timer.getDelta());
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   };
@@ -150,6 +152,7 @@ export class ModelViewport {
     cancelAnimationFrame(this.frame);
     this.resizeObserver.disconnect();
     this.controls.dispose();
+    this.timer.dispose();
     if (this.model) disposeModel(this.model);
     this.renderer.dispose();
     this.renderer.domElement.remove();

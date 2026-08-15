@@ -37,11 +37,20 @@ describe('model file bundles', () => {
     expect(bundle.primaryUrl).toBe('blob:1');
     expect(bundle.manager.resolveURL('./buffers/model.bin')).toBe('blob:2');
     expect(bundle.manager.resolveURL('textures%2Falbedo.png')).toBe('blob:3');
-    expect(bundle.manager.resolveURL('missing.png')).toBe('data:application/octet-stream;base64,');
+    expect(bundle.manager.resolveURL('missing.png')).toMatch(/^data:image\/png;base64,/);
+    expect(bundle.manager.resolveURL('blob:https://example.test/textures/missing.png')).toMatch(/^data:image\/png;base64,/);
     expect(bundle.manager.resolveURL('https://127.0.0.1/private')).toBe('data:application/octet-stream;base64,');
     expect(bundle.manager.resolveURL('data:image/png;base64,AA==')).toBe('data:image/png;base64,AA==');
+    expect(bundle.manager.resolveURL(bundle.primaryUrl)).toBe(bundle.primaryUrl);
     bundle.revoke();
     bundle.revoke();
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(3);
+  });
+
+  it('handles literal percent characters in uploaded and referenced file names', () => {
+    const bundle = createModelFileBundle([file('model.fbx'), file('Book 100%.png')]);
+    expect(bundle.manager.resolveURL('textures/Book 100%.png')).toBe('blob:2');
+    expect(bundle.manager.resolveURL('textures/Book%20100%25.png')).toBe('blob:2');
+    bundle.revoke();
   });
 });

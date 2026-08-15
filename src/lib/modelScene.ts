@@ -66,10 +66,23 @@ export function materialsOf(mesh: Mesh): Material[] {
 
 export function cloneModelScene(source: Object3D): Object3D {
   const clone = cloneSkeleton(source);
+  const textures = new Map<Texture, Texture>();
   clone.traverse((child) => {
     if (!(child instanceof Mesh)) return;
     child.geometry = child.geometry.clone();
-    child.material = materialsOf(child).map((material) => material.clone());
+    child.material = materialsOf(child).map((sourceMaterial) => {
+      const material = sourceMaterial.clone();
+      for (const [property, value] of Object.entries(material)) {
+        if (!(value instanceof Texture)) continue;
+        let texture = textures.get(value);
+        if (!texture) {
+          texture = value.clone();
+          textures.set(value, texture);
+        }
+        (material as unknown as Record<string, unknown>)[property] = texture;
+      }
+      return material;
+    });
   });
   return clone;
 }
@@ -145,9 +158,5 @@ export function disposeModel(object: Object3D): void {
       material.dispose();
     });
   });
-  textures.forEach((texture) => {
-    const image = texture.image as { close?: () => void } | undefined;
-    image?.close?.();
-    texture.dispose();
-  });
+  textures.forEach((texture) => texture.dispose());
 }
