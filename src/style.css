@@ -23,7 +23,6 @@
   --accent: #8b5cf6;
   --accent-hover: color-mix(in srgb, var(--accent) 88%, white);
   --on-accent: #fff;
-  --lime: #c8f15a;
   /* ── dither pattern previews ── */
   --pattern-dot: #ddd;
   --pattern-dot-soft: #bbb;
@@ -122,7 +121,7 @@ button { color: inherit; }
   align-items: center; background-color: var(--stage); background-image: linear-gradient(45deg,var(--chip) 25%,transparent 25%),linear-gradient(-45deg,var(--chip) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,var(--chip) 75%),linear-gradient(-45deg,transparent 75%,var(--chip) 75%);
   background-position: 0 0,0 8px,8px -8px,-8px 0; background-size: 16px 16px; display: flex; justify-content: center; min-height: 0; overflow: hidden; padding: 22px; position: relative;
 }
-.canvas-stage.dragging { box-shadow: inset 0 0 0 2px var(--lime); }
+.canvas-stage.dragging { box-shadow: inset 0 0 0 2px var(--paper); }
 .comparison-grid { align-items: center; display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 100%; max-width: 100%; width: 100%; }
 .preview-pane { display: grid; gap: 8px; margin: 0; min-width: 0; }
 .preview-pane figcaption { align-items: center; color: var(--paper); display: flex; font: 500 9px 'DM Mono', monospace; gap: 7px; letter-spacing: .1em; text-transform: uppercase; }
@@ -154,9 +153,9 @@ button { color: inherit; }
 
 .texture-ribbon { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 10px; padding: 12px 28px; }
 .texture-slot { align-items: center; background: var(--stage); border: 1px dashed var(--line-bright); border-radius: 3px; cursor: pointer; display: flex; flex-direction: column; gap: 5px; height: 66px; justify-content: center; min-width: 82px; padding: 6px 8px; position: relative; }
-.texture-slot:hover { border-color: var(--paper); }
+.texture-slot:hover, .palette-card-new:hover, .custom-color-add:hover { border-color: var(--paper); color: var(--paper); }
 .texture-slot:focus-visible { outline: 1px solid var(--paper); outline-offset: 2px; }
-.texture-slot.dragging { border-color: var(--lime); box-shadow: inset 0 0 0 1px var(--lime); }
+.texture-slot.dragging { border-color: var(--paper); box-shadow: inset 0 0 0 1px var(--paper); }
 .texture-slot.disabled { cursor: not-allowed; opacity: .45; }
 .texture-slot.disabled:hover { border-color: var(--line-bright); }
 .texture-slot.disabled:focus-visible { outline-color: var(--muted); }
@@ -168,7 +167,7 @@ button { color: inherit; }
 .texture-slot.filled .texture-slot-label { color: var(--paper); }
 .texture-slot-clear { align-items: center; background: var(--chip); border: 1px solid var(--line-bright); border-radius: 2px; bottom: 4px; color: var(--paper-soft); cursor: pointer; display: none; font: 500 10px 'DM Mono', monospace; height: 16px; justify-content: center; line-height: 1; padding: 0; position: absolute; right: 4px; width: 16px; }
 .texture-slot.filled .texture-slot-clear { display: flex; }
-.texture-slot-clear:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.texture-slot-clear:hover, .palette-card-delete:hover, .custom-color button:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .ao-generate-button { margin-top: 16px; width: 100%; }
 
 .control-column { background: var(--surface); border-left: 1px solid var(--line); min-height: 0; overflow-y: auto; scrollbar-color: var(--line) var(--surface); }
@@ -196,13 +195,11 @@ button { color: inherit; }
 .palette-card:hover { border-color: var(--faint); }
 .palette-card.active { border-color: var(--paper); box-shadow: inset 0 0 0 1px var(--paper); color: var(--paper); }
 .palette-card-new { align-items: center; background: transparent; border: 1px dashed var(--line-bright); color: var(--muted); gap: 5px; justify-content: center; min-height: 58px; text-align: center; }
-.palette-card-new:hover { border-color: var(--lime); color: var(--paper); }
 .palette-card-new-icon { font: 500 20px 'DM Mono', monospace; line-height: 1; }
 .palette-card-new-label { font-size: 9px; }
 .palette-card-actions { display: flex; gap: 3px; position: absolute; right: 5px; top: 5px; }
 .palette-card-duplicate, .palette-card-export, .palette-card-delete { align-items: center; background: var(--chip); border: 1px solid var(--line-bright); border-radius: 2px; color: var(--paper-soft); cursor: pointer; display: flex; font: 500 11px 'DM Mono', monospace; height: 18px; justify-content: center; line-height: 1; padding: 0; width: 18px; }
-.palette-card-duplicate:hover, .palette-card-export:hover { border-color: var(--lime); color: var(--paper); }
-.palette-card-delete:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.palette-card-duplicate:hover, .palette-card-export:hover { border-color: var(--paper); color: var(--paper); }
 .palette-card-label { align-items: center; display: flex; gap: 6px; justify-content: space-between; min-width: 0; }
 .palette-card-label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-card-label b { background: var(--chip); border-radius: 2px; color: var(--muted); flex: 0 0 auto; font: 500 8px 'DM Mono', monospace; padding: 2px 4px; }
@@ -227,9 +224,8 @@ button { color: inherit; }
 .custom-color label { cursor: pointer; display: block; height: 25px; position: relative; width: 25px; }
 .custom-color input { height: 1px; opacity: 0; position: absolute; width: 1px; }
 .custom-color label span { background: var(--swatch); border: 1px solid var(--faint); display: block; height: 100%; width: 100%; }
-.custom-color button { align-items: center; background: var(--chip); border: 1px solid var(--line-bright); border-radius: 50%; color: var(--paper-soft); cursor: pointer; display: flex; font-size: 10px; height: 15px; justify-content: center; padding: 0; position: absolute; right: 0; top: 16px; width: 15px; }
+.custom-color button { align-items: center; background: var(--chip); border: 1px solid var(--line-bright); border-radius: 2px; color: var(--paper-soft); cursor: pointer; display: flex; font-size: 10px; height: 15px; justify-content: center; padding: 0; position: absolute; right: 0; top: 16px; width: 15px; }
 .custom-color-add { align-items: center; background: transparent; border: 1px dashed var(--line-bright); color: var(--muted); cursor: pointer; display: flex; font: 500 15px 'DM Mono', monospace; height: 25px; justify-content: center; line-height: 1; padding: 0; width: 25px; }
-.custom-color-add:hover { border-color: var(--lime); color: var(--paper); }
 .mode-grid { display: grid; gap: 6px; grid-template-columns: repeat(2,1fr); }
 .mode-button { background: var(--card); border: 1px solid var(--line); border-radius: 2px; cursor: pointer; display: grid; gap: 2px; grid-template-columns: 40px 1fr; padding: 8px; text-align: left; }
 .mode-button.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
