@@ -35,9 +35,10 @@ export function patternThreshold(mode: DitherMode, x: number, y: number): number
     case 'diagonal':
       return ((x + y) % 6) / 5;
     case 'noise': {
-      let hash = Math.imul(x + 1, 0x45d9f3b) ^ Math.imul(y + 1, 0x27d4eb2d);
+      let hash = Math.imul(x, 374761393) + Math.imul(y, 668265263);
+      hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
       hash ^= hash >>> 16;
-      return (hash >>> 0) / 0xffffffff;
+      return (hash >>> 0) / 4294967296;
     }
     case 'vertical':
       return (x % 4) / 3;

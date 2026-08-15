@@ -116,6 +116,27 @@ describe('dithering engine', () => {
     expect(patternThreshold('none', 0, 0)).toBe(0.5);
   });
 
+  it('keeps the noise threshold high-frequency with no long block runs', () => {
+    let run = 0;
+    let maxRun = 0;
+    let total = 0;
+    let runs = 0;
+    let previous = false;
+    for (let y = 0; y < 64; y += 1) {
+      for (let x = 0; x < 64; x += 1) {
+        const above = patternThreshold('noise', x, y) >= 0.5;
+        if (above === previous) run += 1;
+        else { maxRun = Math.max(maxRun, run); total += run; runs += 1; run = 1; }
+        previous = above;
+      }
+    }
+    maxRun = Math.max(maxRun, run);
+    total += run;
+    runs += 1;
+    expect(maxRun).toBeLessThan(24);
+    expect(total / runs).toBeLessThan(4);
+  });
+
   it('applies tone controls before palette mapping', () => {
     const source = imageData([[110, 110, 110, 255]], 1);
     const dark = processImageData(source, options('none'));
