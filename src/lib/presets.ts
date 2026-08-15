@@ -5,7 +5,7 @@ import { slugify } from './strings';
 export type { StorageLike } from './storage';
 
 export const PRESET_VERSION = 1;
-export const PRESET_STORAGE_KEY = 'ditherlab:conversion-presets:v1';
+export const PRESET_STORAGE_KEY = 'ultipixelizer:conversion-presets:v1';
 
 export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'none'];
 

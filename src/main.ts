@@ -422,23 +422,32 @@ function disposeAOScene(scene: Object3D | null): void {
   });
 }
 
+function litCanvas(image: CanvasImageSource, width: number, height: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) return canvas;
+  context.drawImage(image, 0, 0, width, height);
+  const data = context.getImageData(0, 0, width, height);
+  const aoFactors = currentAOFactors(width, height);
+  if (aoFactors) applyAO(data.data, aoFactors, state.aoIntensity);
+  context.putImageData(data, 0, 0);
+  return canvas;
+}
+
 function render(): void {
   const { width, height } = dimensions();
+  const source = textures.base.image!;
   renderedCanvas = document.createElement('canvas');
   renderedCanvas.width = width;
   renderedCanvas.height = height;
   const renderContext = renderedCanvas.getContext('2d', { willReadFrequently: true });
   if (!renderContext) return;
-  renderContext.drawImage(textures.base.image!, 0, 0, width, height);
+  renderContext.drawImage(source, 0, 0, width, height);
   const sourceData = renderContext.getImageData(0, 0, width, height);
-
   const aoFactors = currentAOFactors(width, height);
   if (aoFactors) applyAO(sourceData.data, aoFactors, state.aoIntensity);
-
-  const litSource = document.createElement('canvas');
-  litSource.width = width;
-  litSource.height = height;
-  litSource.getContext('2d')?.putImageData(sourceData, 0, 0);
 
   renderContext.putImageData(processImageData(sourceData, {
     palette: currentColors(), mode: state.mode, strength: state.strength,
@@ -449,12 +458,16 @@ function render(): void {
   previewCanvas.width = width;
   previewCanvas.height = height;
   previewCanvas.getContext('2d')?.drawImage(renderedCanvas, 0, 0);
-  originalCanvas.width = width;
-  originalCanvas.height = height;
-  originalCanvas.getContext('2d')?.drawImage(litSource, 0, 0);
+
+  // Original pane shows the source at native resolution — the pixel grid slider must not affect it.
+  const litSourceNative = litCanvas(source, source.width, source.height);
+  originalCanvas.width = source.width;
+  originalCanvas.height = source.height;
+  originalCanvas.getContext('2d')?.drawImage(litSourceNative, 0, 0);
+
   updatePreviewBadge(width, height);
   if (originalViewport && processedViewport) {
-    originalViewport.applyImage(litSource);
+    originalViewport.applyImage(litSourceNative);
     processedViewport.applyImage(renderedCanvas);
   }
 }
@@ -816,7 +829,7 @@ function syncControlsFromState(): void {
   renderPalettes();
 }
 
-const CONFIG_FILE_NAME = 'ditherlab-settings.json';
+const CONFIG_FILE_NAME = 'ultipixelizer-settings.json';
 const CONFIG_FILE_TYPE = { description: 'JSON settings', accept: { 'application/json': ['.json'] } };
 
 function serializeConfig(): string {
