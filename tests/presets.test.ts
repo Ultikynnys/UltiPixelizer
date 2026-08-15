@@ -32,9 +32,9 @@ const config: ConversionConfig = {
   uvMap: 'uv2',
   stripeAngle: 45,
   noiseScale: 1,
-  aoMode: 'none',
+  seed: 1,
   aoIntensity: 1,
-  aoInvert: false,
+  aoDistance: 2,
 };
 
 let storage: MemoryStorage;
@@ -56,6 +56,12 @@ describe('conversion presets', () => {
     const oldPreset = createPreset('Legacy', '', config);
     const { uvMap: _removed, ...legacy } = oldPreset;
     expect(parsePreset(JSON.stringify(legacy)).uvMap).toBe('uv');
+  });
+
+  it('migrates presets saved before seed selection existed', () => {
+    const oldPreset = createPreset('Legacy', '', config);
+    const { seed: _removed, ...legacy } = oldPreset;
+    expect(parsePreset(JSON.stringify(legacy)).seed).toBe(1);
   });
 
   it('rejects empty names, malformed JSON, invalid exports, and unsupported settings', () => {

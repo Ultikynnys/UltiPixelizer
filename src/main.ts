@@ -8,16 +8,24 @@ import { createModelFileBundle, modelFormat, type ModelFileBundle } from './lib/
 import { cloneModelScene, disposeModel, geometryUVChannels } from './lib/modelScene';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport } from './lib/modelPreview';
-import { createPreset, parsePreset, serializePreset, type AoMode, type ConversionPreset } from './lib/presets';
+import { createPreset, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
 import { applyAO, imageAOFactors } from './lib/ao';
 import { bakeMeshAO } from './lib/aoBake';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
 
 type SourceImage = CanvasImageSource & { width: number; height: number };
 
+type TextureChannelId = 'base' | 'ao' | 'normal';
+
+type TextureSlot = { image: SourceImage | null; name: string };
+
+const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string }> = [
+  { id: 'base', label: 'BaseColor' },
+  { id: 'ao', label: 'AO' },
+  { id: 'normal', label: 'Normal' },
+];
+
 type State = {
-  source: SourceImage;
-  sourceName: string;
   paletteKey: string;
   customColors: string[];
   paletteSnapshot?: Palette;
@@ -34,9 +42,9 @@ type State = {
   sunElevation: number;
   stripeAngle: number;
   noiseScale: number;
-  aoMode: AoMode;
+  seed: number;
   aoIntensity: number;
-  aoInvert: boolean;
+  aoDistance: number;
 };
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -47,9 +55,12 @@ const commitSha = import.meta.env.VITE_COMMIT_SHA || 'LOCAL';
 const buildLabel = `v${buildNumber} · ${commitSha}`;
 
 const sample = createSampleTexture();
+const textures: Record<TextureChannelId, TextureSlot> = {
+  base: { image: sample, name: 'sample-landscape.png' },
+  ao: { image: null, name: '' },
+  normal: { image: null, name: '' },
+};
 const state: State = {
-  source: sample,
-  sourceName: 'sample-landscape.png',
   paletteKey: 'pico8',
   customColors: [],
   resolution: 128,
@@ -65,9 +76,9 @@ const state: State = {
   sunElevation: 45,
   stripeAngle: 45,
   noiseScale: 1,
-  aoMode: 'none',
+  seed: 1,
   aoIntensity: 1,
-  aoInvert: false,
+  aoDistance: 2,
 };
 
 app.innerHTML = `
@@ -99,7 +110,7 @@ app.innerHTML = `
         <div class="preview-toolbar">
           <div>
             <p class="eyebrow">TEXTURE PREVIEW</p>
-            <h1 id="fileName">${state.sourceName}</h1>
+            <h1 id="fileName">${textures.base.name}</h1>
           </div>
           <div class="toolbar-actions">
             <label class="uv-control" id="uvControl" hidden><span>UV map</span><select id="uvMap" aria-label="Model UV map"></select></label>
@@ -111,6 +122,18 @@ app.innerHTML = `
             </div>
             <span class="dimension-badge" id="dimensionBadge">128 × 92 PX</span>
           </div>
+        </div>
+
+        <div class="texture-ribbon" id="textureRibbon" aria-label="Texture channels">
+          <span class="texture-ribbon-label">Channels</span>
+          ${TEXTURE_CHANNELS.map((channel) => `
+            <div class="texture-slot" data-texture="${channel.id}" tabindex="0" aria-label="${channel.label} texture slot">
+              <span class="texture-slot-preview"><span class="texture-slot-empty-mark">+</span></span>
+              <span class="texture-slot-label">+${channel.label}</span>
+              <button class="texture-slot-clear" data-clear-texture="${channel.id}" type="button" aria-label="Clear ${channel.label}">×</button>
+            </div>
+          `).join('')}
+          <input id="textureInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
         </div>
 
         <div class="canvas-stage" id="dropZone">
@@ -130,12 +153,8 @@ app.innerHTML = `
         <footer class="preview-footer">
           <div class="file-meta">
             <span class="meta-icon">▧</span>
-            <div><strong id="footerFileName">${state.sourceName}</strong><small id="sourceDimensions">640 × 461 source</small></div>
+            <div><strong id="footerFileName">${textures.base.name}</strong><small id="sourceDimensions">640 × 461 source</small></div>
           </div>
-          <label class="button button-secondary file-button">
-            <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-            Replace image
-          </label>
           <label class="button button-secondary file-button">
             <input id="modelInput" type="file" multiple accept=".fbx,.obj,.mtl,.gltf,.glb,.bin,image/*" />
             Load model
@@ -210,6 +229,8 @@ app.innerHTML = `
           <div class="noise-scale-control" id="noiseScaleControl" hidden>
             <label class="control-row"><span><strong>Noise scale</strong><small>Grain size</small></span><output id="noiseScaleValue">1 px</output></label>
             <input class="range" id="noiseScale" type="range" min="1" max="32" value="1" aria-label="Noise scale" />
+            <label class="control-row"><span><strong>Seed</strong><small>Noise pattern</small></span><output id="seedValue">1</output></label>
+            <input class="range" id="seed" type="range" min="0" max="9999" value="1" aria-label="Noise seed" />
           </div>
         </section>
 
@@ -219,19 +240,12 @@ app.innerHTML = `
         </section>
 
         <section class="panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING / 05</p><h2>Baked AO</h2></div></div>
-          <div class="ao-modes" role="group" aria-label="Ambient occlusion source">
-            <button class="active" type="button" data-ao-mode="none">Off</button>
-            <button type="button" data-ao-mode="import">Import</button>
-            <button type="button" data-ao-mode="generate">Generate</button>
-          </div>
-          <div class="ao-import" id="aoImportControl" hidden>
-            <label class="button button-secondary file-button"><input id="aoInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />Import AO image</label>
-            <span class="ao-file-name" id="aoName">No AO image</span>
-          </div>
-          <label class="control-row"><span><strong>AO intensity</strong><small>Occlusion amount</small></span><output id="aoIntensityValue">100%</output></label>
-          <input class="range" id="aoIntensity" type="range" min="0" max="100" value="100" aria-label="Ambient occlusion intensity" />
-          <label class="ao-invert" id="aoInvertControl" hidden><input id="aoInvert" type="checkbox" /> Invert red channel (ORM)</label>
+          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING / 05</p><h2>Ambient occlusion</h2></div></div>
+          <label class="control-row"><span><strong>Strength</strong><small>Occlusion darkness</small></span><output id="aoIntensityValue">100%</output></label>
+          <input class="range" id="aoIntensity" type="range" min="0" max="100" value="100" aria-label="Ambient occlusion strength" />
+          <label class="control-row"><span><strong>Distance</strong><small>Ray reach for generated AO</small></span><output id="aoDistanceValue">2.00×</output></label>
+          <input class="range" id="aoDistance" type="range" min="0.05" max="3" step="0.05" value="2" aria-label="Ambient occlusion distance" />
+          <button class="button button-secondary ao-generate-button" id="generateAoButton" type="button">Generate AO</button>
         </section>
       </aside>
     </main>
@@ -263,15 +277,17 @@ const stripeAngleValue = document.querySelector<HTMLOutputElement>('#stripeAngle
 const noiseScaleControl = document.querySelector<HTMLDivElement>('#noiseScaleControl')!;
 const noiseScaleInput = document.querySelector<HTMLInputElement>('#noiseScale')!;
 const noiseScaleValue = document.querySelector<HTMLOutputElement>('#noiseScaleValue')!;
+const seedInput = document.querySelector<HTMLInputElement>('#seed')!;
+const seedValue = document.querySelector<HTMLOutputElement>('#seedValue')!;
 const toast = document.querySelector<HTMLDivElement>('#toast')!;
 const loadConfigInput = document.querySelector<HTMLInputElement>('#loadConfigInput')!;
-const aoImportControl = document.querySelector<HTMLDivElement>('#aoImportControl')!;
-const aoInput = document.querySelector<HTMLInputElement>('#aoInput')!;
-const aoName = document.querySelector<HTMLSpanElement>('#aoName')!;
+const textureRibbon = document.querySelector<HTMLDivElement>('#textureRibbon')!;
+const textureInput = document.querySelector<HTMLInputElement>('#textureInput')!;
 const aoIntensityInput = document.querySelector<HTMLInputElement>('#aoIntensity')!;
 const aoIntensityValue = document.querySelector<HTMLOutputElement>('#aoIntensityValue')!;
-const aoInvertControl = document.querySelector<HTMLLabelElement>('#aoInvertControl')!;
-const aoInvertInput = document.querySelector<HTMLInputElement>('#aoInvert')!;
+const aoDistanceInput = document.querySelector<HTMLInputElement>('#aoDistance')!;
+const aoDistanceValue = document.querySelector<HTMLOutputElement>('#aoDistanceValue')!;
+const generateAoButton = document.querySelector<HTMLButtonElement>('#generateAoButton')!;
 let savedCustomPalettes = loadCustomPalettes(localStorage);
 let editingCustomKey: string | null = null;
 let toastTimer = 0;
@@ -281,10 +297,8 @@ let originalViewport: ModelViewport | null = null;
 let processedViewport: ModelViewport | null = null;
 let modelUVChannels: string[] = [];
 let modelLodLevels: number[] = [];
-let aoImage: SourceImage | null = null;
-let aoImageName = '';
-let generatedAoCanvas: HTMLCanvasElement | null = null;
 let aoBakeScene: Object3D | null = null;
+let pendingTextureChannel: TextureChannelId | null = null;
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
@@ -314,8 +328,9 @@ function currentColors(): string[] {
 }
 
 function dimensions(): { width: number; height: number } {
-  const width = Math.min(state.resolution, state.source.width);
-  return { width, height: Math.max(1, Math.round(width * state.source.height / state.source.width)) };
+  const source = textures.base.image!;
+  const width = Math.min(state.resolution, source.width);
+  return { width, height: Math.max(1, Math.round(width * source.height / source.width)) };
 }
 
 function updatePreviewBadge(width?: number, height?: number): void {
@@ -349,27 +364,32 @@ function factorsToCanvas(factors: Uint8ClampedArray, size: number): HTMLCanvasEl
 }
 
 function currentAOFactors(width: number, height: number): Uint8ClampedArray | null {
-  if (state.aoMode === 'none') return null;
-  const source = state.aoMode === 'import' ? aoImage : generatedAoCanvas;
+  const source = textures.ao.image;
   if (!source) return null;
-  return imageAOFactors(source, width, height, state.aoMode === 'import' && state.aoInvert);
+  return imageAOFactors(source, width, height);
 }
 
 function computeAO(): void {
   const scene = aoBakeScene;
-  generatedAoCanvas = scene ? factorsToCanvas(bakeMeshAO(scene, AO_BAKE_SIZE, AO_BAKE_SIZE), AO_BAKE_SIZE) : null;
+  if (!scene) {
+    textures.ao.image = null;
+    textures.ao.name = '';
+    return;
+  }
+  textures.ao.image = factorsToCanvas(bakeMeshAO(scene, AO_BAKE_SIZE, AO_BAKE_SIZE, { distance: state.aoDistance }), AO_BAKE_SIZE);
+  textures.ao.name = 'Generated AO';
 }
 
 function generateAo(): void {
-  const scene = aoBakeScene;
-  if (!scene) {
+  if (!aoBakeScene) {
     showToast('Load a model to generate AO');
     return;
   }
   showToast('Generating AO…');
   window.setTimeout(() => {
     try {
-      generatedAoCanvas = factorsToCanvas(bakeMeshAO(scene, AO_BAKE_SIZE, AO_BAKE_SIZE), AO_BAKE_SIZE);
+      computeAO();
+      renderTextureRibbon();
       render();
       showToast('Ambient occlusion generated');
     } catch (error) {
@@ -401,7 +421,7 @@ function render(): void {
   renderedCanvas.height = height;
   const renderContext = renderedCanvas.getContext('2d', { willReadFrequently: true });
   if (!renderContext) return;
-  renderContext.drawImage(state.source, 0, 0, width, height);
+  renderContext.drawImage(textures.base.image!, 0, 0, width, height);
   const sourceData = renderContext.getImageData(0, 0, width, height);
 
   const aoFactors = currentAOFactors(width, height);
@@ -415,7 +435,7 @@ function render(): void {
   renderContext.putImageData(processImageData(sourceData, {
     palette: currentColors(), mode: state.mode, strength: state.strength,
     brightness: state.brightness, contrast: state.contrast, saturation: state.saturation,
-    stripeAngle: state.stripeAngle, noiseScale: state.noiseScale,
+    stripeAngle: state.stripeAngle, noiseScale: state.noiseScale, seed: state.seed,
   }), 0, 0);
 
   previewCanvas.width = width;
@@ -451,13 +471,33 @@ function updatePatternControls(): void {
 }
 
 function updateAOControls(): void {
-  document.querySelectorAll<HTMLButtonElement>('[data-ao-mode]').forEach((button) => button.classList.toggle('active', button.dataset.aoMode === state.aoMode));
-  aoImportControl.hidden = state.aoMode !== 'import';
-  aoInvertControl.hidden = state.aoMode !== 'import';
   aoIntensityInput.value = String(Math.round(state.aoIntensity * 100));
   aoIntensityValue.textContent = `${Math.round(state.aoIntensity * 100)}%`;
-  aoInvertInput.checked = state.aoInvert;
-  aoName.textContent = aoImage ? aoImageName : 'No AO image';
+  aoDistanceInput.value = String(state.aoDistance);
+  aoDistanceValue.textContent = `${state.aoDistance.toFixed(2)}×`;
+}
+
+function renderTextureRibbon(): void {
+  for (const channel of TEXTURE_CHANNELS) {
+    const slotElement = document.querySelector<HTMLElement>(`[data-texture="${channel.id}"]`);
+    if (!slotElement) continue;
+    const data = textures[channel.id];
+    const preview = slotElement.querySelector<HTMLElement>('.texture-slot-preview');
+    const label = slotElement.querySelector<HTMLElement>('.texture-slot-label');
+    slotElement.classList.toggle('filled', !!data.image);
+    if (preview) {
+      if (data.image) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 40;
+        canvas.height = 34;
+        canvas.getContext('2d')?.drawImage(data.image, 0, 0, 40, 34);
+        preview.replaceChildren(canvas);
+      } else {
+        preview.innerHTML = '<span class="texture-slot-empty-mark">+</span>';
+      }
+    }
+    if (label) label.textContent = data.image ? channel.label : `+${channel.label}`;
+  }
 }
 
 function applyModelUV(channel: string): void {
@@ -492,7 +532,6 @@ function closeModelPreview(): void {
   modelLodLevels = [];
   disposeAOScene(aoBakeScene);
   aoBakeScene = null;
-  generatedAoCanvas = null;
   originalModelHost.hidden = true;
   processedModelHost.hidden = true;
   originalCanvas.hidden = false;
@@ -516,7 +555,6 @@ async function setModel(files: File[]): Promise<void> {
     state.uvMap = modelUVChannels[0] ?? 'uv';
     aoBakeScene = buildAOScene(loaded.scene);
     applyLodLevel(aoBakeScene, state.lodLevel);
-    generatedAoCanvas = null;
     originalViewport = new ModelViewport(originalModelHost);
     processedViewport = new ModelViewport(processedModelHost);
     originalViewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
@@ -533,7 +571,6 @@ async function setModel(files: File[]): Promise<void> {
     renderSunControl();
     applySunDirection();
     if (modelUVChannels.length) applyModelUV(state.uvMap);
-    if (state.aoMode === 'generate') computeAO();
     render();
     document.querySelector('#fileName')!.textContent = modelBundle.primary.name;
     showToast(`Loaded ${modelBundle.primary.name}${lodPreparation.collidersRemoved ? ` · ${lodPreparation.collidersRemoved} colliders removed` : ''}`);
@@ -743,9 +780,9 @@ function currentConfig() {
     uvMap: state.uvMap,
     stripeAngle: state.stripeAngle,
     noiseScale: state.noiseScale,
-    aoMode: state.aoMode,
+    seed: state.seed,
     aoIntensity: state.aoIntensity,
-    aoInvert: state.aoInvert,
+    aoDistance: state.aoDistance,
   };
 }
 
@@ -796,9 +833,9 @@ function applyPreset(preset: ConversionPreset): void {
     uvMap: preset.uvMap,
     stripeAngle: preset.stripeAngle,
     noiseScale: preset.noiseScale,
-    aoMode: preset.aoMode,
+    seed: preset.seed,
     aoIntensity: preset.aoIntensity,
-    aoInvert: preset.aoInvert,
+    aoDistance: preset.aoDistance,
     paletteSnapshot: matchesCatalog ? undefined : { ...preset.palette, colors: [...preset.palette.colors] },
     customColors: matchesCatalog ? [] : [...preset.palette.colors],
   });
@@ -812,6 +849,8 @@ function applyPreset(preset: ConversionPreset): void {
   stripeAngleValue.textContent = `${preset.stripeAngle}°`;
   noiseScaleInput.value = String(preset.noiseScale);
   noiseScaleValue.textContent = `${preset.noiseScale} px`;
+  seedInput.value = String(preset.seed);
+  seedValue.textContent = String(preset.seed);
   document.querySelectorAll('[data-mode]').forEach((button) => button.classList.toggle('active', (button as HTMLElement).dataset.mode === preset.mode));
   updatePatternControls();
   updateAOControls();
@@ -836,7 +875,26 @@ function updateResolution(value: number, immediate = false): void {
   else renderScheduler.request();
 }
 
-async function setSource(file: File): Promise<void> {
+function textureLabel(channel: TextureChannelId): string {
+  return TEXTURE_CHANNELS.find((entry) => entry.id === channel)?.label ?? 'Texture';
+}
+
+function clearTexture(channel: TextureChannelId): void {
+  if (channel === 'base') {
+    textures.base.image = sample;
+    textures.base.name = 'sample-landscape.png';
+    document.querySelector('#fileName')!.textContent = textures.base.name;
+    document.querySelector('#footerFileName')!.textContent = textures.base.name;
+    document.querySelector('#sourceDimensions')!.textContent = `${sample.width} × ${sample.height} source`;
+  } else {
+    textures[channel].image = null;
+    textures[channel].name = '';
+  }
+  renderTextureRibbon();
+  render();
+}
+
+async function setTexture(channel: TextureChannelId, file: File): Promise<void> {
   if (!file.type.startsWith('image/')) {
     showToast('Please choose an image file.');
     return;
@@ -844,13 +902,16 @@ async function setSource(file: File): Promise<void> {
   try {
     const image = await loadImageFile(file);
     renderScheduler.cancel();
-    state.source = image;
-    state.sourceName = file.name;
-    if (!modelBundle) document.querySelector('#fileName')!.textContent = file.name;
-    document.querySelector('#footerFileName')!.textContent = file.name;
-    document.querySelector('#sourceDimensions')!.textContent = `${image.width} × ${image.height} source`;
+    textures[channel].image = image;
+    textures[channel].name = file.name;
+    if (channel === 'base') {
+      if (!modelBundle) document.querySelector('#fileName')!.textContent = file.name;
+      document.querySelector('#footerFileName')!.textContent = file.name;
+      document.querySelector('#sourceDimensions')!.textContent = `${image.width} × ${image.height} source`;
+    }
+    renderTextureRibbon();
     render();
-    showToast('Texture loaded');
+    showToast(`${textureLabel(channel)} loaded`);
   } catch (error) {
     showToast(error instanceof Error ? error.message : 'Could not load image.');
   }
@@ -858,7 +919,7 @@ async function setSource(file: File): Promise<void> {
 
 function reset(): void {
   renderScheduler.cancel();
-  Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5, stripeAngle: 45, noiseScale: 1, aoMode: 'none', aoIntensity: 1, aoInvert: false });
+  Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5, stripeAngle: 45, noiseScale: 1, seed: 1, aoIntensity: 1, aoDistance: 2 });
   editingCustomKey = null;
   customPaletteName.value = '';
   customPaletteDescription.value = '';
@@ -868,6 +929,8 @@ function reset(): void {
   stripeAngleValue.textContent = '45°';
   noiseScaleInput.value = '1';
   noiseScaleValue.textContent = '1 px';
+  seedInput.value = '1';
+  seedValue.textContent = '1';
   document.querySelectorAll('[data-mode]').forEach((button) => button.classList.toggle('active', (button as HTMLElement).dataset.mode === 'floyd'));
   updatePatternControls();
   updateAOControls();
@@ -894,6 +957,7 @@ renderAdjustments();
 bindAdjustmentEvents();
 updatePatternControls();
 updateAOControls();
+renderTextureRibbon();
 render();
 
 document.querySelector('#resolution')!.addEventListener('input', (event) => updateResolution(Number((event.target as HTMLInputElement).value)));
@@ -918,28 +982,12 @@ noiseScaleInput.addEventListener('input', (event) => {
   renderScheduler.request();
 });
 noiseScaleInput.addEventListener('change', renderScheduler.flush);
-document.querySelectorAll<HTMLButtonElement>('[data-ao-mode]').forEach((button) => button.addEventListener('click', () => {
-  state.aoMode = button.dataset.aoMode as AoMode;
-  updateAOControls();
-  if (state.aoMode === 'generate') generateAo();
-  else render();
-}));
-aoInput.addEventListener('change', async () => {
-  const file = aoInput.files?.[0];
-  if (!file) return;
-  try {
-    const image = await loadImageFile(file);
-    aoImage = image;
-    aoImageName = file.name;
-    aoName.textContent = file.name;
-    render();
-    showToast('AO image loaded');
-  } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Could not load AO image.');
-  } finally {
-    aoInput.value = '';
-  }
+seedInput.addEventListener('input', (event) => {
+  state.seed = Number((event.target as HTMLInputElement).value);
+  seedValue.textContent = String(state.seed);
+  renderScheduler.request();
 });
+seedInput.addEventListener('change', renderScheduler.flush);
 aoIntensityInput.addEventListener('input', (event) => {
   const value = Number((event.target as HTMLInputElement).value);
   state.aoIntensity = value / 100;
@@ -947,10 +995,12 @@ aoIntensityInput.addEventListener('input', (event) => {
   renderScheduler.request();
 });
 aoIntensityInput.addEventListener('change', renderScheduler.flush);
-aoInvertInput.addEventListener('change', () => {
-  state.aoInvert = aoInvertInput.checked;
-  render();
+aoDistanceInput.addEventListener('input', (event) => {
+  state.aoDistance = Number((event.target as HTMLInputElement).value);
+  aoDistanceValue.textContent = `${state.aoDistance.toFixed(2)}×`;
 });
+aoDistanceInput.addEventListener('change', renderScheduler.flush);
+generateAoButton.addEventListener('click', generateAo);
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.addEventListener('click', () => {
   state.mode = button.dataset.mode as DitherMode;
   document.querySelectorAll('[data-mode]').forEach((item) => item.classList.toggle('active', item === button));
@@ -1053,8 +1103,45 @@ importCustomPaletteInput.addEventListener('change', async () => {
   }
 });
 
-const fileInput = document.querySelector<HTMLInputElement>('#fileInput')!;
-fileInput.addEventListener('change', () => { const file = fileInput.files?.[0]; if (file) void setSource(file); });
+textureRibbon.addEventListener('click', (event) => {
+  const target = event.target as HTMLElement;
+  const clearButton = target.closest<HTMLButtonElement>('[data-clear-texture]');
+  if (clearButton?.dataset.clearTexture) {
+    clearTexture(clearButton.dataset.clearTexture as TextureChannelId);
+    return;
+  }
+  const slot = target.closest<HTMLElement>('[data-texture]');
+  if (!slot?.dataset.texture) return;
+  pendingTextureChannel = slot.dataset.texture as TextureChannelId;
+  textureInput.click();
+});
+textureRibbon.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const target = event.target as HTMLElement;
+  const slot = target.closest<HTMLElement>('[data-texture]');
+  if (!slot?.dataset.texture || target.closest('button')) return;
+  event.preventDefault();
+  pendingTextureChannel = slot.dataset.texture as TextureChannelId;
+  textureInput.click();
+});
+textureInput.addEventListener('change', () => {
+  const file = textureInput.files?.[0];
+  textureInput.value = '';
+  const channel = pendingTextureChannel;
+  pendingTextureChannel = null;
+  if (file && channel) void setTexture(channel, file);
+});
+TEXTURE_CHANNELS.forEach((channel) => {
+  const slot = document.querySelector<HTMLElement>(`[data-texture="${channel.id}"]`);
+  if (!slot) return;
+  ['dragenter', 'dragover'].forEach((type) => slot.addEventListener(type, (event) => { event.preventDefault(); slot.classList.add('dragging'); }));
+  ['dragleave', 'drop'].forEach((type) => slot.addEventListener(type, (event) => { event.preventDefault(); slot.classList.remove('dragging'); }));
+  slot.addEventListener('drop', (event) => {
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    const image = files.find((file) => file.type.startsWith('image/'));
+    if (image) void setTexture(channel.id, image);
+  });
+});
 const modelInput = document.querySelector<HTMLInputElement>('#modelInput')!;
 modelInput.addEventListener('change', () => {
   const files = Array.from(modelInput.files ?? []);
@@ -1077,7 +1164,7 @@ const dropZone = document.querySelector<HTMLDivElement>('#dropZone')!;
 dropZone.addEventListener('drop', (event) => {
   const files = Array.from(event.dataTransfer?.files ?? []);
   if (files.some((file) => modelFormat(file.name))) void setModel(files);
-  else if (files[0]) void setSource(files[0]);
+  else if (files[0]) void setTexture('base', files[0]);
 });
 loadConfigInput.addEventListener('change', async () => {
   const file = loadConfigInput.files?.[0];
@@ -1093,7 +1180,7 @@ document.querySelector('#saveButton')!.addEventListener('click', saveConfig);
 document.querySelector('#loadButton')!.addEventListener('click', loadConfig);
 document.querySelector('#resetButton')!.addEventListener('click', reset);
 document.querySelector('#exportButton')!.addEventListener('click', () => {
-  const safeName = state.sourceName.replace(/\.[^.]+$/, '').replace(/[^a-z0-9-_]+/gi, '-');
+  const safeName = textures.base.name.replace(/\.[^.]+$/, '').replace(/[^a-z0-9-_]+/gi, '-');
   downloadCanvas(renderedCanvas, `${safeName}-dithered.png`);
   showToast(`Exported ${renderedCanvas.width} × ${renderedCanvas.height} PNG`);
 });

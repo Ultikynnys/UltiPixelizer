@@ -11,6 +11,7 @@ export type ProcessOptions = {
   saturation: number;
   stripeAngle: number;
   noiseScale: number;
+  seed: number;
 };
 
 type RGB = [number, number, number];
@@ -25,7 +26,7 @@ const BAYER_4 = [
 const thresholdModes = new Set<DitherMode>(['ordered', 'cross', 'stripes', 'noise', 'checker']);
 const clamp = (value: number) => Math.max(0, Math.min(255, value));
 
-export function patternThreshold(mode: DitherMode, x: number, y: number, stripeAngle = 45, noiseScale = 1): number {
+export function patternThreshold(mode: DitherMode, x: number, y: number, stripeAngle = 45, noiseScale = 1, seed = 0): number {
   switch (mode) {
     case 'ordered':
       return BAYER_4[y % 4][x % 4] / 15;
@@ -43,7 +44,7 @@ export function patternThreshold(mode: DitherMode, x: number, y: number, stripeA
     case 'noise': {
       const cellX = Math.floor(x / noiseScale);
       const cellY = Math.floor(y / noiseScale);
-      let hash = Math.imul(cellX, 374761393) + Math.imul(cellY, 668265263);
+      let hash = Math.imul(cellX, 374761393) + Math.imul(cellY, 668265263) + Math.imul(seed | 0, 2246822519);
       hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
       hash ^= hash >>> 16;
       return (hash >>> 0) / 4294967296;
@@ -115,7 +116,7 @@ export function processImageData(source: ImageData, options: ProcessOptions): Im
       let current: RGB = [work[workIndex], work[workIndex + 1], work[workIndex + 2]];
 
       if (thresholdModes.has(options.mode)) {
-        const offset = (patternThreshold(options.mode, x, y, options.stripeAngle, options.noiseScale) - 0.5) * 96 * options.strength;
+        const offset = (patternThreshold(options.mode, x, y, options.stripeAngle, options.noiseScale, options.seed) - 0.5) * 96 * options.strength;
         current = [clamp(current[0] + offset), clamp(current[1] + offset), clamp(current[2] + offset)];
       }
 

@@ -37,7 +37,7 @@ describe('bakeMeshAO', () => {
     ], 3));
     scene.add(new Mesh(ceiling, new MeshBasicMaterial()));
 
-    const factors = bakeMeshAO(scene, 8, 8, { samples: 16, maxDistance: 1, random: seededRandom(2) });
+    const factors = bakeMeshAO(scene, 8, 8, { samples: 16, distance: 1, random: seededRandom(2) });
     const center = factors[4 * 8 + 4];
     expect(Math.min(...Array.from(factors))).toBeLessThan(255);
     expect(center).toBeLessThan(200);

@@ -31,6 +31,7 @@ const options = (mode: DitherMode) => ({
   saturation: 0,
   stripeAngle: 45,
   noiseScale: 1,
+  seed: 1,
 });
 
 describe('palette helpers', () => {
@@ -126,6 +127,26 @@ describe('dithering engine', () => {
   it('scales the noise grain', () => {
     expect(patternThreshold('noise', 0, 0, 45, 8)).toBe(patternThreshold('noise', 7, 7, 45, 8));
     expect(patternThreshold('noise', 0, 0, 45, 1)).toBe(0);
+  });
+
+  it('derives the noise pattern from the seed', () => {
+    expect(patternThreshold('noise', 2, 3, 45, 1, 5)).toBe(patternThreshold('noise', 2, 3, 45, 1, 5));
+    expect(patternThreshold('noise', 2, 3, 45, 1, 5)).not.toBe(patternThreshold('noise', 2, 3, 45, 1, 6));
+  });
+
+  it('keeps the noise pattern stable for a fixed seed', () => {
+    const first = Array.from({ length: 32 }, (_, index) => patternThreshold('noise', index % 8, Math.floor(index / 8), 45, 1, 42));
+    const second = Array.from({ length: 32 }, (_, index) => patternThreshold('noise', index % 8, Math.floor(index / 8), 45, 1, 42));
+    expect(first).toEqual(second);
+  });
+
+  it('renders noise dithering deterministically for a fixed seed', () => {
+    const source = imageData(sourcePixels, 3);
+    const first = processImageData(source, { ...options('noise'), seed: 42 });
+    const second = processImageData(source, { ...options('noise'), seed: 42 });
+    const other = processImageData(source, { ...options('noise'), seed: 43 });
+    expect([...first.data]).toEqual([...second.data]);
+    expect([...first.data]).not.toEqual([...other.data]);
   });
 
   it('keeps the noise threshold high-frequency with no long block runs', () => {

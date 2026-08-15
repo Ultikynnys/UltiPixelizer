@@ -1,4 +1,15 @@
-export function createSampleTexture(size = 640): HTMLCanvasElement {
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function createSampleTexture(size = 640, seed = 1): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = Math.round(size * 0.72);
@@ -31,8 +42,9 @@ export function createSampleTexture(size = 640): HTMLCanvasElement {
   context.fill();
 
   const noise = context.getImageData(0, 0, canvas.width, canvas.height);
+  const random = mulberry32(seed);
   for (let i = 0; i < noise.data.length; i += 4) {
-    const grain = (Math.random() - 0.5) * 25;
+    const grain = (random() - 0.5) * 25;
     noise.data[i] += grain;
     noise.data[i + 1] += grain;
     noise.data[i + 2] += grain;
