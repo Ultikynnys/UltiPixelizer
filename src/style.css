@@ -49,8 +49,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
 .eyebrow { color: var(--accent); font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500; letter-spacing: .15em; margin: 0 0 7px; }
 .preview-toolbar h1 { font-size: 14px; font-weight: 600; margin: 0; max-width: 45vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .toolbar-actions { align-items: center; display: flex; gap: 10px; }
-.icon-button { background: #2b2b29; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; font-size: 17px; height: 34px; width: 38px; }
-.icon-button:hover, .icon-button[aria-pressed='true'] { border-color: var(--paper); }
 .dimension-badge, .value-pill { background: #31312e; border: 1px solid #454541; border-radius: 3px; color: #b9b9af; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .08em; padding: 9px 11px; }
 
 .canvas-stage {
@@ -58,13 +56,13 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
   background-position: 0 0,0 8px,8px -8px,-8px 0; background-size: 16px 16px; display: flex; justify-content: center; min-height: 0; overflow: hidden; padding: 38px; position: relative;
 }
 .canvas-stage.dragging { box-shadow: inset 0 0 0 2px var(--lime); }
-.canvas-wrap { max-height: 100%; max-width: 100%; position: relative; }
-.canvas-wrap canvas { display: block; image-rendering: pixelated; max-height: calc(100vh - 290px); max-width: 100%; min-height: 220px; min-width: 280px; object-fit: contain; width: auto; }
-#previewCanvas { box-shadow: 0 22px 70px rgba(0,0,0,.38); }
-.original-overlay { inset: 0; opacity: 0; pointer-events: none; position: absolute; transition: opacity .12s; }
-.original-overlay.visible { opacity: 1; }
-.original-overlay canvas { height: 100%; width: 100%; }
-.original-overlay span { background: var(--paper); color: var(--ink); font: 500 9px 'DM Mono', monospace; left: 10px; padding: 5px 7px; position: absolute; top: 10px; }
+.comparison-grid { align-items: center; display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 100%; max-width: 100%; width: 100%; }
+.preview-pane { display: grid; gap: 8px; margin: 0; min-width: 0; }
+.preview-pane figcaption { align-items: center; color: var(--paper); display: flex; font: 500 9px 'DM Mono', monospace; gap: 7px; letter-spacing: .1em; text-transform: uppercase; }
+.preview-pane figcaption span { color: var(--accent); }
+.canvas-frame { align-items: center; background: #171716; border: 1px solid #3d3d39; display: flex; justify-content: center; min-width: 0; overflow: hidden; }
+.preview-pane canvas { display: block; image-rendering: pixelated; max-height: calc(100vh - 315px); max-width: 100%; min-width: 0; object-fit: contain; width: 100%; }
+.processed-pane .canvas-frame { border-color: #57574f; box-shadow: 0 22px 70px rgba(0,0,0,.32); }
 .drop-hint { background: rgba(23,23,22,.85); border: 1px solid var(--line); bottom: 18px; color: var(--muted); font: 400 9px 'DM Mono', monospace; letter-spacing: .08em; opacity: 0; padding: 8px 10px; position: absolute; text-transform: uppercase; transform: translateY(6px); transition: .2s; }
 .canvas-stage:hover .drop-hint, .canvas-stage.dragging .drop-hint { opacity: 1; transform: none; }
 .preview-footer { align-items: center; border-top: 1px solid var(--line); display: grid; gap: 12px; grid-template-columns: 1fr auto auto; min-height: 82px; padding: 15px 28px; }
@@ -147,7 +145,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
   .workspace { grid-template-columns: 1fr; }
   .control-column { border-left: 0; border-top: 1px solid var(--line); max-height: none; }
   .canvas-stage { min-height: 58vh; }
-  .canvas-wrap canvas { max-height: 50vh; }
+  .preview-pane canvas { max-height: 50vh; }
   .control-column { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
   .panel, .privacy-note { border-right: 1px solid var(--line); }
   .intro-panel { grid-column: span 2; }
@@ -158,8 +156,11 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
   .workspace { min-height: calc(100vh - 62px); }
   .preview-toolbar { min-height: 74px; padding: 14px 16px; }
   .preview-toolbar h1 { max-width: 48vw; }
-  .canvas-stage { min-height: 52vh; padding: 18px; }
-  .canvas-wrap canvas { min-height: 160px; min-width: 0; width: 100%; }
+  .canvas-stage { min-height: 52vh; padding: 18px 10px; }
+  .comparison-grid { gap: 8px; }
+  .preview-pane { gap: 6px; }
+  .preview-pane figcaption { font-size: 8px; }
+  .preview-pane canvas { min-width: 0; width: 100%; }
   .preview-footer { grid-template-columns: 1fr 1fr; padding: 13px 16px; }
   .file-meta { grid-column: span 2; }
   .button { padding: 11px 12px; }

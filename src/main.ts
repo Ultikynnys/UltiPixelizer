@@ -17,7 +17,6 @@ type State = {
   brightness: number;
   contrast: number;
   saturation: number;
-  compare: boolean;
   paletteFilter: PaletteCategory | 'all';
 };
 
@@ -40,7 +39,6 @@ const state: State = {
   brightness: 0,
   contrast: 8,
   saturation: 5,
-  compare: false,
   paletteFilter: 'all',
 };
 
@@ -63,15 +61,20 @@ app.innerHTML = `
             <h1 id="fileName">${state.sourceName}</h1>
           </div>
           <div class="toolbar-actions">
-            <button class="icon-button" id="compareButton" type="button" aria-pressed="false" title="Hold to compare original">◐</button>
             <span class="dimension-badge" id="dimensionBadge">128 × 92 PX</span>
           </div>
         </div>
 
         <div class="canvas-stage" id="dropZone">
-          <div class="canvas-wrap">
-            <canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas>
-            <div class="original-overlay" id="originalOverlay"><canvas id="originalCanvas"></canvas><span>ORIGINAL</span></div>
+          <div class="comparison-grid" aria-label="Original and dithered texture comparison">
+            <figure class="preview-pane original-pane">
+              <figcaption><span>01</span> Original</figcaption>
+              <div class="canvas-frame"><canvas id="originalCanvas" aria-label="Original texture preview"></canvas></div>
+            </figure>
+            <figure class="preview-pane processed-pane">
+              <figcaption><span>02</span> Dithered</figcaption>
+              <div class="canvas-frame"><canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas></div>
+            </figure>
           </div>
           <div class="drop-hint" id="dropHint">Drop an image anywhere</div>
         </div>
@@ -159,7 +162,6 @@ app.innerHTML = `
 
 const previewCanvas = document.querySelector<HTMLCanvasElement>('#previewCanvas')!;
 const originalCanvas = document.querySelector<HTMLCanvasElement>('#originalCanvas')!;
-const originalOverlay = document.querySelector<HTMLDivElement>('#originalOverlay')!;
 const paletteGrid = document.querySelector<HTMLDivElement>('#paletteGrid')!;
 const paletteFilters = document.querySelector<HTMLDivElement>('#paletteFilters')!;
 const activeSwatches = document.querySelector<HTMLDivElement>('#activeSwatches')!;
@@ -352,12 +354,6 @@ const dropZone = document.querySelector<HTMLDivElement>('#dropZone')!;
 ['dragenter', 'dragover'].forEach((type) => dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.add('dragging'); }));
 ['dragleave', 'drop'].forEach((type) => dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.remove('dragging'); }));
 dropZone.addEventListener('drop', (event) => { const file = event.dataTransfer?.files[0]; if (file) void setSource(file); });
-const compareButton = document.querySelector<HTMLButtonElement>('#compareButton')!;
-const compare = (active: boolean) => { originalOverlay.classList.toggle('visible', active); compareButton.setAttribute('aria-pressed', String(active)); };
-compareButton.addEventListener('pointerdown', () => compare(true));
-compareButton.addEventListener('pointerup', () => compare(false));
-compareButton.addEventListener('pointerleave', () => compare(false));
-compareButton.addEventListener('click', () => { state.compare = !state.compare; compare(state.compare); });
 document.querySelector('#resetButton')!.addEventListener('click', reset);
 document.querySelector('#exportButton')!.addEventListener('click', () => {
   const safeName = state.sourceName.replace(/\.[^.]+$/, '').replace(/[^a-z0-9-_]+/gi, '-');
