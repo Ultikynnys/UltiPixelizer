@@ -27,6 +27,30 @@ function parseColor(color: string): RGB {
   return [red / 255, green / 255, blue / 255];
 }
 
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * Combines ambient and directional illumination additively. Each term is clamped
+ * to [0, 1] before summing so a single light can never exceed full intensity;
+ * the total is clamped again to keep white as the ceiling.
+ */
+function combineLight(
+  ambientColor: RGB,
+  sunColor: RGB,
+  ambientScale: number,
+  sunScale: number,
+  lambert: number,
+  sunVisibility: number,
+): RGB {
+  return [0, 1, 2].map((channel) => {
+    const ambient = clamp01(ambientColor[channel] * ambientScale);
+    const sun = clamp01(sunColor[channel] * sunScale * lambert * sunVisibility);
+    return clamp01(ambient + sun);
+  }) as RGB;
+}
+
 /**
  * Builds an orthonormal tangent/bitangent/normal basis for a triangle from its
  * world-space positions and UVs (MikkTSpace-style). The geometric normal is the
@@ -83,9 +107,9 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
   const rayDirection = normalizeDirection(options.sunDirection);
   const directionToSun = new Vector3(-rayDirection.x, -rayDirection.y, -rayDirection.z);
   const sunColor = parseColor(options.sunColor);
-  const ambientColor = options.ambientEnabled === false ? [1, 1, 1] : parseColor(options.ambientColor);
-  const ambientScale = options.ambientEnabled === false ? 1 : Math.max(0, options.ambientIntensity) / Math.PI;
-  const sunScale = options.sunEnabled === false ? 0 : Math.max(0, options.sunIntensity) / Math.PI;
+  const ambientColor: RGB = options.ambientEnabled === false ? [1, 1, 1] : parseColor(options.ambientColor);
+  const ambientScale = options.ambientEnabled === false ? 1 : clamp01(options.ambientIntensity);
+  const sunScale = options.sunEnabled === false ? 0 : clamp01(options.sunIntensity);
   const normalMap = options.normalMap;
   const normalStrength = Math.min(1, Math.max(0, options.normalStrength ?? 1));
   const normalFlipY = options.normalFlipY ?? false;
@@ -104,9 +128,7 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
       if (bvh.raycastFirst(_ray, DoubleSide, epsilon)) sunVisibility = 0;
     }
     visibility[i] = sunVisibility;
-    lights[i] = [0, 1, 2].map((channel) => Math.min(1,
-      ambientColor[channel] * ambientScale + sunColor[channel] * sunScale * lambert * sunVisibility,
-    )) as RGB;
+    lights[i] = combineLight(ambientColor, sunColor, ambientScale, sunScale, lambert, sunVisibility);
   }
 
   const tangentBases = normalMap
@@ -138,10 +160,10 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
       const sunVisibility = w0 * visibility[triangle.verts[0]]
         + w1 * visibility[triangle.verts[1]]
         + w2 * visibility[triangle.verts[2]];
-      for (let channel = 0; channel < 3; channel += 1) {
-        const value = Math.min(1, ambientColor[channel] * ambientScale + sunColor[channel] * sunScale * lambert * sunVisibility);
-        pixels[offset + channel] = Math.round(value * 255);
-      }
+      const light = combineLight(ambientColor, sunColor, ambientScale, sunScale, lambert, sunVisibility);
+      pixels[offset] = Math.round(light[0] * 255);
+      pixels[offset + 1] = Math.round(light[1] * 255);
+      pixels[offset + 2] = Math.round(light[2] * 255);
     } else {
       for (let channel = 0; channel < 3; channel += 1) {
         const value = w0 * lights[triangle.verts[0]][channel]

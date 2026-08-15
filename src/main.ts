@@ -87,10 +87,10 @@ const sunOverlayMarkup = (): string => `
     <button class="orient-sun-button" id="orientSunWithCamera" type="button" title="Copy the Original 3D viewport angle to the sun">Orient Sun with Camera</button>
     <div class="light-controls">
       <label class="light-color-control"><span>Sun color</span>${colorControl('#ffffff', 'Sun color', 'id="sunColor"')}</label>
-      ${rangeControl('sunIntensity', 'Sun intensity', 0, 10, 0.1, 2.8)}
+      ${rangeControl('sunIntensity', 'Sun intensity', 0, 1, 0.01, DEFAULT_SUN_INTENSITY)}
       <div class="light-section-title ambient-heading"><span>Ambient</span><label class="sun-toggle" title="Toggle ambient lighting"><input id="ambientEnabled" type="checkbox" checked aria-label="Toggle ambient lighting" /><span aria-hidden="true"></span></label></div>
       <label class="light-color-control"><span>Color</span>${colorControl('#ffffff', 'Ambient light color', 'id="ambientColor"')}</label>
-      ${rangeControl('ambientIntensity', 'Intensity', 0, 5, 0.1, 2.2)}
+      ${rangeControl('ambientIntensity', 'Intensity', 0, 1, 0.01, DEFAULT_AMBIENT_INTENSITY)}
     </div>
     <div class="lightmap-active-label" role="status">Lightmap Active</div>
   </div>
@@ -769,11 +769,11 @@ function renderSunControl(): void {
   sunControlElements.color.value = state.sun.color;
   syncColorChip(sunControlElements.color);
   sunControlElements.intensity.value = String(state.sun.intensity);
-  sunControlElements.intensityValue.textContent = state.sun.intensity.toFixed(1);
+  sunControlElements.intensityValue.textContent = state.sun.intensity.toFixed(2);
   sunControlElements.ambientColor.value = state.ambient.color;
   syncColorChip(sunControlElements.ambientColor);
   sunControlElements.ambientIntensity.value = String(state.ambient.intensity);
-  sunControlElements.ambientIntensityValue.textContent = state.ambient.intensity.toFixed(1);
+  sunControlElements.ambientIntensityValue.textContent = state.ambient.intensity.toFixed(2);
 }
 
 function updatePatternControls(): void {
@@ -854,7 +854,7 @@ function applySun(): void {
     viewport.setSunColor(state.sun.color);
     viewport.setSunIntensity(state.sun.intensity);
     viewport.setAmbientColor(ambientNeutral ? '#ffffff' : state.ambient.color);
-    viewport.setAmbientIntensity(ambientNeutral ? Math.PI : state.ambient.intensity);
+    viewport.setAmbientIntensity(ambientNeutral ? 1 : state.ambient.intensity);
   });
   scheduleImplicitLightmapBake();
 }

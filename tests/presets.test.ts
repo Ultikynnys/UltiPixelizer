@@ -37,7 +37,7 @@ const config: ConversionConfig = {
   aoScale: 1,
   aoDistance: 2,
   sunColor: '#ffd8a8',
-  sunIntensity: 3.4,
+  sunIntensity: 0.9,
   ambientColor: '#8fb4ff',
   ambientIntensity: 0.6,
   lightmapContribution: 0.75,
@@ -86,9 +86,9 @@ describe('conversion presets', () => {
     const { sunColor: _sunColor, sunIntensity: _sunIntensity, ambientColor: _ambientColor, ambientIntensity: _ambientIntensity, ...legacy } = current;
     const parsed = parsePreset(JSON.stringify({ ...legacy, version: 2 }));
     expect(parsed.sunColor).toBe('#ffffff');
-    expect(parsed.sunIntensity).toBe(2.8);
+    expect(parsed.sunIntensity).toBe(1);
     expect(parsed.ambientColor).toBe('#ffffff');
-    expect(parsed.ambientIntensity).toBe(2.2);
+    expect(parsed.ambientIntensity).toBe(0.7);
   });
 
   it('rejects empty names, malformed JSON, invalid exports, and unsupported settings', () => {

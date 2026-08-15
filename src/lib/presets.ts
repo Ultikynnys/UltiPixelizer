@@ -6,7 +6,7 @@ import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { NormalFormat } from './normal';
 export type { StorageLike } from './storage';
 
-export const PRESET_VERSION = 4;
+export const PRESET_VERSION = 5;
 export const PRESET_STORAGE_KEY = 'ultipixelizer:conversion-presets:v1';
 
 export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'none'];
@@ -71,9 +71,9 @@ export function isConversionPreset(value: unknown): value is ConversionPreset {
     && finiteInRange(preset.aoScale, 0, 2)
     && finiteInRange(preset.aoDistance, 0.05, 3)
     && typeof preset.sunColor === 'string' && isHexColor(preset.sunColor)
-    && finiteInRange(preset.sunIntensity, 0, 10)
+    && finiteInRange(preset.sunIntensity, 0, 1)
     && typeof preset.ambientColor === 'string' && isHexColor(preset.ambientColor)
-    && finiteInRange(preset.ambientIntensity, 0, 5)
+    && finiteInRange(preset.ambientIntensity, 0, 1)
     && finiteInRange(preset.lightmapContribution, 0, 1)
     && finiteInRange(preset.normalStrength, 0, 1)
     && (preset.normalFormat === 'opengl' || preset.normalFormat === 'directx')
@@ -107,7 +107,17 @@ function migratePreset(value: unknown): unknown {
     preset = { ...rest, version: 2, aoBias: 0, aoScale: typeof aoIntensity === 'number' ? aoIntensity : 1 };
   }
   if (preset.version === 2) preset = { ...preset, version: 3 };
-  if (preset.version === 3) preset = { ...preset, version: PRESET_VERSION };
+  if (preset.version === 3) preset = { ...preset, version: 4 };
+  if (preset.version === 4) {
+    // v4 stored three.js physical light intensities (sun 0-10, ambient 0-5).
+    // v5 treats them as direct [0, 1] multipliers, so rescale by 1/pi to keep the look.
+    preset = {
+      ...preset,
+      version: PRESET_VERSION,
+      sunIntensity: typeof preset.sunIntensity === 'number' ? Math.min(1, Math.max(0, preset.sunIntensity / Math.PI)) : preset.sunIntensity,
+      ambientIntensity: typeof preset.ambientIntensity === 'number' ? Math.min(1, Math.max(0, preset.ambientIntensity / Math.PI)) : preset.ambientIntensity,
+    };
+  }
   if (preset.version !== PRESET_VERSION) return value;
   const migrated: Record<string, unknown> = { ...preset };
   if (migrated.mode === 'diagonal') {

@@ -6,7 +6,7 @@ const defaults: BakeLightmapOptions = {
   // Orthographic rays travel down camera-local forward (-Z) onto the default +Z plane face.
   sunDirection: { x: 0, y: 0, z: -1 },
   sunColor: '#ffffff',
-  sunIntensity: Math.PI,
+  sunIntensity: 1,
   ambientColor: '#000000',
   ambientIntensity: 0,
 };
@@ -24,7 +24,7 @@ describe('bakeMeshLightmap', () => {
       ...defaults,
       sunEnabled: false,
       ambientColor: '#804020',
-      ambientIntensity: Math.PI,
+      ambientIntensity: 1,
     });
     expect(centerRGB(pixels)).toEqual([128, 64, 32]);
   });
@@ -44,7 +44,7 @@ describe('bakeMeshLightmap', () => {
     const pixels = bakeMeshLightmap(scene, 8, 8, {
       ...defaults,
       ambientColor: '#404040',
-      ambientIntensity: Math.PI,
+      ambientIntensity: 1,
     });
     expect(centerRGB(pixels)).toEqual([64, 64, 64]);
   });
@@ -113,5 +113,28 @@ describe('bakeMeshLightmap', () => {
     const tilted = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ffffff', normalMap: tilt });
     const flatResult = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ffffff', normalMap: flat });
     expect(centerRGB(tilted)[0]).toBeLessThan(centerRGB(flatResult)[0]);
+  });
+
+  it('keeps a full-strength sun at white regardless of ambient', () => {
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const sunOnly = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunIntensity: 1, ambientIntensity: 0 });
+    const withAmbient = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunIntensity: 1, ambientIntensity: 0.5 });
+    expect(centerRGB(sunOnly)).toEqual([255, 255, 255]);
+    expect(centerRGB(withAmbient)).toEqual([255, 255, 255]);
+  });
+
+  it('adds ambient to sun rather than subtracting it', () => {
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const pixels = bakeMeshLightmap(scene, 8, 8, {
+      ...defaults,
+      sunColor: '#ffffff',
+      sunIntensity: 0.5,
+      ambientColor: '#ffffff',
+      ambientIntensity: 0.25,
+    });
+    // 0.5 (sun) + 0.25 (ambient) = 0.75 -> 191/255.
+    expect(centerRGB(pixels)).toEqual([191, 191, 191]);
   });
 });

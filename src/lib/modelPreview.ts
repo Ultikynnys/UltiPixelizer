@@ -79,8 +79,8 @@ export class ModelViewport {
   private readonly controls: OrbitControls;
   private readonly timer = new Timer();
   private readonly resizeObserver: ResizeObserver;
-  private readonly sun = new DirectionalLight(0xffffff, DEFAULT_SUN_INTENSITY);
-  private readonly ambient = new AmbientLight(0xffffff, DEFAULT_AMBIENT_INTENSITY);
+  private readonly sun = new DirectionalLight(0xffffff, DEFAULT_SUN_INTENSITY * Math.PI);
+  private readonly ambient = new AmbientLight(0xffffff, DEFAULT_AMBIENT_INTENSITY * Math.PI);
   private readonly axes = new AxesHelper(1);
   private model: Object3D | null = null;
   private mixer: AnimationMixer | null = null;
@@ -177,7 +177,7 @@ export class ModelViewport {
   }
 
   setSunIntensity(intensity: number): void {
-    this.sun.intensity = intensity;
+    this.sun.intensity = intensity * Math.PI;
   }
 
   setAmbientColor(color: string): void {
@@ -185,7 +185,7 @@ export class ModelViewport {
   }
 
   setAmbientIntensity(intensity: number): void {
-    this.ambient.intensity = intensity;
+    this.ambient.intensity = intensity * Math.PI;
   }
 
   private fitAxesToModel(): void {
