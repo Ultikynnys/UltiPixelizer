@@ -4,8 +4,13 @@ import {
   AxesHelper,
   AnimationMixer,
   Box3,
+  BufferGeometry,
   DirectionalLight,
+  DoubleSide,
+  Float32BufferAttribute,
   LoadingManager,
+  Mesh,
+  MeshBasicMaterial,
   Object3D,
   PerspectiveCamera,
   Quaternion,
@@ -84,7 +89,11 @@ export class ModelViewport {
   private readonly axes = new AxesHelper(1);
   private model: Object3D | null = null;
   private mixer: AnimationMixer | null = null;
+  private overlapOverlay: Mesh | null = null;
   private frame = 0;
+
+  /** Invoked whenever the orbit camera moves (drag, damping, or programmatic fit). */
+  onCameraChange?: () => void;
 
   constructor(private readonly host: HTMLElement) {
     this.renderer = new WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
@@ -94,6 +103,7 @@ export class ModelViewport {
     host.append(this.renderer.domElement);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
+    this.controls.addEventListener('change', () => this.onCameraChange?.());
     this.scene.add(this.ambient);
     this.scene.add(this.axes);
     this.sun.position.set(3, 5, 4);
@@ -109,6 +119,7 @@ export class ModelViewport {
       this.scene.remove(this.model);
       disposeModel(this.model);
     }
+    this.removeOverlapOverlay();
     this.model = model;
     this.scene.add(model);
     this.fitAxesToModel();
@@ -118,6 +129,7 @@ export class ModelViewport {
     this.mixer = animations.length ? new AnimationMixer(model) : null;
     if (this.mixer && !matchMedia('(prefers-reduced-motion: reduce)').matches) this.mixer.clipAction(animations[0]).play();
     this.resize();
+    this.onCameraChange?.();
   }
 
   setWorldAxis(worldAxis: WorldAxis): void {
@@ -127,6 +139,7 @@ export class ModelViewport {
     const target = fitCameraToObject(this.camera, this.model, this.host.clientWidth / Math.max(this.host.clientHeight, 1));
     this.controls.target.copy(target);
     this.controls.update();
+    this.onCameraChange?.();
   }
 
   applyImage(image: CanvasImageSource): number {
@@ -152,6 +165,65 @@ export class ModelViewport {
 
   applyLOD(level: number): number {
     return this.model ? applyLodLevel(this.model, level) : 0;
+  }
+
+  /**
+   * Highlights overlapping UV triangles as a translucent red overlay. The map
+   * keys are mesh traversal indices (matching `collectUVTriangles`), values are
+   * triangle indices. Passing null (or an empty map) removes the overlay.
+   */
+  setUVOverlap(overlapping: Map<number, number[]> | null): void {
+    this.removeOverlapOverlay();
+    if (!overlapping || overlapping.size === 0 || !this.model) return;
+
+    this.model.updateMatrixWorld(true);
+    const positions: number[] = [];
+    const v = new Vector3();
+    let meshIndex = 0;
+    this.model.traverse((child) => {
+      if (!(child instanceof Mesh)) return;
+      const triangleIndices = overlapping.get(meshIndex);
+      meshIndex += 1;
+      if (!triangleIndices || triangleIndices.length === 0) return;
+
+      const position = child.geometry.getAttribute('position');
+      if (!position) return;
+      const index = child.geometry.getIndex();
+      for (const triangleIndex of triangleIndices) {
+        const ia = index ? index.getX(triangleIndex * 3) : triangleIndex * 3;
+        const ib = index ? index.getX(triangleIndex * 3 + 1) : triangleIndex * 3 + 1;
+        const ic = index ? index.getX(triangleIndex * 3 + 2) : triangleIndex * 3 + 2;
+        for (const vertexIndex of [ia, ib, ic]) {
+          v.fromBufferAttribute(position, vertexIndex).applyMatrix4(child.matrixWorld);
+          positions.push(v.x, v.y, v.z);
+        }
+      }
+    });
+    if (positions.length === 0) return;
+
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    const material = new MeshBasicMaterial({
+      color: 0xff3333,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+      side: DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    this.overlapOverlay = new Mesh(geometry, material);
+    this.overlapOverlay.renderOrder = 1;
+    this.scene.add(this.overlapOverlay);
+  }
+
+  private removeOverlapOverlay(): void {
+    if (!this.overlapOverlay) return;
+    this.scene.remove(this.overlapOverlay);
+    this.overlapOverlay.geometry.dispose();
+    (this.overlapOverlay.material as MeshBasicMaterial).dispose();
+    this.overlapOverlay = null;
   }
 
   getCameraForward(): DirectionVector {
@@ -216,6 +288,7 @@ export class ModelViewport {
     this.resizeObserver.disconnect();
     this.controls.dispose();
     this.timer.dispose();
+    this.removeOverlapOverlay();
     if (this.model) disposeModel(this.model);
     this.axes.dispose();
     this.renderer.dispose();

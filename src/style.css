@@ -89,6 +89,8 @@ button { color: inherit; }
 .uv-control { align-items: center; display: flex; gap: 6px; }
 .uv-control span { color: var(--muted); font: 500 8px 'DM Mono', monospace; text-transform: uppercase; }
 .uv-control select { background: var(--surface); border: 1px solid var(--line); color: var(--paper); font: 500 9px 'DM Mono', monospace; padding: 7px 8px; }
+.uv-overlap-control { align-items: center; display: flex; gap: 6px; }
+.uv-overlap-control > span:first-child { color: var(--muted); font: 500 8px 'DM Mono', monospace; text-transform: uppercase; }
 .sun-overlay {
   align-items: center; background: color-mix(in srgb, var(--ink) 90%, transparent); border: 1px solid var(--line); border-radius: 4px;
   display: grid; justify-items: center; left: 8px; padding: 7px; position: absolute; top: 8px; z-index: 10;
@@ -99,7 +101,8 @@ button { color: inherit; }
 .lightmap-active-label { color: var(--accent); display: none; font: 600 7px 'DM Mono', monospace; letter-spacing: .08em; padding: 3px 2px; text-transform: uppercase; }
 .sun-overlay.lightmap-active .sun-overlay-heading,
 .sun-overlay.lightmap-active .orient-sun-button,
-.sun-overlay.lightmap-active .light-controls { display: none; }
+.sun-overlay.lightmap-active .light-controls,
+.sun-overlay.lightmap-active .orientation-readout { display: none; }
 .sun-overlay.lightmap-active .lightmap-active-label { display: block; }
 .orient-sun-button {
   background: var(--raised); border: 1px solid var(--line); border-radius: 3px; color: var(--paper-dim); cursor: pointer;
@@ -108,6 +111,10 @@ button { color: inherit; }
 .orient-sun-button:hover:not(:disabled) { border-color: var(--accent); color: var(--paper); }
 .orient-sun-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .orient-sun-button:disabled { cursor: not-allowed; opacity: .35; }
+.orientation-readout { border-top: 1px solid var(--line); display: grid; gap: 4px; margin-top: 7px; padding-top: 7px; width: 136px; }
+.orientation-row { align-items: center; display: flex; font: 500 8px 'DM Mono', monospace; justify-content: space-between; }
+.orientation-label { color: var(--muted); text-transform: uppercase; }
+.orientation-row output { color: var(--paper); }
 .sun-toggle { align-items: center; cursor: pointer; display: flex; gap: 6px; }
 .sun-toggle input { appearance: none; background: var(--raised); border: 1px solid var(--line); border-radius: 2px; cursor: pointer; height: 10px; margin: 0; position: relative; transition: background .15s ease, border-color .15s ease; width: 18px; }
 .sun-toggle input::after { background: var(--paper-dim); content: ''; height: 6px; left: 1px; position: absolute; top: 1px; transition: left .15s ease, background .15s ease; width: 6px; }
@@ -136,7 +143,7 @@ button { color: inherit; }
 .preview-pane figcaption .fig-dims { color: var(--muted); margin-left: auto; }
 .canvas-frame { align-items: center; background: var(--ink); border: 1px solid var(--line); display: flex; justify-content: center; min-width: 0; overflow: hidden; position: relative; }
 .preview-pane canvas { display: block; image-rendering: pixelated; max-height: clamp(240px, 52vh, 560px); max-width: 100%; min-width: 0; object-fit: contain; width: 100%; }
-.preview-pane canvas[hidden], .model-host[hidden], .uv-control[hidden] { display: none; }
+.preview-pane canvas[hidden], .model-host[hidden], .uv-control[hidden], .uv-overlap-control[hidden] { display: none; }
 .model-host { height: clamp(280px, 52vh, 560px); min-height: 0; width: 100%; }
 .model-canvas { cursor: grab; display: block; height: 100%; width: 100%; }
 .model-canvas:active { cursor: grabbing; }

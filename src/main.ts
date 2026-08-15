@@ -6,6 +6,7 @@ import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
 import { createModelFileBundle, modelFormat, type ModelFileBundle, type WorldAxis } from './lib/modelFiles';
 import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels } from './lib/modelScene';
+import { computeUVOverlap } from './lib/uvOverlap';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
 import { createPreset, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
@@ -62,6 +63,7 @@ type State = {
   lightmapContribution: number;
   normalStrength: number;
   normalFormat: NormalFormat;
+  showUVOverlap: boolean;
 };
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -85,6 +87,10 @@ const sunOverlayMarkup = (): string => `
       <label class="sun-toggle" title="Toggle sun lighting"><input id="sunEnabled" type="checkbox" checked aria-label="Toggle sun lighting" /><span aria-hidden="true"></span></label>
     </div>
     <button class="orient-sun-button" id="orientSunWithCamera" type="button" title="Copy the Original 3D viewport angle to the sun">Orient Sun with Camera</button>
+    <div class="orientation-readout" title="World-space direction (x, y, z)">
+      <div class="orientation-row"><span class="orientation-label">Sun</span><output id="sunDirectionValue">—</output></div>
+      <div class="orientation-row"><span class="orientation-label">Camera</span><output id="cameraDirectionValue">—</output></div>
+    </div>
     <div class="light-controls">
       <label class="light-color-control"><span>Sun color</span>${colorControl('#ffffff', 'Sun color', 'id="sunColor"')}</label>
       ${rangeControl('sunIntensity', 'Sun intensity', 0, 1, 0.01, DEFAULT_SUN_INTENSITY)}
@@ -121,6 +127,7 @@ function defaultState(): State {
     lightmapContribution: 1,
     normalStrength: 1,
     normalFormat: 'opengl',
+    showUVOverlap: false,
   };
 }
 
@@ -166,6 +173,10 @@ app.innerHTML = `
               <option value="blender">Blender · Z-up</option>
               <option value="maya">Maya · Y-up</option>
             </select></label>
+            <label class="uv-overlap-control" id="uvOverlapControl" hidden title="Highlight regions where UV shells overlap">
+              <span>UV overlap</span>
+              <span class="sun-toggle"><input id="uvOverlap" type="checkbox" aria-label="Show overlapping UVs" /><span aria-hidden="true"></span></span>
+            </label>
 
           </div>
         </div>
@@ -349,6 +360,8 @@ const lodControl = document.querySelector<HTMLLabelElement>('#lodControl')!;
 const lodMapSelect = document.querySelector<HTMLSelectElement>('#lodMap')!;
 const worldAxisControl = document.querySelector<HTMLLabelElement>('#worldAxisControl')!;
 const worldAxisSelect = document.querySelector<HTMLSelectElement>('#worldAxis')!;
+const uvOverlapControl = document.querySelector<HTMLLabelElement>('#uvOverlapControl')!;
+const uvOverlapInput = document.querySelector<HTMLInputElement>('#uvOverlap')!;
 type SunElements = {
   control: HTMLDivElement;
   enabled: HTMLInputElement;
@@ -374,6 +387,8 @@ const sunControlElements: SunElements = {
   ambientIntensity: document.querySelector<HTMLInputElement>('#ambientIntensity')!,
   ambientIntensityValue: document.querySelector<HTMLOutputElement>('#ambientIntensityValue')!,
 };
+const sunDirectionValue = document.querySelector<HTMLOutputElement>('#sunDirectionValue')!;
+const cameraDirectionValue = document.querySelector<HTMLOutputElement>('#cameraDirectionValue')!;
 const stripeAngleControl = document.querySelector<HTMLDivElement>('#stripeAngleControl')!;
 const stripeAngleInput = document.querySelector<HTMLInputElement>('#stripeAngle')!;
 const stripeAngleValue = document.querySelector<HTMLOutputElement>('#stripeAngleValue')!;
@@ -422,6 +437,7 @@ function forEachViewport(callback: (viewport: ModelViewport) => void): void {
 let modelUVChannels: string[] = [];
 let modelLodLevels: number[] = [];
 let aoBakeScene: Object3D | null = null;
+let uvOverlapCanvas: HTMLCanvasElement | null = null;
 let implicitLightmapCanvas: HTMLCanvasElement | null = null;
 let implicitLightmapTimer = 0;
 let pendingTextureChannel: TextureChannelId | null = null;
@@ -729,6 +745,9 @@ function render(): void {
   originalCanvas.height = source.height;
   originalCanvas.getContext('2d')?.drawImage(litSourceNative, 0, 0);
 
+  drawUVOverlay(previewCanvas);
+  drawUVOverlay(originalCanvas);
+
   updatePreviewBadge(width, height);
   if (originalViewport && processedViewport) {
     originalViewport.applyImage(litSourceNative);
@@ -741,6 +760,11 @@ function renderUVControl(): void {
   uvMapSelect.innerHTML = modelUVChannels.map((channel, index) => `<option value="${channel}" ${channel === state.uvMap ? 'selected' : ''}>UV ${index + 1} · ${channel}</option>`).join('');
 }
 
+function renderUVOverlapControl(): void {
+  uvOverlapControl.hidden = modelUVChannels.length === 0;
+  uvOverlapInput.checked = state.showUVOverlap;
+}
+
 function renderLodControl(): void {
   lodControl.hidden = modelLodLevels.length <= 1;
   lodMapSelect.innerHTML = modelLodLevels.map((level) => `<option value="${level}" ${level === state.lodLevel ? 'selected' : ''}>LOD ${level}</option>`).join('');
@@ -750,6 +774,17 @@ function renderWorldAxisControl(): void {
   const supportsAxis = modelBundle !== null && (modelBundle.format === 'fbx' || modelBundle.format === 'obj');
   worldAxisControl.hidden = !supportsAxis;
   worldAxisSelect.value = state.worldAxis;
+}
+
+function formatDirection(vector: DirectionVector): string {
+  return `(${vector.x.toFixed(2)}, ${vector.y.toFixed(2)}, ${vector.z.toFixed(2)})`;
+}
+
+function renderOrientationReadout(): void {
+  sunDirectionValue.textContent = formatDirection(state.sun.direction);
+  cameraDirectionValue.textContent = originalViewport
+    ? formatDirection(originalViewport.getCameraForward())
+    : '—';
 }
 
 function renderSunControl(): void {
@@ -825,12 +860,51 @@ function renderTextureRibbon(): void {
   }
 }
 
+function uvOverlapResolution(source: SourceImage): { width: number; height: number } {
+  const maxDimension = Math.max(source.width, source.height);
+  const scale = maxDimension > 1024 ? 1024 / maxDimension : 1;
+  return {
+    width: Math.max(1, Math.round(source.width * scale)),
+    height: Math.max(1, Math.round(source.height * scale)),
+  };
+}
+
+function uvOverlapMask(counts: Uint8Array, width: number, height: number): HTMLCanvasElement {
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < counts.length; i += 1) {
+    if (counts[i] < 2) continue;
+    const offset = i * 4;
+    pixels[offset] = 255;
+    pixels[offset + 1] = 51;
+    pixels[offset + 2] = 51;
+    pixels[offset + 3] = 150;
+  }
+  return pixelsToCanvas(pixels, width, height);
+}
+
+function refreshUVOverlap(): void {
+  uvOverlapCanvas = null;
+  forEachViewport((viewport) => viewport.setUVOverlap(null));
+  if (!state.showUVOverlap || !aoBakeScene) return;
+  const source = textures.base.image!;
+  const { width, height } = uvOverlapResolution(source);
+  const result = computeUVOverlap(aoBakeScene, width, height);
+  uvOverlapCanvas = uvOverlapMask(result.counts, width, height);
+  forEachViewport((viewport) => viewport.setUVOverlap(result.overlapping));
+}
+
+function drawUVOverlay(canvas: HTMLCanvasElement): void {
+  if (!state.showUVOverlap || !uvOverlapCanvas) return;
+  canvas.getContext('2d')?.drawImage(uvOverlapCanvas, 0, 0, canvas.width, canvas.height);
+}
+
 function applyModelUV(channel: string): void {
   if (channel !== state.uvMap && textures.lightmap.image) clearLightmap();
   state.uvMap = channel;
   if (aoBakeScene) applyUVChannel(aoBakeScene, channel);
   const originalStatus = originalViewport?.applyUV(channel);
   processedViewport?.applyUV(channel);
+  refreshUVOverlap();
   if (originalStatus) {
     const notes = [originalStatus.fallbackMeshes ? `${originalStatus.fallbackMeshes} fallback` : '', originalStatus.missingMeshes ? `${originalStatus.missingMeshes} without UVs` : ''].filter(Boolean);
     showToast(notes.length ? `UV ${channel} applied · ${notes.join(', ')}` : `UV ${channel} applied`);
@@ -842,10 +916,13 @@ function applyModelLod(level: number): void {
   state.lodLevel = level;
   forEachViewport((viewport) => viewport.applyLOD(level));
   if (aoBakeScene) applyLodLevel(aoBakeScene, level);
+  refreshUVOverlap();
+  if (state.showUVOverlap) render();
 }
 
 function applySun(): void {
   renderSunControl();
+  renderOrientationReadout();
   const lightmapActive = textures.lightmap.image !== null;
   const ambientNeutral = lightmapActive || !state.ambient.enabled;
   forEachViewport((viewport) => {
@@ -862,6 +939,7 @@ function applySun(): void {
 function applyWorldAxis(): void {
   forEachViewport((viewport) => viewport.setWorldAxis(state.worldAxis));
   if (aoBakeScene) aoBakeScene.rotation.set(upAxisRotation(state.worldAxis), 0, 0);
+  refreshUVOverlap();
 }
 
 function applyPreviewMode(): void {
@@ -890,6 +968,7 @@ function closeModelPreview(): void {
   modelLodLevels = [];
   disposeAOScene(aoBakeScene);
   aoBakeScene = null;
+  uvOverlapCanvas = null;
   textures.lightmap.image = null;
   textures.lightmap.name = '';
   implicitLightmapCanvas = null;
@@ -900,8 +979,10 @@ function closeModelPreview(): void {
   processedPreviewMode = '2d';
   applyPreviewMode();
   renderUVControl();
+  renderUVOverlapControl();
   renderLodControl();
   renderSunControl();
+  renderOrientationReadout();
   renderWorldAxisControl();
 }
 
@@ -922,6 +1003,7 @@ async function setModel(files: File[]): Promise<void> {
     renderLightmapControls();
     originalViewport = new ModelViewport(originalModelHost);
     processedViewport = new ModelViewport(processedModelHost);
+    originalViewport.onCameraChange = renderOrientationReadout;
     originalViewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
     processedViewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
     originalViewport.applyLOD(state.lodLevel);
@@ -931,6 +1013,7 @@ async function setModel(files: File[]): Promise<void> {
     processedPreviewMode = '3d';
     applyPreviewMode();
     renderUVControl();
+    renderUVOverlapControl();
     renderLodControl();
     renderSunControl();
     renderWorldAxisControl();
@@ -1334,6 +1417,7 @@ function clearTexture(channel: TextureChannelId): void {
     textures.base.image = sample;
     textures.base.name = 'sample-landscape.png';
     updateFileMeta(textures.base.name, sample.width, sample.height);
+    refreshUVOverlap();
   } else if (channel === 'lightmap') {
     clearLightmap();
     return;
@@ -1376,7 +1460,10 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
     }
     textures[channel].image = image;
     textures[channel].name = file.name;
-    if (channel === 'base') updateFileMeta(file.name, image.width, image.height, !modelBundle);
+    if (channel === 'base') {
+      updateFileMeta(file.name, image.width, image.height, !modelBundle);
+      refreshUVOverlap();
+    }
     if (channel === 'lightmap') {
       renderLightmapControls();
       renderNormalControls();
@@ -1406,6 +1493,8 @@ function reset(): void {
   syncControlsFromState();
   scheduleNormalAdjustedLighting();
   applySun();
+  refreshUVOverlap();
+  renderUVOverlapControl();
   updateResolution(128, true);
   showToast('Settings reset');
 }
@@ -1689,6 +1778,12 @@ lodMapSelect.addEventListener('change', () => applyModelLod(Number(lodMapSelect.
 worldAxisSelect.addEventListener('change', () => {
   state.worldAxis = worldAxisSelect.value as WorldAxis;
   applyWorldAxis();
+});
+uvOverlapInput.addEventListener('change', () => {
+  state.showUVOverlap = uvOverlapInput.checked;
+  renderUVOverlapControl();
+  refreshUVOverlap();
+  render();
 });
 function bindSunControl(): void {
   sunControlElements.orientWithCamera.addEventListener('click', () => {
