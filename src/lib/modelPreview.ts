@@ -59,6 +59,7 @@ export class ModelViewport {
   private readonly controls: OrbitControls;
   private readonly clock = new Clock();
   private readonly resizeObserver: ResizeObserver;
+  private readonly sun = new DirectionalLight(0xffffff, 2.8);
   private model: Object3D | null = null;
   private mixer: AnimationMixer | null = null;
   private frame = 0;
@@ -72,9 +73,8 @@ export class ModelViewport {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.scene.add(new HemisphereLight(0xffffff, 0x383845, 2.2));
-    const key = new DirectionalLight(0xffffff, 2.8);
-    key.position.set(3, 5, 4);
-    this.scene.add(key);
+    this.sun.position.set(3, 5, 4);
+    this.scene.add(this.sun);
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
     this.animate();
@@ -119,6 +119,17 @@ export class ModelViewport {
 
   applyLOD(level: number): number {
     return this.model ? applyLodLevel(this.model, level) : 0;
+  }
+
+  setSunDirection(azimuthDeg: number, elevationDeg: number): void {
+    const azimuth = (azimuthDeg * Math.PI) / 180;
+    const elevation = (elevationDeg * Math.PI) / 180;
+    const cosElevation = Math.cos(elevation);
+    this.sun.position.set(
+      cosElevation * Math.cos(azimuth),
+      Math.sin(elevation),
+      cosElevation * Math.sin(azimuth),
+    );
   }
 
   private resize(): void {

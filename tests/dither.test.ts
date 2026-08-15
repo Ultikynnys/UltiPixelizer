@@ -29,6 +29,8 @@ const options = (mode: DitherMode) => ({
   brightness: 0,
   contrast: 0,
   saturation: 0,
+  stripeAngle: 45,
+  noiseScale: 1,
 });
 
 describe('palette helpers', () => {
@@ -82,7 +84,7 @@ describe('dithering engine', () => {
     [64, 64, 64, 255], [128, 128, 128, 255], [224, 224, 224, 255],
   ];
 
-  it.each<DitherMode>(['none', 'ordered', 'floyd', 'atkinson', 'cross', 'diagonal', 'noise', 'vertical', 'checker'])('processes %s mode into palette colors', (mode) => {
+  it.each<DitherMode>(['none', 'ordered', 'floyd', 'atkinson', 'cross', 'stripes', 'noise', 'checker'])('processes %s mode into palette colors', (mode) => {
     const source = imageData(sourcePixels, 3);
     const result = processImageData(source, options(mode));
     expect(result.width).toBe(3);
@@ -107,13 +109,23 @@ describe('dithering engine', () => {
   });
 
   it('defines bounded and distinct spatial thresholds', () => {
-    const modes: DitherMode[] = ['ordered', 'cross', 'diagonal', 'noise', 'vertical', 'checker'];
+    const modes: DitherMode[] = ['ordered', 'cross', 'stripes', 'noise', 'checker'];
     const signatures = modes.map((mode) => Array.from({ length: 16 }, (_, index) => patternThreshold(mode, index % 4, Math.floor(index / 4))));
     for (const signature of signatures) {
       expect(signature.every((value) => value >= 0 && value <= 1)).toBe(true);
     }
     expect(new Set(signatures.map((signature) => signature.join(','))).size).toBe(modes.length);
     expect(patternThreshold('none', 0, 0)).toBe(0.5);
+  });
+
+  it('varies the stripe threshold with angle', () => {
+    expect(patternThreshold('stripes', 1, 0, 0)).not.toBe(patternThreshold('stripes', 1, 0, 90));
+    expect(patternThreshold('stripes', 0, 1, 0)).toBe(0);
+  });
+
+  it('scales the noise grain', () => {
+    expect(patternThreshold('noise', 0, 0, 45, 8)).toBe(patternThreshold('noise', 7, 7, 45, 8));
+    expect(patternThreshold('noise', 0, 0, 45, 1)).toBe(0);
   });
 
   it('keeps the noise threshold high-frequency with no long block runs', () => {

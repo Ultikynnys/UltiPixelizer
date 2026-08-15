@@ -30,6 +30,8 @@ const config: ConversionConfig = {
   paletteKey: 'pico8',
   palette: palettes.pico8,
   uvMap: 'uv2',
+  stripeAngle: 45,
+  noiseScale: 1,
 };
 
 let storage: MemoryStorage;

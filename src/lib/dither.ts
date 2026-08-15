@@ -1,6 +1,6 @@
 import { hexToRgb } from './palettes';
 
-export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'cross' | 'diagonal' | 'noise' | 'vertical' | 'checker' | 'none';
+export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'cross' | 'stripes' | 'noise' | 'checker' | 'none';
 
 export type ProcessOptions = {
   palette: string[];
@@ -9,6 +9,8 @@ export type ProcessOptions = {
   brightness: number;
   contrast: number;
   saturation: number;
+  stripeAngle: number;
+  noiseScale: number;
 };
 
 type RGB = [number, number, number];
@@ -20,10 +22,10 @@ const BAYER_4 = [
   [15, 7, 13, 5],
 ];
 
-const thresholdModes = new Set<DitherMode>(['ordered', 'cross', 'diagonal', 'noise', 'vertical', 'checker']);
+const thresholdModes = new Set<DitherMode>(['ordered', 'cross', 'stripes', 'noise', 'checker']);
 const clamp = (value: number) => Math.max(0, Math.min(255, value));
 
-export function patternThreshold(mode: DitherMode, x: number, y: number): number {
+export function patternThreshold(mode: DitherMode, x: number, y: number, stripeAngle = 45, noiseScale = 1): number {
   switch (mode) {
     case 'ordered':
       return BAYER_4[y % 4][x % 4] / 15;
@@ -32,16 +34,20 @@ export function patternThreshold(mode: DitherMode, x: number, y: number): number
       const vertical = x % 4 === 1 || x % 4 === 2;
       return horizontal && vertical ? 0.08 : horizontal || vertical ? 0.38 : 0.88;
     }
-    case 'diagonal':
-      return ((x + y) % 6) / 5;
+    case 'stripes': {
+      const radians = (stripeAngle * Math.PI) / 180;
+      const frequency = 4;
+      const projection = (x * Math.cos(radians) + y * Math.sin(radians)) / frequency;
+      return projection - Math.floor(projection);
+    }
     case 'noise': {
-      let hash = Math.imul(x, 374761393) + Math.imul(y, 668265263);
+      const cellX = Math.floor(x / noiseScale);
+      const cellY = Math.floor(y / noiseScale);
+      let hash = Math.imul(cellX, 374761393) + Math.imul(cellY, 668265263);
       hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
       hash ^= hash >>> 16;
       return (hash >>> 0) / 4294967296;
     }
-    case 'vertical':
-      return (x % 4) / 3;
     case 'checker':
       return (x + y) % 2 === 0 ? 0.2 : 0.8;
     default:
@@ -109,7 +115,7 @@ export function processImageData(source: ImageData, options: ProcessOptions): Im
       let current: RGB = [work[workIndex], work[workIndex + 1], work[workIndex + 2]];
 
       if (thresholdModes.has(options.mode)) {
-        const offset = (patternThreshold(options.mode, x, y) - 0.5) * 96 * options.strength;
+        const offset = (patternThreshold(options.mode, x, y, options.stripeAngle, options.noiseScale) - 0.5) * 96 * options.strength;
         current = [clamp(current[0] + offset), clamp(current[1] + offset), clamp(current[2] + offset)];
       }
 

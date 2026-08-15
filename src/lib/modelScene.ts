@@ -83,11 +83,27 @@ export function createPixelTexture(image: CanvasImageSource): CanvasTexture<Canv
 }
 
 function applyTextureToMaterial(material: Material, texture: Texture): void {
-  const textured = material as Material & { map?: Texture | null; color?: Color; transparent?: boolean };
+  const textured = material as Material & {
+    map?: Texture | null;
+    color?: Color;
+    transparent?: boolean;
+    specular?: Color;
+    shininess?: number;
+    metalness?: number;
+    roughness?: number;
+    clearcoat?: number;
+    specularIntensity?: number;
+  };
   if (!('map' in textured)) return;
   textured.map = texture;
   textured.color?.set(0xffffff);
   textured.transparent = true;
+  if ('specular' in textured) textured.specular?.set(0x000000);
+  if ('shininess' in textured) textured.shininess = 0;
+  if ('metalness' in textured) textured.metalness = 0;
+  if ('roughness' in textured) textured.roughness = 1;
+  if ('clearcoat' in textured) textured.clearcoat = 0;
+  if ('specularIntensity' in textured) textured.specularIntensity = 0;
   textured.needsUpdate = true;
 }
 

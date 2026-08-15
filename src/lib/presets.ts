@@ -4,7 +4,7 @@ import type { DitherMode } from './dither';
 export const PRESET_VERSION = 1;
 export const PRESET_STORAGE_KEY = 'ditherlab:conversion-presets:v1';
 
-export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'diagonal', 'noise', 'vertical', 'checker', 'none'];
+export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'none'];
 
 export type ConversionConfig = {
   resolution: number;
@@ -16,6 +16,8 @@ export type ConversionConfig = {
   paletteKey: string;
   palette: Palette;
   uvMap: string;
+  stripeAngle: number;
+  noiseScale: number;
 };
 
 export type ConversionPreset = ConversionConfig & {
@@ -47,6 +49,8 @@ export function isConversionPreset(value: unknown): value is ConversionPreset {
     && finiteInRange(preset.saturation, -100, 100)
     && typeof preset.paletteKey === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/i.test(preset.paletteKey)
     && typeof preset.uvMap === 'string' && /^uv\d*$/.test(preset.uvMap)
+    && finiteInRange(preset.stripeAngle, 0, 90)
+    && finiteInRange(preset.noiseScale, 1, 32)
     && isPalette(preset.palette);
 }
 
@@ -72,7 +76,19 @@ export function serializePreset(preset: ConversionPreset): string {
 function migratePreset(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value;
   const preset = value as Record<string, unknown>;
-  return preset.version === PRESET_VERSION && preset.uvMap === undefined ? { ...preset, uvMap: 'uv' } : value;
+  if (preset.version !== PRESET_VERSION) return value;
+  const migrated: Record<string, unknown> = { ...preset };
+  if (migrated.mode === 'diagonal') {
+    migrated.mode = 'stripes';
+    migrated.stripeAngle = 45;
+  } else if (migrated.mode === 'vertical') {
+    migrated.mode = 'stripes';
+    migrated.stripeAngle = 0;
+  }
+  if (migrated.stripeAngle === undefined) migrated.stripeAngle = 45;
+  if (migrated.noiseScale === undefined) migrated.noiseScale = 1;
+  if (migrated.uvMap === undefined) migrated.uvMap = 'uv';
+  return migrated;
 }
 
 export function parsePreset(json: string): ConversionPreset {
