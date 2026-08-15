@@ -1,4 +1,4 @@
-export const paletteCategories = ['compact', 'pixel-art', 'hardware', 'themed', 'extended'] as const;
+export const paletteCategories = ['compact', 'pixel-art', 'hardware', 'themed', 'extended', 'custom'] as const;
 export type PaletteCategory = typeof paletteCategories[number];
 
 export type Palette = {

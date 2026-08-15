@@ -1,5 +1,6 @@
 import './style.css';
 import { createSampleTexture, downloadCanvas, downloadText, loadImageFile } from './lib/canvas';
+import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomPalettes, parseCustomPalette, serializeCustomPalette, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
 import { processImageData, type DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
@@ -121,7 +122,7 @@ app.innerHTML = `
         </section>
 
         <section class="panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">COLOR SYSTEM / 02</p><h2>Palette library</h2></div><span class="catalog-count">${Object.keys(palettes).length} PRESETS</span></div>
+          <div class="panel-heading compact"><div><p class="eyebrow">COLOR SYSTEM / 02</p><h2>Palette library</h2></div><span class="catalog-count" id="paletteCount">${Object.keys(palettes).length} PRESETS</span></div>
           <div class="palette-filters" id="paletteFilters" role="group" aria-label="Filter palette library">
             <button class="active" type="button" data-filter="all">All</button>
             <button type="button" data-filter="compact">Compact</button>
@@ -129,16 +130,31 @@ app.innerHTML = `
             <button type="button" data-filter="hardware">Hardware</button>
             <button type="button" data-filter="themed">Themed</button>
             <button type="button" data-filter="extended">Extended</button>
+            <button type="button" data-filter="custom">Custom</button>
           </div>
           <div class="palette-grid" id="paletteGrid"></div>
           <div class="palette-detail">
             <div><strong id="paletteName">PICO-8</strong><small id="paletteDescription">Punchy fantasy console</small></div>
             <div class="swatch-strip" id="activeSwatches"></div>
           </div>
-          <details class="custom-palette">
-            <summary>Customize palette <span>+</span></summary>
+          <details class="custom-palette" open>
+            <summary>Custom palette editor <span>+</span></summary>
+            <div class="palette-editor-fields">
+              <label><span>Name</span><input id="customPaletteName" maxlength="60" placeholder="Palette name" /></label>
+              <label><span>Description</span><input id="customPaletteDescription" maxlength="160" placeholder="Palette description" /></label>
+            </div>
             <div id="customColors" class="custom-colors"></div>
-            <button id="addColor" class="text-button" type="button">+ Add color</button>
+            <div class="palette-editor-actions">
+              <button id="addColor" class="text-button" type="button">+ Add color</button>
+              <button id="newPalette" class="text-button" type="button">New</button>
+              <button id="duplicatePalette" class="text-button" type="button">Duplicate</button>
+            </div>
+            <div class="palette-editor-buttons">
+              <button id="saveCustomPalette" class="button button-primary" type="button">Save custom</button>
+              <button id="exportCustomPalette" class="button button-secondary" type="button">Export</button>
+              <label class="button button-secondary file-button"><input id="importCustomPalette" type="file" accept="application/json,.json" />Import</label>
+              <button id="deleteCustomPalette" class="button button-secondary danger-button" type="button" disabled>Delete</button>
+            </div>
           </details>
         </section>
 
@@ -189,6 +205,9 @@ const paletteGrid = document.querySelector<HTMLDivElement>('#paletteGrid')!;
 const paletteFilters = document.querySelector<HTMLDivElement>('#paletteFilters')!;
 const activeSwatches = document.querySelector<HTMLDivElement>('#activeSwatches')!;
 const customColors = document.querySelector<HTMLDivElement>('#customColors')!;
+const customPaletteName = document.querySelector<HTMLInputElement>('#customPaletteName')!;
+const customPaletteDescription = document.querySelector<HTMLInputElement>('#customPaletteDescription')!;
+const deleteCustomPaletteButton = document.querySelector<HTMLButtonElement>('#deleteCustomPalette')!;
 const originalModelHost = document.querySelector<HTMLDivElement>('#originalModelHost')!;
 const processedModelHost = document.querySelector<HTMLDivElement>('#processedModelHost')!;
 const uvControl = document.querySelector<HTMLLabelElement>('#uvControl')!;
@@ -198,6 +217,8 @@ const presetName = document.querySelector<HTMLInputElement>('#presetName')!;
 const presetDescription = document.querySelector<HTMLInputElement>('#presetDescription')!;
 const toast = document.querySelector<HTMLDivElement>('#toast')!;
 let savedPresets = loadPresetLibrary(localStorage);
+let savedCustomPalettes = loadCustomPalettes(localStorage);
+let editingCustomKey: string | null = null;
 let toastTimer = 0;
 let renderedCanvas = document.createElement('canvas');
 let modelBundle: ModelFileBundle | null = null;
@@ -216,8 +237,16 @@ function showToast(message: string): void {
   toastTimer = window.setTimeout(() => toast.classList.remove('visible'), 2400);
 }
 
+function customPaletteRecord(): Record<string, CustomPalette> {
+  return Object.fromEntries(savedCustomPalettes.map((palette) => [palette.key, palette]));
+}
+
+function paletteCatalog(): Record<string, Palette> {
+  return { ...palettes, ...customPaletteRecord() };
+}
+
 function currentPalette(): Palette {
-  return state.paletteSnapshot ?? palettes[state.paletteKey];
+  return state.paletteSnapshot ?? paletteCatalog()[state.paletteKey] ?? palettes.pico8;
 }
 
 function currentColors(): string[] {
@@ -334,11 +363,13 @@ function representativeColors(input: string[], limit = 16): string[] {
 }
 
 function renderPalettes(): void {
-  const visiblePalettes = Object.entries(palettes).filter(([, palette]) => state.paletteFilter === 'all' || palette.category === state.paletteFilter);
+  const catalog = paletteCatalog();
+  document.querySelector('#paletteCount')!.textContent = `${Object.keys(catalog).length} PRESETS`;
+  const visiblePalettes = Object.entries(catalog).filter(([, palette]) => state.paletteFilter === 'all' || palette.category === state.paletteFilter);
   paletteGrid.innerHTML = visiblePalettes.map(([key, palette]) => `
-    <button type="button" class="palette-card ${key === state.paletteKey && state.customColors.length === 0 ? 'active' : ''}" data-palette="${key}" aria-label="${palette.name}, ${palette.colors.length} colors">
+    <button type="button" class="palette-card ${key === state.paletteKey && state.customColors.length === 0 ? 'active' : ''}" data-palette="${escapeHtml(key)}" aria-label="${escapeHtml(palette.name)}, ${palette.colors.length} colors">
       <span class="mini-swatches">${representativeColors(palette.colors).map((color) => `<i style="--swatch:${color}"></i>`).join('')}</span>
-      <span class="palette-card-label"><span>${palette.name}</span><b>${palette.colors.length}</b></span>
+      <span class="palette-card-label"><span>${escapeHtml(palette.name)}</span><b>${palette.colors.length}</b></span>
     </button>
   `).join('');
   const palette = currentPalette();
@@ -347,7 +378,13 @@ function renderPalettes(): void {
   document.querySelector('#paletteName')!.textContent = state.customColors.length ? 'CUSTOM MIX' : palette.name.toUpperCase();
   document.querySelector('#paletteDescription')!.textContent = state.customColors.length ? `${selectedColors.length} hand-picked colors` : `${palette.description} · ${palette.colors.length} colors${credit}`;
   activeSwatches.innerHTML = representativeColors(selectedColors, 24).map((color) => `<span style="--swatch:${color}" title="${color}"></span>`).join('');
-  customColors.innerHTML = selectedColors.map((color, index) => `<label title="Edit ${color}"><input type="color" value="${color}" data-color-index="${index}" /><span style="--swatch:${color}"></span></label>`).join('');
+  customColors.innerHTML = selectedColors.map((color, index) => `
+    <div class="custom-color">
+      <label title="Edit ${color}"><input type="color" value="${color}" data-color-index="${index}" aria-label="Color ${index + 1}, ${color}" /><span style="--swatch:${color}"></span></label>
+      <button type="button" data-remove-color="${index}" aria-label="Remove color ${index + 1}">×</button>
+    </div>
+  `).join('');
+  deleteCustomPaletteButton.disabled = !editingCustomKey;
 }
 
 function renderAdjustments(): void {
@@ -360,6 +397,28 @@ function renderAdjustments(): void {
       <input class="range" id="${key}" type="range" min="-100" max="100" value="${state[key]}" />
     </div>
   `).join('');
+}
+
+function beginCustomDraft(name: string, description: string, colors: string[], key: string | null = null): void {
+  editingCustomKey = key;
+  customPaletteName.value = name;
+  customPaletteDescription.value = description;
+  state.customColors = [...colors];
+  state.paletteSnapshot = {
+    name: name || 'Untitled Custom Palette',
+    description: description || 'Custom color palette',
+    category: 'custom',
+    colors: [...colors],
+  };
+  renderPalettes();
+  render();
+}
+
+function ensureCustomDraft(): void {
+  if (state.customColors.length > 0) return;
+  const selectedCustom = savedCustomPalettes.find((palette) => palette.key === state.paletteKey);
+  if (selectedCustom) beginCustomDraft(selectedCustom.name, selectedCustom.description, selectedCustom.colors, selectedCustom.key);
+  else beginCustomDraft(`${currentPalette().name} Copy`, `Custom copy of ${currentPalette().name}`, currentPalette().colors);
 }
 
 function activePaletteSnapshot() {
@@ -402,9 +461,8 @@ function renderPresetLibrary(): void {
 
 function applyPreset(preset: ConversionPreset): void {
   renderScheduler.cancel();
-  const catalogPalette = palettes[preset.paletteKey];
+  const catalogPalette = paletteCatalog()[preset.paletteKey];
   const matchesCatalog = catalogPalette && JSON.stringify(catalogPalette.colors) === JSON.stringify(preset.palette.colors);
-  if (!catalogPalette) palettes[preset.paletteKey] = { ...preset.palette, colors: [...preset.palette.colors] };
   Object.assign(state, {
     resolution: preset.resolution,
     mode: preset.mode,
@@ -414,9 +472,13 @@ function applyPreset(preset: ConversionPreset): void {
     saturation: preset.saturation,
     paletteKey: preset.paletteKey,
     uvMap: preset.uvMap,
-    paletteSnapshot: { ...preset.palette, colors: [...preset.palette.colors] },
+    paletteSnapshot: matchesCatalog ? undefined : { ...preset.palette, colors: [...preset.palette.colors] },
     customColors: matchesCatalog ? [] : [...preset.palette.colors],
   });
+  const selectedCustom = savedCustomPalettes.find((palette) => palette.key === preset.paletteKey);
+  editingCustomKey = selectedCustom?.key ?? null;
+  customPaletteName.value = selectedCustom?.name ?? preset.palette.name;
+  customPaletteDescription.value = selectedCustom?.description ?? preset.palette.description;
   presetName.value = preset.name;
   presetDescription.value = preset.description;
   (document.querySelector('#strength') as HTMLInputElement).value = String(Math.round(preset.strength * 100));
@@ -471,6 +533,9 @@ async function setSource(file: File): Promise<void> {
 function reset(): void {
   renderScheduler.cancel();
   Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5 });
+  editingCustomKey = null;
+  customPaletteName.value = '';
+  customPaletteDescription.value = '';
   (document.querySelector('#strength') as HTMLInputElement).value = '85';
   document.querySelector('#strengthValue')!.textContent = '85%';
   document.querySelectorAll('[data-mode]').forEach((button) => button.classList.toggle('active', (button as HTMLElement).dataset.mode === 'floyd'));
@@ -526,25 +591,116 @@ paletteGrid.addEventListener('click', (event) => {
   state.paletteKey = button.dataset.palette;
   state.customColors = [];
   state.paletteSnapshot = undefined;
+  const selectedCustom = savedCustomPalettes.find((palette) => palette.key === state.paletteKey);
+  editingCustomKey = selectedCustom?.key ?? null;
+  customPaletteName.value = selectedCustom?.name ?? currentPalette().name;
+  customPaletteDescription.value = selectedCustom?.description ?? currentPalette().description;
   renderPalettes();
   render();
 });
 customColors.addEventListener('input', (event) => {
   const input = (event.target as HTMLElement).closest<HTMLInputElement>('input[type="color"]');
   if (!input) return;
-  if (state.customColors.length === 0) state.customColors = [...currentPalette().colors];
+  ensureCustomDraft();
   state.customColors[Number(input.dataset.colorIndex)] = input.value;
+  input.nextElementSibling?.setAttribute('style', `--swatch:${input.value}`);
+  input.setAttribute('aria-label', `Color ${Number(input.dataset.colorIndex) + 1}, ${input.value}`);
+  state.paletteSnapshot = activePaletteSnapshot();
+  render();
+});
+customColors.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-remove-color]');
+  if (!button) return;
+  ensureCustomDraft();
+  if (state.customColors.length <= 2) return showToast('A palette needs at least two colors.');
+  state.customColors.splice(Number(button.dataset.removeColor), 1);
   state.paletteSnapshot = activePaletteSnapshot();
   renderPalettes();
   render();
 });
 document.querySelector('#addColor')!.addEventListener('click', () => {
-  if (state.customColors.length === 0) state.customColors = [...currentPalette().colors];
+  ensureCustomDraft();
   if (state.customColors.length >= 256) return showToast('Palette limit reached');
   state.customColors.push('#ffffff');
   state.paletteSnapshot = activePaletteSnapshot();
   renderPalettes();
   render();
+});
+document.querySelector('#newPalette')!.addEventListener('click', () => {
+  state.paletteKey = 'custom-draft';
+  beginCustomDraft('New Palette', 'Custom color palette', ['#000000', '#ffffff']);
+});
+document.querySelector('#duplicatePalette')!.addEventListener('click', () => {
+  const duplicate = duplicatePalette(currentPalette());
+  state.paletteKey = duplicate.key;
+  beginCustomDraft(duplicate.name, duplicate.description, duplicate.colors);
+});
+document.querySelector('#saveCustomPalette')!.addEventListener('click', () => {
+  try {
+    const existing = savedCustomPalettes.find((palette) => palette.key === editingCustomKey);
+    const palette = existing
+      ? updateCustomPalette(existing, customPaletteName.value, customPaletteDescription.value, currentColors())
+      : createCustomPalette(customPaletteName.value, customPaletteDescription.value, currentColors());
+    savedCustomPalettes = upsertCustomPalette(localStorage, palette);
+    editingCustomKey = palette.key;
+    state.paletteKey = palette.key;
+    state.customColors = [];
+    state.paletteSnapshot = undefined;
+    customPaletteName.value = palette.name;
+    customPaletteDescription.value = palette.description;
+    renderPalettes();
+    render();
+    showToast(`Saved custom palette “${palette.name}”`);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not save custom palette.');
+  }
+});
+document.querySelector('#exportCustomPalette')!.addEventListener('click', () => {
+  try {
+    const existing = savedCustomPalettes.find((palette) => palette.key === editingCustomKey);
+    const palette = existing
+      ? updateCustomPalette(existing, customPaletteName.value, customPaletteDescription.value, currentColors())
+      : createCustomPalette(customPaletteName.value || 'Untitled Palette', customPaletteDescription.value, currentColors());
+    const safeName = palette.name.replace(/[^a-z0-9-_]+/gi, '-').replace(/^-|-$/g, '') || 'custom-palette';
+    downloadText(serializeCustomPalette(palette), `${safeName}.palette.json`);
+    showToast('Custom palette JSON exported');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not export custom palette.');
+  }
+});
+const importCustomPaletteInput = document.querySelector<HTMLInputElement>('#importCustomPalette')!;
+importCustomPaletteInput.addEventListener('change', async () => {
+  const file = importCustomPaletteInput.files?.[0];
+  if (!file) return;
+  try {
+    if (file.size > 100_000) throw new Error('Palette file is too large.');
+    const palette = parseCustomPalette(await file.text());
+    savedCustomPalettes = upsertCustomPalette(localStorage, palette);
+    state.paletteKey = palette.key;
+    beginCustomDraft(palette.name, palette.description, palette.colors, palette.key);
+    showToast(`Imported custom palette “${palette.name}”`);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not import custom palette.');
+  } finally {
+    importCustomPaletteInput.value = '';
+  }
+});
+deleteCustomPaletteButton.addEventListener('click', () => {
+  if (!editingCustomKey) return;
+  try {
+    savedCustomPalettes = deleteCustomPalette(localStorage, editingCustomKey);
+    editingCustomKey = null;
+    state.paletteKey = 'pico8';
+    state.customColors = [];
+    state.paletteSnapshot = undefined;
+    customPaletteName.value = '';
+    customPaletteDescription.value = '';
+    renderPalettes();
+    render();
+    showToast('Custom palette deleted');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not delete custom palette.');
+  }
 });
 const fileInput = document.querySelector<HTMLInputElement>('#fileInput')!;
 fileInput.addEventListener('change', () => { const file = fileInput.files?.[0]; if (file) void setSource(file); });
