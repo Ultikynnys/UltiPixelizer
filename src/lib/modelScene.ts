@@ -7,10 +7,12 @@ import {
   Material,
   Mesh,
   NearestFilter,
+  NoColorSpace,
   Object3D,
   PerspectiveCamera,
   SRGBColorSpace,
   Texture,
+  Vector2,
   Vector3,
 } from 'three';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
@@ -91,13 +93,24 @@ export function cloneModelScene(source: Object3D): Object3D {
   return clone;
 }
 
-export function createPixelTexture(image: CanvasImageSource): CanvasTexture<CanvasImageSource> {
+function createNearestCanvasTexture(image: CanvasImageSource): CanvasTexture<CanvasImageSource> {
   const texture = new CanvasTexture(image);
-  texture.colorSpace = SRGBColorSpace;
   texture.magFilter = NearestFilter;
   texture.minFilter = NearestFilter;
   texture.generateMipmaps = false;
   texture.needsUpdate = true;
+  return texture;
+}
+
+export function createPixelTexture(image: CanvasImageSource): CanvasTexture<CanvasImageSource> {
+  const texture = createNearestCanvasTexture(image);
+  texture.colorSpace = SRGBColorSpace;
+  return texture;
+}
+
+export function createNormalTexture(image: CanvasImageSource): CanvasTexture<CanvasImageSource> {
+  const texture = createNearestCanvasTexture(image);
+  texture.colorSpace = NoColorSpace;
   return texture;
 }
 
@@ -133,6 +146,23 @@ export function applyTextureToModel(object: Object3D, texture: Texture): number 
     if (!(child instanceof Mesh)) return;
     materialsOf(child).forEach((material) => {
       applyTextureToMaterial(material, texture);
+      materialCount += 1;
+    });
+  });
+  return materialCount;
+}
+
+export function applyNormalMapToModel(object: Object3D, texture: Texture | null, strength: number, flipY: boolean): number {
+  let materialCount = 0;
+  const scale = texture ? Math.min(1, Math.max(0, strength)) : 1;
+  object.traverse((child) => {
+    if (!(child instanceof Mesh)) return;
+    materialsOf(child).forEach((material) => {
+      const normalMaterial = material as Material & { normalMap?: Texture | null; normalScale?: Vector2 };
+      if (!('normalMap' in normalMaterial) || !normalMaterial.normalScale) return;
+      normalMaterial.normalMap = texture;
+      normalMaterial.normalScale.set(scale, flipY ? -scale : scale);
+      normalMaterial.needsUpdate = true;
       materialCount += 1;
     });
   });

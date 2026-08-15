@@ -22,7 +22,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
-import { applyTextureToModel, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject, materialsOf } from './modelScene';
+import { applyNormalMapToModel, applyTextureToModel, applyUVChannel, createNormalTexture, createPixelTexture, disposeModel, fitCameraToObject, materialsOf } from './modelScene';
 import { cameraForwardFromQuaternion, normalizeDirection, type DirectionVector } from './sunDirection';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
@@ -80,6 +80,8 @@ export class ModelViewport {
   private readonly ambient = new AmbientLight(0xffffff, DEFAULT_AMBIENT_INTENSITY);
   private readonly axes = new AxesHelper(1);
   private model: Object3D | null = null;
+  private normalImage: CanvasImageSource | null = null;
+  private normalTexture: import('three').Texture | null = null;
   private mixer: AnimationMixer | null = null;
   private frame = 0;
 
@@ -141,6 +143,15 @@ export class ModelViewport {
     const count = applyTextureToModel(this.model, texture);
     previousTextures.forEach((previous) => previous.dispose());
     return count;
+  }
+
+  setNormalMap(image: CanvasImageSource | null, strength: number, flipY: boolean): number {
+    if (image !== this.normalImage) {
+      this.normalTexture?.dispose();
+      this.normalImage = image;
+      this.normalTexture = image ? createNormalTexture(image) : null;
+    }
+    return this.model ? applyNormalMapToModel(this.model, this.normalTexture, strength, flipY) : 0;
   }
 
   applyUV(name: string): { fallbackMeshes: number; missingMeshes: number } {
@@ -213,7 +224,11 @@ export class ModelViewport {
     this.resizeObserver.disconnect();
     this.controls.dispose();
     this.timer.dispose();
-    if (this.model) disposeModel(this.model);
+    if (this.model) {
+      applyNormalMapToModel(this.model, null, 1, false);
+      disposeModel(this.model);
+    }
+    this.normalTexture?.dispose();
     this.axes.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture } from 'three';
-import { applyTextureToModel, applyUVChannel, cloneModelScene, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, uvChannelIndex } from '../src/lib/modelScene';
+import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshStandardMaterial, NearestFilter, NoColorSpace, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture } from 'three';
+import { applyNormalMapToModel, applyTextureToModel, applyUVChannel, cloneModelScene, createNormalTexture, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, uvChannelIndex } from '../src/lib/modelScene';
 
 function mesh(channels: string[], materials = 1): Mesh {
   const geometry = new BufferGeometry();
@@ -41,12 +41,32 @@ describe('model scene processing', () => {
     expect((multiple.material as MeshBasicMaterial[]).every((material) => material.map === texture && material.side === DoubleSide)).toBe(true);
   });
 
-  it('creates a nearest-neighbor sRGB canvas texture', () => {
-    const texture = createPixelTexture({} as CanvasImageSource);
-    expect(texture.colorSpace).toBe(SRGBColorSpace);
-    expect(texture.minFilter).toBe(NearestFilter);
-    expect(texture.magFilter).toBe(NearestFilter);
-    expect(texture.generateMipmaps).toBe(false);
+  it('creates nearest-neighbor color and non-color canvas textures', () => {
+    const color = createPixelTexture({} as CanvasImageSource);
+    const normal = createNormalTexture({} as CanvasImageSource);
+    expect(color.colorSpace).toBe(SRGBColorSpace);
+    expect(normal.colorSpace).toBe(NoColorSpace);
+    expect(color.minFilter).toBe(NearestFilter);
+    expect(normal.minFilter).toBe(NearestFilter);
+    expect(color.magFilter).toBe(NearestFilter);
+    expect(normal.magFilter).toBe(NearestFilter);
+    expect(color.generateMipmaps).toBe(false);
+    expect(normal.generateMipmaps).toBe(false);
+  });
+
+  it('applies and removes normal maps with strength and format convention', () => {
+    const root = new Object3D();
+    const supported = new Mesh(new BufferGeometry(), new MeshStandardMaterial());
+    const unsupported = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    root.add(supported, unsupported);
+    const texture = new Texture();
+
+    expect(applyNormalMapToModel(root, texture, 0.6, true)).toBe(1);
+    expect((supported.material as MeshStandardMaterial).normalMap).toBe(texture);
+    expect((supported.material as MeshStandardMaterial).normalScale.toArray()).toEqual([0.6, -0.6]);
+    expect(applyNormalMapToModel(root, null, 0.2, false)).toBe(1);
+    expect((supported.material as MeshStandardMaterial).normalMap).toBeNull();
+    expect((supported.material as MeshStandardMaterial).normalScale.toArray()).toEqual([1, 1]);
   });
 
   it('deep-clones mutable geometry, materials, and textures without changing material shape', () => {

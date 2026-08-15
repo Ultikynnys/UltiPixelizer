@@ -563,6 +563,13 @@ function normalMapOptions() {
   };
 }
 
+function applyNormalMap(): void {
+  const image = textures.normal.image;
+  const flipY = state.normalFormat === 'directx';
+  forEachViewport((viewport) => viewport.setNormalMap(image, state.normalStrength, flipY));
+  scheduleImplicitLightmapBake();
+}
+
 function currentLightmapBakeOptions(): BakeLightmapOptions {
   return {
     sunDirection: state.sun.direction,
@@ -921,6 +928,7 @@ async function setModel(files: File[]): Promise<void> {
     processedViewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
     originalViewport.applyLOD(state.lodLevel);
     processedViewport.applyLOD(state.lodLevel);
+    applyNormalMap();
     disposeModel(loaded.scene);
     originalPreviewMode = '3d';
     processedPreviewMode = '3d';
@@ -1337,7 +1345,7 @@ function clearTexture(channel: TextureChannelId): void {
     textures[channel].name = '';
     if (channel === 'normal') {
       renderNormalControls();
-      scheduleImplicitLightmapBake();
+      applyNormalMap();
     }
   }
   renderTextureRibbon();
@@ -1378,7 +1386,7 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
     }
     if (channel === 'normal') {
       renderNormalControls();
-      scheduleImplicitLightmapBake();
+      applyNormalMap();
     }
     renderTextureRibbon();
     render();
@@ -1398,6 +1406,7 @@ function reset(): void {
   customPaletteName.value = '';
   customPaletteDescription.value = '';
   syncControlsFromState();
+  applyNormalMap();
   applySun();
   updateResolution(128, true);
   showToast('Settings reset');
@@ -1479,12 +1488,12 @@ bindRange({
   format: formatPercent,
   apply: (value) => {
     state.normalStrength = value / 100;
-    scheduleImplicitLightmapBake();
+    applyNormalMap();
   },
 });
 normalFormatSelect.addEventListener('change', () => {
   state.normalFormat = normalFormatSelect.value as NormalFormat;
-  scheduleImplicitLightmapBake();
+  applyNormalMap();
 });
 generateAoButton.addEventListener('click', generateAo);
 bakeLightmapButton.addEventListener('click', bakeLighting);
