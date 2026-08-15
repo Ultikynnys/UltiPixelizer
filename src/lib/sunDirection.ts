@@ -2,10 +2,16 @@ import type { Quaternion } from 'three';
 
 export type DirectionVector = { x: number; y: number; z: number };
 
+/**
+ * Default sun: light travels downward and toward −X/−Z, i.e. the sun sits above
+ * in the +X/+Z octant so the +X and +Z faces start lit. `sunDirection` is the
+ * direction light TRAVELS (from the sun toward the scene), not the direction
+ * toward the light — see `bakeMeshLightmap` (`directionToSun = -sunDirection`).
+ */
 export const DEFAULT_SUN_DIRECTION: Readonly<DirectionVector> = Object.freeze({
-  x: 0.5,
+  x: -0.5,
   y: -Math.SQRT1_2,
-  z: 0.5,
+  z: -0.5,
 });
 
 /** Returns a finite unit-length world direction, or the default sun direction for invalid input. */

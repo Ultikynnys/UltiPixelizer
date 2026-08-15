@@ -59,4 +59,13 @@ describe('sun world direction', () => {
     expect(normalizeDirection({ x: 0, y: 0, z: 0 })).toEqual(DEFAULT_SUN_DIRECTION);
     expect(normalizeDirection({ x: Number.NaN, y: 0, z: 0 })).toEqual(DEFAULT_SUN_DIRECTION);
   });
+
+  it('defaults to a sun above the +X/+Z octant so those faces start lit', () => {
+    // `sunDirection` is light-TRAVEL direction: negative components mean the sun
+    // sits on the positive side of that axis (see bakeMeshLightmap's `directionToSun = -sunDirection`).
+    expect(DEFAULT_SUN_DIRECTION.x).toBeLessThan(0);
+    expect(DEFAULT_SUN_DIRECTION.y).toBeLessThan(0);
+    expect(DEFAULT_SUN_DIRECTION.z).toBeLessThan(0);
+    expect(Math.hypot(DEFAULT_SUN_DIRECTION.x, DEFAULT_SUN_DIRECTION.y, DEFAULT_SUN_DIRECTION.z)).toBeCloseTo(1);
+  });
 });
