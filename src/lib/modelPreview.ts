@@ -1,4 +1,5 @@
 import {
+  AdditiveBlending,
   AmbientLight,
   AnimationClip,
   AxesHelper,
@@ -10,11 +11,11 @@ import {
   Float32BufferAttribute,
   LoadingManager,
   Mesh,
-  MeshBasicMaterial,
   Object3D,
   PerspectiveCamera,
   Quaternion,
   Scene,
+  ShaderMaterial,
   Timer,
   Vector3,
   WebGLRenderer,
@@ -203,15 +204,31 @@ export class ModelViewport {
 
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
-    const material = new MeshBasicMaterial({
-      color: 0xff3333,
+    const material = new ShaderMaterial({
       transparent: true,
-      opacity: 0.5,
       depthWrite: false,
       side: DoubleSide,
+      blending: AdditiveBlending,
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
+      uniforms: { uTime: { value: 0 } },
+      vertexShader: `
+        void main() {
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        void main() {
+          vec2 p = gl_FragCoord.xy;
+          float a = 0.5 + 0.5 * sin((p.x + p.y) * 0.06 + uTime * 5.0);
+          float b = 0.5 + 0.5 * sin((p.x - p.y) * 0.08 - uTime * 3.5);
+          float i = clamp(a * 0.7 + b * 0.3, 0.0, 1.0);
+          vec3 color = mix(vec3(1.0, 0.12, 0.28), vec3(1.0, 0.68, 0.14), i);
+          gl_FragColor = vec4(color * (0.5 + i * 1.5), 0.35 + i * 0.5);
+        }
+      `,
     });
     this.overlapOverlay = new Mesh(geometry, material);
     this.overlapOverlay.renderOrder = 1;
@@ -222,7 +239,7 @@ export class ModelViewport {
     if (!this.overlapOverlay) return;
     this.scene.remove(this.overlapOverlay);
     this.overlapOverlay.geometry.dispose();
-    (this.overlapOverlay.material as MeshBasicMaterial).dispose();
+    (this.overlapOverlay.material as ShaderMaterial).dispose();
     this.overlapOverlay = null;
   }
 
@@ -280,6 +297,9 @@ export class ModelViewport {
     this.timer.update(timestamp);
     this.mixer?.update(this.timer.getDelta());
     this.controls.update();
+    if (this.overlapOverlay) {
+      (this.overlapOverlay.material as ShaderMaterial).uniforms.uTime.value = (timestamp ?? 0) / 1000;
+    }
     this.renderer.render(this.scene, this.camera);
   };
 

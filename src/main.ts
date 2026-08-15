@@ -437,7 +437,11 @@ function forEachViewport(callback: (viewport: ModelViewport) => void): void {
 let modelUVChannels: string[] = [];
 let modelLodLevels: number[] = [];
 let aoBakeScene: Object3D | null = null;
-let uvOverlapCanvas: HTMLCanvasElement | null = null;
+let uvOverlapMaskCanvas: HTMLCanvasElement | null = null;
+let uvWaveCanvas: HTMLCanvasElement | null = null;
+let uvOverlayComposite: HTMLCanvasElement | null = null;
+let uvOverlayFrame = 0;
+let originalBaseCanvas: HTMLCanvasElement | null = null;
 let implicitLightmapCanvas: HTMLCanvasElement | null = null;
 let implicitLightmapTimer = 0;
 let pendingTextureChannel: TextureChannelId | null = null;
@@ -741,12 +745,10 @@ function render(): void {
 
   // Original pane shows the source at native resolution — the pixel grid slider must not affect it.
   const litSourceNative = litCanvas(source, source.width, source.height);
+  originalBaseCanvas = litSourceNative;
   originalCanvas.width = source.width;
   originalCanvas.height = source.height;
   originalCanvas.getContext('2d')?.drawImage(litSourceNative, 0, 0);
-
-  drawUVOverlay(previewCanvas);
-  drawUVOverlay(originalCanvas);
 
   updatePreviewBadge(width, height);
   if (originalViewport && processedViewport) {
@@ -875,27 +877,104 @@ function uvOverlapMask(counts: Uint8Array, width: number, height: number): HTMLC
     if (counts[i] < 2) continue;
     const offset = i * 4;
     pixels[offset] = 255;
-    pixels[offset + 1] = 51;
-    pixels[offset + 2] = 51;
-    pixels[offset + 3] = 150;
+    pixels[offset + 1] = 255;
+    pixels[offset + 2] = 255;
+    pixels[offset + 3] = 255;
   }
   return pixelsToCanvas(pixels, width, height);
 }
 
 function refreshUVOverlap(): void {
-  uvOverlapCanvas = null;
+  uvOverlapMaskCanvas = null;
   forEachViewport((viewport) => viewport.setUVOverlap(null));
-  if (!state.showUVOverlap || !aoBakeScene) return;
+  if (!state.showUVOverlap || !aoBakeScene) {
+    stopUVOverlayAnimation();
+    return;
+  }
   const source = textures.base.image!;
   const { width, height } = uvOverlapResolution(source);
   const result = computeUVOverlap(aoBakeScene, width, height);
-  uvOverlapCanvas = uvOverlapMask(result.counts, width, height);
+  uvOverlapMaskCanvas = uvOverlapMask(result.counts, width, height);
   forEachViewport((viewport) => viewport.setUVOverlap(result.overlapping));
+  startUVOverlayAnimation();
 }
 
-function drawUVOverlay(canvas: HTMLCanvasElement): void {
-  if (!state.showUVOverlap || !uvOverlapCanvas) return;
-  canvas.getContext('2d')?.drawImage(uvOverlapCanvas, 0, 0, canvas.width, canvas.height);
+function renderWaveTile(time: number): HTMLCanvasElement {
+  const size = 256;
+  if (!uvWaveCanvas) {
+    uvWaveCanvas = document.createElement('canvas');
+    uvWaveCanvas.width = size;
+    uvWaveCanvas.height = size;
+  }
+  const context = uvWaveCanvas.getContext('2d');
+  if (!context) return uvWaveCanvas;
+  const image = context.createImageData(size, size);
+  const data = image.data;
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const a = 0.5 + 0.5 * Math.sin((x + y) * 0.14 - time * 0.004);
+      const b = 0.5 + 0.5 * Math.sin((x - y) * 0.1 - time * 0.003);
+      const intensity = a * 0.7 + b * 0.3;
+      const offset = (y * size + x) * 4;
+      data[offset] = 255;
+      data[offset + 1] = Math.round(40 + intensity * 190);
+      data[offset + 2] = Math.round(110 + intensity * 145);
+      data[offset + 3] = Math.round(70 + intensity * 185);
+    }
+  }
+  context.putImageData(image, 0, 0);
+  return uvWaveCanvas;
+}
+
+function overlayCompositeCanvas(width: number, height: number): HTMLCanvasElement {
+  if (!uvOverlayComposite) uvOverlayComposite = document.createElement('canvas');
+  if (uvOverlayComposite.width !== width || uvOverlayComposite.height !== height) {
+    uvOverlayComposite.width = width;
+    uvOverlayComposite.height = height;
+  }
+  return uvOverlayComposite;
+}
+
+function drawAnimatedOverlay(canvas: HTMLCanvasElement, base: HTMLCanvasElement | null, time: number): void {
+  if (!base || !uvOverlapMaskCanvas) return;
+  const context = canvas.getContext('2d');
+  if (!context) return;
+  const { width, height } = canvas;
+  context.drawImage(base, 0, 0, width, height);
+
+  const composite = overlayCompositeCanvas(width, height);
+  const compContext = composite.getContext('2d');
+  if (!compContext) return;
+  compContext.clearRect(0, 0, width, height);
+  compContext.drawImage(renderWaveTile(time), 0, 0, width, height);
+  compContext.globalCompositeOperation = 'destination-in';
+  compContext.drawImage(uvOverlapMaskCanvas, 0, 0, width, height);
+  compContext.globalCompositeOperation = 'source-over';
+
+  context.globalCompositeOperation = 'lighter';
+  context.drawImage(composite, 0, 0);
+  context.globalCompositeOperation = 'source-over';
+}
+
+function tickUVOverlayAnimation(time: number): void {
+  if (!state.showUVOverlap || !aoBakeScene || !uvOverlapMaskCanvas) {
+    uvOverlayFrame = 0;
+    return;
+  }
+  if (originalPreviewMode === '2d') drawAnimatedOverlay(originalCanvas, originalBaseCanvas, time);
+  if (processedPreviewMode === '2d') drawAnimatedOverlay(previewCanvas, renderedCanvas, time);
+  uvOverlayFrame = requestAnimationFrame(tickUVOverlayAnimation);
+}
+
+function startUVOverlayAnimation(): void {
+  if (uvOverlayFrame) return;
+  uvOverlayFrame = requestAnimationFrame(tickUVOverlayAnimation);
+}
+
+function stopUVOverlayAnimation(): void {
+  if (!uvOverlayFrame) return;
+  cancelAnimationFrame(uvOverlayFrame);
+  uvOverlayFrame = 0;
 }
 
 function applyModelUV(channel: string): void {
@@ -968,7 +1047,8 @@ function closeModelPreview(): void {
   modelLodLevels = [];
   disposeAOScene(aoBakeScene);
   aoBakeScene = null;
-  uvOverlapCanvas = null;
+  uvOverlapMaskCanvas = null;
+  stopUVOverlayAnimation();
   textures.lightmap.image = null;
   textures.lightmap.name = '';
   implicitLightmapCanvas = null;
