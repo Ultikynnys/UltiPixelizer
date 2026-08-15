@@ -4,7 +4,7 @@ import { createStoredCollection, type StorageLike } from './storage';
 import { slugify } from './strings';
 export type { StorageLike } from './storage';
 
-export const PRESET_VERSION = 2;
+export const PRESET_VERSION = 3;
 export const PRESET_STORAGE_KEY = 'ultipixelizer:conversion-presets:v1';
 
 export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'none'];
@@ -25,6 +25,10 @@ export type ConversionConfig = {
   aoBias: number;
   aoScale: number;
   aoDistance: number;
+  sunColor: string;
+  sunIntensity: number;
+  ambientColor: string;
+  ambientIntensity: number;
 };
 
 export type ConversionPreset = ConversionConfig & {
@@ -61,6 +65,10 @@ export function isConversionPreset(value: unknown): value is ConversionPreset {
     && finiteInRange(preset.aoBias, -1, 1)
     && finiteInRange(preset.aoScale, 0, 2)
     && finiteInRange(preset.aoDistance, 0.05, 3)
+    && typeof preset.sunColor === 'string' && /^#[0-9a-f]{6}$/i.test(preset.sunColor)
+    && finiteInRange(preset.sunIntensity, 0, 10)
+    && typeof preset.ambientColor === 'string' && /^#[0-9a-f]{6}$/i.test(preset.ambientColor)
+    && finiteInRange(preset.ambientIntensity, 0, 5)
     && isPalette(preset.palette);
 }
 
@@ -88,8 +96,9 @@ function migratePreset(value: unknown): unknown {
   let preset = value as Record<string, unknown>;
   if (preset.version === 1) {
     const { aoIntensity, ...rest } = preset;
-    preset = { ...rest, version: PRESET_VERSION, aoBias: 0, aoScale: typeof aoIntensity === 'number' ? aoIntensity : 1 };
+    preset = { ...rest, version: 2, aoBias: 0, aoScale: typeof aoIntensity === 'number' ? aoIntensity : 1 };
   }
+  if (preset.version === 2) preset = { ...preset, version: PRESET_VERSION };
   if (preset.version !== PRESET_VERSION) return value;
   const migrated: Record<string, unknown> = { ...preset };
   if (migrated.mode === 'diagonal') {
@@ -106,6 +115,10 @@ function migratePreset(value: unknown): unknown {
   if (migrated.aoBias === undefined) migrated.aoBias = 0;
   if (migrated.aoScale === undefined) migrated.aoScale = 1;
   if (migrated.aoDistance === undefined) migrated.aoDistance = 2;
+  if (migrated.sunColor === undefined) migrated.sunColor = '#ffffff';
+  if (migrated.sunIntensity === undefined) migrated.sunIntensity = 2.8;
+  if (migrated.ambientColor === undefined) migrated.ambientColor = '#ffffff';
+  if (migrated.ambientIntensity === undefined) migrated.ambientIntensity = 2.2;
   return migrated;
 }
 

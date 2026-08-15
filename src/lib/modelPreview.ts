@@ -3,7 +3,6 @@ import {
   AnimationClip,
   AnimationMixer,
   DirectionalLight,
-  HemisphereLight,
   LoadingManager,
   Object3D,
   PerspectiveCamera,
@@ -72,11 +71,7 @@ export class ModelViewport {
   private readonly timer = new Timer();
   private readonly resizeObserver: ResizeObserver;
   private readonly sun = new DirectionalLight(0xffffff, 2.8);
-  private readonly hemisphere = new HemisphereLight(0xffffff, 0x383845, 2.2);
-  // White fill at intensity PI reproduces the texture exactly — BRDF_Lambert divides by
-  // RECIPROCAL_PI, so "sun off" shows the base-color texture unlit (AO is already baked
-  // into the texture by the canvas pipeline), with no material swapping.
-  private readonly ambient = new AmbientLight(0xffffff, Math.PI);
+  private readonly ambient = new AmbientLight(0xffffff, 2.2);
   private model: Object3D | null = null;
   private mixer: AnimationMixer | null = null;
   private frame = 0;
@@ -89,8 +84,6 @@ export class ModelViewport {
     host.append(this.renderer.domElement);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
-    this.scene.add(this.hemisphere);
-    this.ambient.visible = false;
     this.scene.add(this.ambient);
     this.sun.position.set(3, 5, 4);
     this.scene.add(this.sun);
@@ -161,8 +154,22 @@ export class ModelViewport {
 
   setSunEnabled(enabled: boolean): void {
     this.sun.visible = enabled;
-    this.hemisphere.visible = enabled;
-    this.ambient.visible = !enabled;
+  }
+
+  setSunColor(color: string): void {
+    this.sun.color.set(color);
+  }
+
+  setSunIntensity(intensity: number): void {
+    this.sun.intensity = intensity;
+  }
+
+  setAmbientColor(color: string): void {
+    this.ambient.color.set(color);
+  }
+
+  setAmbientIntensity(intensity: number): void {
+    this.ambient.intensity = intensity;
   }
 
   private resize(): void {

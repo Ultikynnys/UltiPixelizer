@@ -23,7 +23,8 @@ type PreviewMode = '2d' | '3d';
 
 type TextureSlot = { image: SourceImage | null; name: string };
 
-type SunState = { azimuth: number; elevation: number; enabled: boolean };
+type LightState = { color: string; intensity: number };
+type SunState = LightState & { azimuth: number; elevation: number; enabled: boolean };
 
 const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string }> = [
   { id: 'base', label: 'BaseColor' },
@@ -45,6 +46,7 @@ type State = {
   uvMap: string;
   lodLevel: number;
   sun: SunState;
+  ambient: LightState;
   worldAxis: WorldAxis;
   stripeAngle: number;
   noiseScale: number;
@@ -84,6 +86,13 @@ const sunOverlayMarkup = (): string => `
       </svg>
     </button>
     <output class="sun-gizmo-value" id="sunGizmoValue">A 45° · E 45°</output>
+    <div class="light-controls">
+      <label class="light-color-control"><span>Sun color</span><input id="sunColor" type="color" value="#ffffff" aria-label="Sun color" /></label>
+      <label class="light-range-control"><span>Sun intensity</span><input id="sunIntensity" type="range" min="0" max="10" step="0.1" value="2.8" /><output id="sunIntensityValue">2.8</output></label>
+      <div class="light-section-title">Ambient</div>
+      <label class="light-color-control"><span>Color</span><input id="ambientColor" type="color" value="#ffffff" aria-label="Ambient light color" /></label>
+      <label class="light-range-control"><span>Intensity</span><input id="ambientIntensity" type="range" min="0" max="5" step="0.1" value="2.2" /><output id="ambientIntensityValue">2.2</output></label>
+    </div>
   </div>
 `;
 
@@ -99,7 +108,8 @@ const state: State = {
   paletteFilter: 'all',
   uvMap: 'uv',
   lodLevel: 0,
-  sun: { azimuth: 45, elevation: 45, enabled: true },
+  sun: { azimuth: 45, elevation: 45, enabled: true, color: '#ffffff', intensity: 2.8 },
+  ambient: { color: '#ffffff', intensity: 2.2 },
   worldAxis: 'blender',
   stripeAngle: 45,
   noiseScale: 1,
@@ -320,6 +330,12 @@ type SunElements = {
   ray: SVGLineElement;
   handle: SVGCircleElement;
   value: HTMLOutputElement;
+  color: HTMLInputElement;
+  intensity: HTMLInputElement;
+  intensityValue: HTMLOutputElement;
+  ambientColor: HTMLInputElement;
+  ambientIntensity: HTMLInputElement;
+  ambientIntensityValue: HTMLOutputElement;
 };
 
 const sunControlElements: SunElements = {
@@ -329,6 +345,12 @@ const sunControlElements: SunElements = {
   ray: document.querySelector<SVGLineElement>('#sunGizmoRay')!,
   handle: document.querySelector<SVGCircleElement>('#sunGizmoHandle')!,
   value: document.querySelector<HTMLOutputElement>('#sunGizmoValue')!,
+  color: document.querySelector<HTMLInputElement>('#sunColor')!,
+  intensity: document.querySelector<HTMLInputElement>('#sunIntensity')!,
+  intensityValue: document.querySelector<HTMLOutputElement>('#sunIntensityValue')!,
+  ambientColor: document.querySelector<HTMLInputElement>('#ambientColor')!,
+  ambientIntensity: document.querySelector<HTMLInputElement>('#ambientIntensity')!,
+  ambientIntensityValue: document.querySelector<HTMLOutputElement>('#ambientIntensityValue')!,
 };
 const stripeAngleControl = document.querySelector<HTMLDivElement>('#stripeAngleControl')!;
 const stripeAngleInput = document.querySelector<HTMLInputElement>('#stripeAngle')!;
@@ -553,6 +575,14 @@ function renderSunControl(): void {
   sunControlElements.enabled.checked = state.sun.enabled;
   sunControlElements.control.classList.toggle('off', !state.sun.enabled);
   sunControlElements.gizmo.disabled = !state.sun.enabled;
+  sunControlElements.color.disabled = !state.sun.enabled;
+  sunControlElements.intensity.disabled = !state.sun.enabled;
+  sunControlElements.color.value = state.sun.color;
+  sunControlElements.intensity.value = String(state.sun.intensity);
+  sunControlElements.intensityValue.textContent = state.sun.intensity.toFixed(1);
+  sunControlElements.ambientColor.value = state.ambient.color;
+  sunControlElements.ambientIntensity.value = String(state.ambient.intensity);
+  sunControlElements.ambientIntensityValue.textContent = state.ambient.intensity.toFixed(1);
   const point = sunDirectionToHemisphere(state.sun.azimuth, state.sun.elevation);
   const x = 32 + point.x * 27;
   const y = 32 + point.y * 27;
@@ -638,8 +668,16 @@ function applySun(): void {
   renderSunControl();
   originalViewport?.setSunDirection(state.sun.azimuth, state.sun.elevation);
   originalViewport?.setSunEnabled(state.sun.enabled);
+  originalViewport?.setSunColor(state.sun.color);
+  originalViewport?.setSunIntensity(state.sun.intensity);
+  originalViewport?.setAmbientColor(state.ambient.color);
+  originalViewport?.setAmbientIntensity(state.ambient.intensity);
   processedViewport?.setSunDirection(state.sun.azimuth, state.sun.elevation);
   processedViewport?.setSunEnabled(state.sun.enabled);
+  processedViewport?.setSunColor(state.sun.color);
+  processedViewport?.setSunIntensity(state.sun.intensity);
+  processedViewport?.setAmbientColor(state.ambient.color);
+  processedViewport?.setAmbientIntensity(state.ambient.intensity);
 }
 
 function applyWorldAxis(): void {
@@ -983,6 +1021,10 @@ function currentConfig() {
     aoBias: state.aoBias,
     aoScale: state.aoScale,
     aoDistance: state.aoDistance,
+    sunColor: state.sun.color,
+    sunIntensity: state.sun.intensity,
+    ambientColor: state.ambient.color,
+    ambientIntensity: state.ambient.intensity,
   };
 }
 
@@ -1038,6 +1080,8 @@ function applyPreset(preset: ConversionPreset): void {
     aoBias: preset.aoBias,
     aoScale: preset.aoScale,
     aoDistance: preset.aoDistance,
+    sun: { ...state.sun, color: preset.sunColor, intensity: preset.sunIntensity },
+    ambient: { color: preset.ambientColor, intensity: preset.ambientIntensity },
     paletteSnapshot: undefined,
     customColors: [],
   });
@@ -1047,6 +1091,7 @@ function applyPreset(preset: ConversionPreset): void {
   customPaletteName.value = selectedCustom?.name ?? selectedPalette.name;
   customPaletteDescription.value = selectedCustom?.description ?? selectedPalette.description;
   syncControlsFromState();
+  applySun();
   updateResolution(preset.resolution, true);
   if (modelUVChannels.includes(preset.uvMap)) {
     uvMapSelect.value = preset.uvMap;
@@ -1120,11 +1165,12 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
 
 function reset(): void {
   renderScheduler.cancel();
-  Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5, stripeAngle: 45, noiseScale: 1, seed: 1, aoBias: 0, aoScale: 1, aoDistance: 2 });
+  Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5, stripeAngle: 45, noiseScale: 1, seed: 1, aoBias: 0, aoScale: 1, aoDistance: 2, sun: { azimuth: 45, elevation: 45, enabled: true, color: '#ffffff', intensity: 2.8 }, ambient: { color: '#ffffff', intensity: 2.2 } });
   editingCustomKey = null;
   customPaletteName.value = '';
   customPaletteDescription.value = '';
   syncControlsFromState();
+  applySun();
   updateResolution(128, true);
   showToast('Settings reset');
 }
@@ -1428,6 +1474,22 @@ function bindSunControl(): void {
   });
   sunControlElements.enabled.addEventListener('change', () => {
     state.sun.enabled = sunControlElements.enabled.checked;
+    applySun();
+  });
+  sunControlElements.color.addEventListener('input', () => {
+    state.sun.color = sunControlElements.color.value;
+    applySun();
+  });
+  sunControlElements.intensity.addEventListener('input', () => {
+    state.sun.intensity = Number(sunControlElements.intensity.value);
+    applySun();
+  });
+  sunControlElements.ambientColor.addEventListener('input', () => {
+    state.ambient.color = sunControlElements.ambientColor.value;
+    applySun();
+  });
+  sunControlElements.ambientIntensity.addEventListener('input', () => {
+    state.ambient.intensity = Number(sunControlElements.ambientIntensity.value);
     applySun();
   });
 }

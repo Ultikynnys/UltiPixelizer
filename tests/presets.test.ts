@@ -36,6 +36,10 @@ const config: ConversionConfig = {
   aoBias: 0,
   aoScale: 1,
   aoDistance: 2,
+  sunColor: '#ffd8a8',
+  sunIntensity: 3.4,
+  ambientColor: '#8fb4ff',
+  ambientIntensity: 0.6,
 };
 
 let storage: MemoryStorage;
@@ -74,6 +78,16 @@ describe('conversion presets', () => {
     expect('aoIntensity' in parsed).toBe(false);
   });
 
+  it('migrates presets saved before configurable lighting existed', () => {
+    const current = createPreset('Legacy lighting', '', config);
+    const { sunColor: _sunColor, sunIntensity: _sunIntensity, ambientColor: _ambientColor, ambientIntensity: _ambientIntensity, ...legacy } = current;
+    const parsed = parsePreset(JSON.stringify({ ...legacy, version: 2 }));
+    expect(parsed.sunColor).toBe('#ffffff');
+    expect(parsed.sunIntensity).toBe(2.8);
+    expect(parsed.ambientColor).toBe('#ffffff');
+    expect(parsed.ambientIntensity).toBe(2.2);
+  });
+
   it('rejects empty names, malformed JSON, invalid exports, and unsupported settings', () => {
     expect(() => createPreset('  ', '', config)).toThrow('Preset name is required');
     expect(() => parsePreset('{broken')).toThrow('not valid JSON');
@@ -87,6 +101,14 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...base, stripeAngle: 0 })).toBe(true);
     expect(isConversionPreset({ ...base, stripeAngle: 135 })).toBe(true);
     expect(isConversionPreset({ ...base, stripeAngle: 136 })).toBe(false);
+  });
+
+  it('validates lighting colors and intensity bounds', () => {
+    const base = createPreset('Lighting', '', config);
+    expect(isConversionPreset({ ...base, ambientIntensity: 0 })).toBe(true);
+    expect(isConversionPreset({ ...base, sunColor: 'white' })).toBe(false);
+    expect(isConversionPreset({ ...base, sunIntensity: 10.1 })).toBe(false);
+    expect(isConversionPreset({ ...base, ambientIntensity: -0.1 })).toBe(false);
   });
 
   it('persists, replaces by case-insensitive name, and deletes named presets', () => {
