@@ -43,6 +43,7 @@ type State = {
   lodLevel: number;
   sunAzimuth: number;
   sunElevation: number;
+  sunEnabled: boolean;
   worldAxis: WorldAxis;
   stripeAngle: number;
   noiseScale: number;
@@ -79,6 +80,7 @@ const state: State = {
   lodLevel: 0,
   sunAzimuth: 45,
   sunElevation: 45,
+  sunEnabled: true,
   worldAxis: 'blender',
   stripeAngle: 45,
   noiseScale: 1,
@@ -129,7 +131,7 @@ app.innerHTML = `
               <option value="maya">Maya · Y-up</option>
             </select></label>
             <div class="sun-control" id="sunControl" hidden>
-              <span>Sun</span>
+              <label class="sun-toggle" title="Toggle sun lighting"><input id="sunEnabled" type="checkbox" checked aria-label="Toggle sun lighting" /><span>Sun</span></label>
               <label class="sun-axis"><span>Azimuth</span><input id="sunAzimuth" class="range sun-range" type="range" min="0" max="360" value="45" aria-label="Sun azimuth" /></label>
               <label class="sun-axis"><span>Elevation</span><input id="sunElevation" class="range sun-range" type="range" min="0" max="90" value="45" aria-label="Sun elevation" /></label>
             </div>
@@ -296,6 +298,7 @@ const lodMapSelect = document.querySelector<HTMLSelectElement>('#lodMap')!;
 const worldAxisControl = document.querySelector<HTMLLabelElement>('#worldAxisControl')!;
 const worldAxisSelect = document.querySelector<HTMLSelectElement>('#worldAxis')!;
 const sunControl = document.querySelector<HTMLDivElement>('#sunControl')!;
+const sunEnabledInput = document.querySelector<HTMLInputElement>('#sunEnabled')!;
 const sunAzimuthInput = document.querySelector<HTMLInputElement>('#sunAzimuth')!;
 const sunElevationInput = document.querySelector<HTMLInputElement>('#sunElevation')!;
 const stripeAngleControl = document.querySelector<HTMLDivElement>('#stripeAngleControl')!;
@@ -518,6 +521,10 @@ function renderWorldAxisControl(): void {
 
 function renderSunControl(): void {
   sunControl.hidden = !modelBundle;
+  sunEnabledInput.checked = state.sunEnabled;
+  sunControl.classList.toggle('off', !state.sunEnabled);
+  sunAzimuthInput.disabled = !state.sunEnabled;
+  sunElevationInput.disabled = !state.sunEnabled;
 }
 
 function updatePatternControls(): void {
@@ -589,6 +596,11 @@ function applySunDirection(): void {
   processedViewport?.setSunDirection(state.sunAzimuth, state.sunElevation);
 }
 
+function applySunEnabled(): void {
+  originalViewport?.setSunEnabled(state.sunEnabled);
+  processedViewport?.setSunEnabled(state.sunEnabled);
+}
+
 function applyWorldAxis(): void {
   originalViewport?.setWorldAxis(state.worldAxis);
   processedViewport?.setWorldAxis(state.worldAxis);
@@ -658,6 +670,7 @@ async function setModel(files: File[]): Promise<void> {
     renderSunControl();
     renderWorldAxisControl();
     applySunDirection();
+    applySunEnabled();
     if (modelUVChannels.length) applyModelUV(state.uvMap);
     renderTextureRibbon();
     render();
@@ -735,7 +748,7 @@ function renderAdjustments(): void {
   `).join('');
 }
 
-function beginCustomDraft(name: string, description: string, colors: string[], key: string | null = null): void {
+function hydrateCustomDraft(name: string, description: string, colors: string[], key: string | null = null): void {
   editingCustomKey = key;
   customPaletteName.value = name;
   customPaletteDescription.value = description;
@@ -746,15 +759,22 @@ function beginCustomDraft(name: string, description: string, colors: string[], k
     category: 'custom',
     colors: [...colors],
   };
+}
+
+function beginCustomDraft(name: string, description: string, colors: string[], key: string | null = null): void {
+  hydrateCustomDraft(name, description, colors, key);
   renderPalettes();
   render();
 }
 
+// Hydrate the draft state WITHOUT re-rendering the palette rows: re-rendering would replace the
+// <input type="color"> the user is currently editing, detaching it so the picker's trailing
+// 'change' event never bubbles to the customColors listener and the edit is never persisted.
 function ensureCustomDraft(): void {
   if (state.customColors.length > 0) return;
   const selectedCustom = savedCustomPalettes.find((palette) => palette.key === state.paletteKey);
-  if (selectedCustom) beginCustomDraft(selectedCustom.name, selectedCustom.description, selectedCustom.colors, selectedCustom.key);
-  else beginCustomDraft(`${currentPalette().name} Copy`, `Custom copy of ${currentPalette().name}`, currentPalette().colors);
+  if (selectedCustom) hydrateCustomDraft(selectedCustom.name, selectedCustom.description, selectedCustom.colors, selectedCustom.key);
+  else hydrateCustomDraft(`${currentPalette().name} Copy`, `Custom copy of ${currentPalette().name}`, currentPalette().colors);
 }
 
 function persistCustomDraft(): void {
@@ -1320,6 +1340,11 @@ sunAzimuthInput.addEventListener('input', () => {
 sunElevationInput.addEventListener('input', () => {
   state.sunElevation = Number(sunElevationInput.value);
   applySunDirection();
+});
+sunEnabledInput.addEventListener('change', () => {
+  state.sunEnabled = sunEnabledInput.checked;
+  renderSunControl();
+  applySunEnabled();
 });
 const dropZone = document.querySelector<HTMLDivElement>('#dropZone')!;
 bindSlotDragState(dropZone);

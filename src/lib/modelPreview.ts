@@ -1,4 +1,5 @@
 import {
+  AmbientLight,
   AnimationClip,
   AnimationMixer,
   DirectionalLight,
@@ -71,6 +72,11 @@ export class ModelViewport {
   private readonly timer = new Timer();
   private readonly resizeObserver: ResizeObserver;
   private readonly sun = new DirectionalLight(0xffffff, 2.8);
+  private readonly hemisphere = new HemisphereLight(0xffffff, 0x383845, 2.2);
+  // White fill at intensity PI reproduces the texture exactly — BRDF_Lambert divides by
+  // RECIPROCAL_PI, so "sun off" shows the base-color texture unlit (AO is already baked
+  // into the texture by the canvas pipeline), with no material swapping.
+  private readonly ambient = new AmbientLight(0xffffff, Math.PI);
   private model: Object3D | null = null;
   private mixer: AnimationMixer | null = null;
   private frame = 0;
@@ -83,7 +89,9 @@ export class ModelViewport {
     host.append(this.renderer.domElement);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
-    this.scene.add(new HemisphereLight(0xffffff, 0x383845, 2.2));
+    this.scene.add(this.hemisphere);
+    this.ambient.visible = false;
+    this.scene.add(this.ambient);
     this.sun.position.set(3, 5, 4);
     this.scene.add(this.sun);
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -149,6 +157,12 @@ export class ModelViewport {
       Math.sin(elevation),
       cosElevation * Math.sin(azimuth),
     );
+  }
+
+  setSunEnabled(enabled: boolean): void {
+    this.sun.visible = enabled;
+    this.hemisphere.visible = enabled;
+    this.ambient.visible = !enabled;
   }
 
   private resize(): void {

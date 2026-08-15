@@ -74,6 +74,13 @@ button { color: inherit; }
 .sun-axis { align-items: center; display: flex; gap: 5px; }
 .sun-axis > span { color: var(--muted); font: 500 8px 'DM Mono', monospace; text-transform: uppercase; }
 .sun-axis input.sun-range { width: 56px; }
+.sun-toggle { align-items: center; cursor: pointer; display: flex; gap: 6px; }
+.sun-toggle input { appearance: none; background: #34342f; border: 1px solid #4b4b45; border-radius: 8px; cursor: pointer; height: 14px; margin: 0; position: relative; transition: background .15s ease, border-color .15s ease; width: 26px; }
+.sun-toggle input::after { background: #b9b9af; border-radius: 50%; content: ''; height: 8px; left: 2px; position: absolute; top: 2px; transition: left .15s ease, background .15s ease; width: 8px; }
+.sun-toggle input:checked { background: var(--lime); border-color: var(--lime); }
+.sun-toggle input:checked::after { background: #161614; left: 14px; }
+.sun-toggle input:focus-visible { outline: 1px solid var(--lime); outline-offset: 1px; }
+.sun-control.off .sun-axis { opacity: .35; pointer-events: none; }
 
 .canvas-stage {
   align-items: center; background-color: #1c1c1b; background-image: linear-gradient(45deg,#20201f 25%,transparent 25%),linear-gradient(-45deg,#20201f 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#20201f 75%),linear-gradient(-45deg,transparent 75%,#20201f 75%);
