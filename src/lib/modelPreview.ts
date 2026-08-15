@@ -15,6 +15,7 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
 import { applyTextureToModel, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject, materialsOf } from './modelScene';
@@ -71,8 +72,8 @@ export class ModelViewport {
   private readonly controls: OrbitControls;
   private readonly timer = new Timer();
   private readonly resizeObserver: ResizeObserver;
-  private readonly sun = new DirectionalLight(0xffffff, 2.8);
-  private readonly ambient = new AmbientLight(0xffffff, 2.2);
+  private readonly sun = new DirectionalLight(0xffffff, DEFAULT_SUN_INTENSITY);
+  private readonly ambient = new AmbientLight(0xffffff, DEFAULT_AMBIENT_INTENSITY);
   private model: Object3D | null = null;
   private mixer: AnimationMixer | null = null;
   private frame = 0;

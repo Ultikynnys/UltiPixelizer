@@ -39,3 +39,7 @@ export function hexToRgb(hex: string): [number, number, number] {
   const value = Number.parseInt(normalized, 16);
   return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
 }
+
+export function isHexColor(value: string): boolean {
+  return hexColor.test(value);
+}

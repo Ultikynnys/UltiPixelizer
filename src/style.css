@@ -256,7 +256,8 @@ button { color: inherit; }
 .control-row output, .adjustment-row output { color: var(--paper); font: 500 9px 'DM Mono', monospace; }
 .adjustment-row + .adjustment-row { margin-top: 15px; }
 .panel-description { color: var(--muted); font-size: 9px; line-height: 1.5; margin: 4px 0 0; }
-.lightmap-status { background: var(--surface); border: 1px solid var(--line); color: var(--paper-dim); font: 500 8px 'DM Mono', monospace; margin-top: 13px; overflow: hidden; padding: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.lightmap-status, .normal-status { background: var(--surface); border: 1px solid var(--line); color: var(--paper-dim); font: 500 8px 'DM Mono', monospace; margin-top: 13px; overflow: hidden; padding: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.normal-format-select { background: var(--surface); border: 1px solid var(--line); border-radius: 3px; color: var(--paper); font: 500 9px 'DM Mono', monospace; padding: 7px 8px; width: 100%; }
 .lightmap-actions { display: grid; gap: 6px; grid-template-columns: 1fr 1fr auto; margin-top: 8px; }
 .lightmap-actions .button { font-size: 8px; padding: 8px; }
 .sun-overlay.lightmap-active::after { color: var(--accent); content: 'LIGHTMAP ACTIVE'; font: 600 7px 'DM Mono', monospace; letter-spacing: .08em; margin-top: 6px; }

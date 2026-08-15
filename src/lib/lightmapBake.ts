@@ -1,15 +1,8 @@
-import {
-  BufferAttribute,
-  BufferGeometry,
-  DoubleSide,
-  Matrix3,
-  Mesh,
-  Object3D,
-  Ray,
-  Vector3,
-} from 'three';
-import { MeshBVH } from 'three-mesh-bvh';
+import { DoubleSide, Object3D, Ray, Vector3 } from 'three';
+import { hexToRgb, isHexColor } from './palettes';
 import { sunDirectionVector } from './sunGizmo';
+import { collectBakeScene, rasterizeBake, type BakeTriangle, type UvPair } from './bakeGeometry';
+import { sampleNormalMap, type NormalMapSource } from './normal';
 
 export type BakeLightmapOptions = {
   sunAzimuth: number;
@@ -20,20 +13,67 @@ export type BakeLightmapOptions = {
   ambientColor: string;
   ambientIntensity: number;
   ambientEnabled?: boolean;
+  normalMap?: NormalMapSource;
+  normalStrength?: number;
+  normalFlipY?: boolean;
 };
 
 type RGB = [number, number, number];
-type UvPair = [number, number];
-type UniqueVertex = { position: Vector3; normal: Vector3; light: RGB };
-type BakeTriangle = { uv: [UvPair, UvPair, UvPair]; verts: [number, number, number] };
 
 const _ray = new Ray();
 
 function parseColor(color: string): RGB {
-  const match = /^#([0-9a-f]{6})$/i.exec(color);
-  if (!match) throw new Error(`Invalid light color: ${color}`);
-  const value = Number.parseInt(match[1], 16);
-  return [((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255];
+  if (!isHexColor(color)) throw new Error(`Invalid light color: ${color}`);
+  const [red, green, blue] = hexToRgb(color);
+  return [red / 255, green / 255, blue / 255];
+}
+
+/**
+ * Builds an orthonormal tangent/bitangent/normal basis for a triangle from its
+ * world-space positions and UVs (MikkTSpace-style). The geometric normal is the
+ * triangle face normal; tangent and bitangent follow the UV gradients and are
+ * re-orthogonalized against the normal.
+ */
+function computeTangentBasis(
+  p0: Vector3,
+  p1: Vector3,
+  p2: Vector3,
+  uv0: UvPair,
+  uv1: UvPair,
+  uv2: UvPair,
+): [Vector3, Vector3, Vector3] {
+  const e1 = new Vector3().subVectors(p1, p0);
+  const e2 = new Vector3().subVectors(p2, p0);
+  const normal = new Vector3().crossVectors(e1, e2);
+  const du1 = uv1[0] - uv0[0];
+  const dv1 = uv1[1] - uv0[1];
+  const du2 = uv2[0] - uv0[0];
+  const dv2 = uv2[1] - uv0[1];
+  const det = du1 * dv2 - du2 * dv1;
+  const tangent = new Vector3();
+  const bitangent = new Vector3();
+  if (Math.abs(det) > 1e-12) {
+    const f = 1 / det;
+    tangent.set(
+      f * (dv2 * e1.x - dv1 * e2.x),
+      f * (dv2 * e1.y - dv1 * e2.y),
+      f * (dv2 * e1.z - dv1 * e2.z),
+    );
+    bitangent.set(
+      f * (-du2 * e1.x + du1 * e2.x),
+      f * (-du2 * e1.y + du1 * e2.y),
+      f * (-du2 * e1.z + du1 * e2.z),
+    );
+  }
+  if (normal.lengthSq() === 0) normal.set(0, 0, 1);
+  normal.normalize();
+  tangent.addScaledVector(normal, -tangent.dot(normal));
+  if (tangent.lengthSq() === 0) tangent.set(1, 0, 0);
+  tangent.normalize();
+  bitangent.addScaledVector(normal, -bitangent.dot(normal));
+  if (bitangent.lengthSq() === 0) bitangent.set(0, 1, 0);
+  bitangent.normalize();
+  return [tangent, bitangent, normal];
 }
 
 /**
@@ -41,75 +81,22 @@ function parseColor(color: string): RGB {
  * Output contains irradiance only (no albedo), with white representing neutral light.
  */
 export function bakeMeshLightmap(scene: Object3D, width: number, height: number, options: BakeLightmapOptions): Uint8ClampedArray {
-  scene.updateMatrixWorld(true);
   const sunVector = sunDirectionVector(options.sunAzimuth, options.sunElevation);
   const sunDirection = new Vector3(sunVector.x, sunVector.y, sunVector.z).normalize();
   const sunColor = parseColor(options.sunColor);
   const ambientColor = options.ambientEnabled === false ? [1, 1, 1] : parseColor(options.ambientColor);
   const ambientScale = options.ambientEnabled === false ? 1 : Math.max(0, options.ambientIntensity) / Math.PI;
   const sunScale = options.sunEnabled === false ? 0 : Math.max(0, options.sunIntensity) / Math.PI;
+  const normalMap = options.normalMap;
+  const normalStrength = Math.min(1, Math.max(0, options.normalStrength ?? 1));
+  const normalFlipY = options.normalFlipY ?? false;
 
-  const worldPositions: number[] = [];
-  const bakeTriangles: BakeTriangle[] = [];
-  const uniqueVertices: UniqueVertex[] = [];
-  const vertexIndexByKey = new Map<string, number>();
-  const normalMatrix = new Matrix3();
+  const { vertices, triangles, bvh, epsilon } = collectBakeScene(scene);
 
-  scene.traverse((child) => {
-    if (!(child instanceof Mesh) || !child.visible) return;
-    const geometry = child.geometry as BufferGeometry;
-    const position = geometry.getAttribute('position') as BufferAttribute | undefined;
-    if (!position) return;
-    const uv = geometry.getAttribute('uv') as BufferAttribute | undefined;
-    let normal = geometry.getAttribute('normal') as BufferAttribute | undefined;
-    if (uv && !normal) {
-      geometry.computeVertexNormals();
-      normal = geometry.getAttribute('normal') as BufferAttribute | undefined;
-    }
-    const world = child.matrixWorld;
-    normalMatrix.getNormalMatrix(world);
-    const index = geometry.getIndex();
-    const triangleCount = index ? index.count / 3 : position.count / 3;
-    const v = new Vector3();
-    const n = new Vector3();
-    for (let tri = 0; tri < triangleCount; tri += 1) {
-      const indices = [
-        index ? index.getX(tri * 3) : tri * 3,
-        index ? index.getX(tri * 3 + 1) : tri * 3 + 1,
-        index ? index.getX(tri * 3 + 2) : tri * 3 + 2,
-      ];
-      for (const vi of indices) {
-        v.fromBufferAttribute(position, vi).applyMatrix4(world);
-        worldPositions.push(v.x, v.y, v.z);
-      }
-      if (!uv || !normal) continue;
-      const verts = indices.map((vi) => {
-        v.fromBufferAttribute(position, vi).applyMatrix4(world);
-        n.fromBufferAttribute(normal, vi).applyMatrix3(normalMatrix).normalize();
-        const key = [v.x, v.y, v.z, n.x, n.y, n.z].map((value) => value.toFixed(6)).join(',');
-        let resolved = vertexIndexByKey.get(key);
-        if (resolved === undefined) {
-          resolved = uniqueVertices.length;
-          uniqueVertices.push({ position: v.clone(), normal: n.clone(), light: [0, 0, 0] });
-          vertexIndexByKey.set(key, resolved);
-        }
-        return resolved;
-      }) as [number, number, number];
-      bakeTriangles.push({
-        uv: indices.map((vi) => [uv.getX(vi), uv.getY(vi)]) as [UvPair, UvPair, UvPair],
-        verts,
-      });
-    }
-  });
-
-  const occluder = new BufferGeometry();
-  occluder.setAttribute('position', new BufferAttribute(new Float32Array(worldPositions), 3));
-  occluder.computeBoundingSphere();
-  const radius = occluder.boundingSphere?.radius ?? 1;
-  const epsilon = Math.max(radius * 1e-3, 1e-4);
-  const bvh = worldPositions.length ? new MeshBVH(occluder) : null;
-
-  for (const vertex of uniqueVertices) {
+  const lights: RGB[] = new Array(vertices.length);
+  const visibility = new Float32Array(vertices.length);
+  for (let i = 0; i < vertices.length; i += 1) {
+    const vertex = vertices[i];
     const lambert = Math.max(0, vertex.normal.dot(sunDirection));
     let sunVisibility = lambert > 0 && sunScale > 0 ? 1 : 0;
     if (sunVisibility && bvh) {
@@ -117,39 +104,53 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
       _ray.direction.copy(sunDirection);
       if (bvh.raycastFirst(_ray, DoubleSide, epsilon)) sunVisibility = 0;
     }
-    vertex.light = [0, 1, 2].map((channel) => Math.min(1,
+    visibility[i] = sunVisibility;
+    lights[i] = [0, 1, 2].map((channel) => Math.min(1,
       ambientColor[channel] * ambientScale + sunColor[channel] * sunScale * lambert * sunVisibility,
     )) as RGB;
   }
 
+  const tangentBases = normalMap
+    ? new Map<BakeTriangle, [Vector3, Vector3, Vector3]>(triangles.map((triangle) => [triangle, computeTangentBasis(
+      vertices[triangle.verts[0]].position,
+      vertices[triangle.verts[1]].position,
+      vertices[triangle.verts[2]].position,
+      triangle.uv[0], triangle.uv[1], triangle.uv[2],
+    )]))
+    : null;
+
   const pixels = new Uint8ClampedArray(width * height * 4).fill(255);
-  for (const triangle of bakeTriangles) {
-    const [[uax, uay], [ubx, uby], [ucx, ucy]] = triangle.uv;
-    const ax = uax * width; const ay = (1 - uay) * height;
-    const bx = ubx * width; const by = (1 - uby) * height;
-    const cx = ucx * width; const cy = (1 - ucy) * height;
-    const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
-    const maxX = Math.min(width - 1, Math.ceil(Math.max(ax, bx, cx)));
-    const minY = Math.max(0, Math.floor(Math.min(ay, by, cy)));
-    const maxY = Math.min(height - 1, Math.ceil(Math.max(ay, by, cy)));
-    const denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
-    if (denominator === 0) continue;
-    for (let py = minY; py <= maxY; py += 1) {
-      for (let px = minX; px <= maxX; px += 1) {
-        const x = px + 0.5; const y = py + 0.5;
-        const w0 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / denominator;
-        const w1 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denominator;
-        const w2 = 1 - w0 - w1;
-        if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-        const offset = (py * width + px) * 4;
-        for (let channel = 0; channel < 3; channel += 1) {
-          const value = w0 * uniqueVertices[triangle.verts[0]].light[channel]
-            + w1 * uniqueVertices[triangle.verts[1]].light[channel]
-            + w2 * uniqueVertices[triangle.verts[2]].light[channel];
-          pixels[offset + channel] = Math.round(value * 255);
-        }
+  const mapped = new Vector3();
+  rasterizeBake(width, height, triangles, (px, py, w0, w1, w2, triangle) => {
+    const offset = (py * width + px) * 4;
+    const basis = tangentBases?.get(triangle);
+    if (normalMap && basis) {
+      const [uva, uvb, uvc] = triangle.uv;
+      const u = w0 * uva[0] + w1 * uvb[0] + w2 * uvc[0];
+      const v = w0 * uva[1] + w1 * uvb[1] + w2 * uvc[1];
+      const [tx, ty, tz] = sampleNormalMap(normalMap, u, v, normalStrength, normalFlipY);
+      const [tangent, bitangent, normal] = basis;
+      mapped.set(
+        tangent.x * tx + bitangent.x * ty + normal.x * tz,
+        tangent.y * tx + bitangent.y * ty + normal.y * tz,
+        tangent.z * tx + bitangent.z * ty + normal.z * tz,
+      ).normalize();
+      const lambert = Math.max(0, mapped.dot(sunDirection));
+      const sunVisibility = w0 * visibility[triangle.verts[0]]
+        + w1 * visibility[triangle.verts[1]]
+        + w2 * visibility[triangle.verts[2]];
+      for (let channel = 0; channel < 3; channel += 1) {
+        const value = Math.min(1, ambientColor[channel] * ambientScale + sunColor[channel] * sunScale * lambert * sunVisibility);
+        pixels[offset + channel] = Math.round(value * 255);
+      }
+    } else {
+      for (let channel = 0; channel < 3; channel += 1) {
+        const value = w0 * lights[triangle.verts[0]][channel]
+          + w1 * lights[triangle.verts[1]][channel]
+          + w2 * lights[triangle.verts[2]][channel];
+        pixels[offset + channel] = Math.round(value * 255);
       }
     }
-  }
+  });
   return pixels;
 }

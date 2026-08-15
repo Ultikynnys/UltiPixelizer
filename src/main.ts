@@ -12,7 +12,9 @@ import { createPreset, parsePreset, serializePreset, type ConversionPreset } fro
 import { applyAO, imageAOFactors } from './lib/ao';
 import { bakeMeshAO } from './lib/aoBake';
 import { applyLightmap, imageLightmapPixels, lightmapMatchesBaseColor } from './lib/lightmap';
-import { bakeMeshLightmap } from './lib/lightmapBake';
+import { bakeMeshLightmap, type BakeLightmapOptions } from './lib/lightmapBake';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './lib/defaults';
+import { imageNormalMapPixels, type NormalFormat } from './lib/normal';
 import { safeFileName } from './lib/strings';
 import { hemisphereToSunDirection, sunDirectionToHemisphere } from './lib/sunGizmo';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
@@ -58,6 +60,8 @@ type State = {
   aoScale: number;
   aoDistance: number;
   lightmapContribution: number;
+  normalStrength: number;
+  normalFormat: NormalFormat;
 };
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -101,29 +105,35 @@ const sunOverlayMarkup = (): string => `
   </div>
 `;
 
-const state: State = {
-  paletteKey: 'pico8',
-  customColors: [],
-  resolution: 128,
-  mode: 'floyd',
-  strength: 0.85,
-  brightness: 0,
-  contrast: 8,
-  saturation: 5,
-  paletteFilter: 'all',
-  uvMap: 'uv',
-  lodLevel: 0,
-  sun: { azimuth: 45, elevation: 45, enabled: true, color: '#ffffff', intensity: 2.8 },
-  ambient: { color: '#ffffff', intensity: 2.2, enabled: true },
-  worldAxis: 'blender',
-  stripeAngle: 45,
-  noiseScale: 1,
-  seed: 1,
-  aoBias: 0,
-  aoScale: 1,
-  aoDistance: 2,
-  lightmapContribution: 1,
-};
+function defaultState(): State {
+  return {
+    paletteKey: 'pico8',
+    customColors: [],
+    resolution: 128,
+    mode: 'floyd',
+    strength: 0.85,
+    brightness: 0,
+    contrast: 8,
+    saturation: 5,
+    paletteFilter: 'all',
+    uvMap: 'uv',
+    lodLevel: 0,
+    sun: { azimuth: 45, elevation: 45, enabled: true, color: '#ffffff', intensity: DEFAULT_SUN_INTENSITY },
+    ambient: { color: '#ffffff', intensity: DEFAULT_AMBIENT_INTENSITY, enabled: true },
+    worldAxis: 'blender',
+    stripeAngle: 45,
+    noiseScale: 1,
+    seed: 1,
+    aoBias: 0,
+    aoScale: 1,
+    aoDistance: 2,
+    lightmapContribution: 1,
+    normalStrength: 1,
+    normalFormat: 'opengl',
+  };
+}
+
+const state: State = defaultState();
 
 app.innerHTML = `
   <div class="app-shell">
@@ -307,8 +317,20 @@ app.innerHTML = `
           <button class="button button-secondary ao-generate-button" id="generateAoButton" type="button">Generate AO</button>
         </section>
 
+        <section class="panel normals-panel">
+          <div class="panel-heading compact"><div><p class="eyebrow">SURFACE NORMALS / 06</p><h2>Normal map</h2></div></div>
+          <p class="panel-description">Perturb the baked sun lighting with the loaded normal map's surface detail.</p>
+          ${rangeControl('normalStrength', 'Normal strength', 0, 100, 1, 100, '100%')}
+          <label class="control-row"><span><strong>Format</strong><small>Green channel convention</small></span></label>
+          <select class="normal-format-select" id="normalFormat" aria-label="Normal map format">
+            <option value="opengl">OpenGL · +Y up</option>
+            <option value="directx">DirectX · −Y up</option>
+          </select>
+          <div class="normal-status" id="normalStatus">No normal map loaded</div>
+        </section>
+
         <section class="panel lightmap-panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTMAP BAKE / 06</p><h2>Baked lighting</h2></div></div>
+          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTMAP BAKE / 07</p><h2>Baked lighting</h2></div></div>
           <p class="panel-description">Bake the current sun and ambient lighting into UV space, or load a matching custom lightmap.</p>
           <label class="control-row"><span><strong>Contribution</strong><small>White to full lightmap</small></span><output id="lightmapContributionValue">100%</output></label>
           <input class="range" id="lightmapContribution" type="range" min="0" max="100" step="1" value="100" aria-label="Lightmap contribution" />
@@ -400,6 +422,10 @@ const lightmapContributionValue = document.querySelector<HTMLOutputElement>('#li
 const lightmapStatus = document.querySelector<HTMLDivElement>('#lightmapStatus')!;
 const bakeLightmapButton = document.querySelector<HTMLButtonElement>('#bakeLightmapButton')!;
 const clearLightmapButton = document.querySelector<HTMLButtonElement>('#clearLightmapButton')!;
+const normalStrengthInput = document.querySelector<HTMLInputElement>('#normalStrength')!;
+const normalStrengthValue = document.querySelector<HTMLOutputElement>('#normalStrengthValue')!;
+const normalFormatSelect = document.querySelector<HTMLSelectElement>('#normalFormat')!;
+const normalStatus = document.querySelector<HTMLDivElement>('#normalStatus')!;
 let savedCustomPalettes = loadCustomPalettes(localStorage);
 let editingCustomKey: string | null = null;
 let toastTimer = 0;
@@ -409,6 +435,11 @@ let originalPreviewMode: PreviewMode = '2d';
 let processedPreviewMode: PreviewMode = '2d';
 let originalViewport: ModelViewport | null = null;
 let processedViewport: ModelViewport | null = null;
+
+function forEachViewport(callback: (viewport: ModelViewport) => void): void {
+  if (originalViewport) callback(originalViewport);
+  if (processedViewport) callback(processedViewport);
+}
 let modelUVChannels: string[] = [];
 let modelLodLevels: number[] = [];
 let aoBakeScene: Object3D | null = null;
@@ -462,22 +493,16 @@ function updatePreviewBadge(width?: number, height?: number): void {
 const AO_BAKE_SAMPLES = 128;
 
 function factorsToCanvas(factors: Uint8ClampedArray, width: number, height: number): HTMLCanvasElement {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('Canvas is unavailable.');
-  const imageData = context.createImageData(width, height);
+  const pixels = new Uint8ClampedArray(width * height * 4);
   for (let i = 0; i < factors.length; i += 1) {
     const value = factors[i];
     const offset = i * 4;
-    imageData.data[offset] = value;
-    imageData.data[offset + 1] = value;
-    imageData.data[offset + 2] = value;
-    imageData.data[offset + 3] = 255;
+    pixels[offset] = value;
+    pixels[offset + 1] = value;
+    pixels[offset + 2] = value;
+    pixels[offset + 3] = 255;
   }
-  context.putImageData(imageData, 0, 0);
-  return canvas;
+  return pixelsToCanvas(pixels, width, height);
 }
 
 function currentAOFactors(width: number, height: number): Uint8ClampedArray | null {
@@ -503,15 +528,35 @@ function pixelsToCanvas(pixels: Uint8ClampedArray, width: number, height: number
   return canvas;
 }
 
+const formatPercent = (value: number): string => `${value}%`;
+const formatDegrees = (value: number): string => `${value}°`;
+const formatPixels = (value: number): string => `${value} px`;
+const formatPlain = (value: number): string => String(value);
+const formatSignedFixed2 = (value: number): string => `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
+const formatTimes2 = (value: number): string => `${value.toFixed(2)}×`;
+const formatSignedInt = (value: number): string => `${value > 0 ? '+' : ''}${value}`;
+
 function renderLightmapControls(): void {
   const active = textures.lightmap.image !== null;
-  lightmapContributionInput.value = String(Math.round(state.lightmapContribution * 100));
-  lightmapContributionValue.textContent = `${Math.round(state.lightmapContribution * 100)}%`;
+  const contribution = Math.round(state.lightmapContribution * 100);
+  lightmapContributionInput.value = String(contribution);
+  lightmapContributionValue.textContent = formatPercent(contribution);
   lightmapStatus.textContent = active && textures.lightmap.image
     ? `${textures.lightmap.name} · ${textures.lightmap.image.width} × ${textures.lightmap.image.height}`
     : 'No lightmap loaded';
   clearLightmapButton.disabled = !active;
   bakeLightmapButton.disabled = aoBakeScene === null;
+}
+
+function renderNormalControls(): void {
+  const strength = Math.round(state.normalStrength * 100);
+  normalStrengthInput.value = String(strength);
+  normalStrengthValue.textContent = formatPercent(strength);
+  normalFormatSelect.value = state.normalFormat;
+  const image = textures.normal.image;
+  normalStatus.textContent = image
+    ? `${textures.normal.name} · ${image.width} × ${image.height}`
+    : 'No normal map loaded';
 }
 
 function computeAO(): void {
@@ -530,6 +575,30 @@ function computeAO(): void {
   textures.ao.name = 'Generated AO';
 }
 
+function normalMapOptions() {
+  const image = textures.normal.image;
+  if (!image) return { normalStrength: state.normalStrength, normalFlipY: state.normalFormat === 'directx' };
+  return {
+    normalMap: imageNormalMapPixels(image),
+    normalStrength: state.normalStrength,
+    normalFlipY: state.normalFormat === 'directx',
+  };
+}
+
+function currentLightmapBakeOptions(): BakeLightmapOptions {
+  return {
+    sunAzimuth: state.sun.azimuth,
+    sunElevation: state.sun.elevation,
+    sunColor: state.sun.color,
+    sunIntensity: state.sun.intensity,
+    sunEnabled: state.sun.enabled,
+    ambientColor: state.ambient.color,
+    ambientIntensity: state.ambient.intensity,
+    ambientEnabled: state.ambient.enabled,
+    ...normalMapOptions(),
+  };
+}
+
 function bakeLighting(): void {
   if (!aoBakeScene) {
     showToast('Load a model to bake lighting');
@@ -539,16 +608,7 @@ function bakeLighting(): void {
   window.setTimeout(() => {
     try {
       const baseColor = textures.base.image!;
-      const pixels = bakeMeshLightmap(aoBakeScene!, baseColor.width, baseColor.height, {
-        sunAzimuth: state.sun.azimuth,
-        sunElevation: state.sun.elevation,
-        sunColor: state.sun.color,
-        sunIntensity: state.sun.intensity,
-        sunEnabled: state.sun.enabled,
-        ambientColor: state.ambient.color,
-        ambientIntensity: state.ambient.intensity,
-        ambientEnabled: state.ambient.enabled,
-      });
+      const pixels = bakeMeshLightmap(aoBakeScene!, baseColor.width, baseColor.height, currentLightmapBakeOptions());
       textures.lightmap.image = pixelsToCanvas(pixels, baseColor.width, baseColor.height);
       textures.lightmap.name = 'Baked lighting';
       renderLightmapControls();
@@ -578,16 +638,7 @@ function bakeImplicitLightmap(): void {
   }
   try {
     const baseColor = textures.base.image;
-    const pixels = bakeMeshLightmap(aoBakeScene, baseColor.width, baseColor.height, {
-      sunAzimuth: state.sun.azimuth,
-      sunElevation: state.sun.elevation,
-      sunColor: state.sun.color,
-      sunIntensity: state.sun.intensity,
-      sunEnabled: state.sun.enabled,
-      ambientColor: state.ambient.color,
-      ambientIntensity: state.ambient.intensity,
-      ambientEnabled: state.ambient.enabled,
-    });
+    const pixels = bakeMeshLightmap(aoBakeScene, baseColor.width, baseColor.height, currentLightmapBakeOptions());
     implicitLightmapCanvas = pixelsToCanvas(pixels, baseColor.width, baseColor.height);
     render();
   } catch {
@@ -639,6 +690,13 @@ function disposeAOScene(scene: Object3D | null): void {
   });
 }
 
+function applyLighting(data: Uint8ClampedArray, width: number, height: number): void {
+  const aoFactors = currentAOFactors(width, height);
+  if (aoFactors) applyAO(data, aoFactors, state.aoBias, state.aoScale);
+  const lightmapPixels = currentLightmapPixels(width, height);
+  if (lightmapPixels) applyLightmap(data, lightmapPixels, state.lightmapContribution);
+}
+
 function litCanvas(image: CanvasImageSource, width: number, height: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -647,10 +705,7 @@ function litCanvas(image: CanvasImageSource, width: number, height: number): HTM
   if (!context) return canvas;
   context.drawImage(image, 0, 0, width, height);
   const data = context.getImageData(0, 0, width, height);
-  const aoFactors = currentAOFactors(width, height);
-  if (aoFactors) applyAO(data.data, aoFactors, state.aoBias, state.aoScale);
-  const lightmapPixels = currentLightmapPixels(width, height);
-  if (lightmapPixels) applyLightmap(data.data, lightmapPixels, state.lightmapContribution);
+  applyLighting(data.data, width, height);
   context.putImageData(data, 0, 0);
   return canvas;
 }
@@ -665,10 +720,7 @@ function render(): void {
   if (!renderContext) return;
   renderContext.drawImage(source, 0, 0, width, height);
   const sourceData = renderContext.getImageData(0, 0, width, height);
-  const aoFactors = currentAOFactors(width, height);
-  if (aoFactors) applyAO(sourceData.data, aoFactors, state.aoBias, state.aoScale);
-  const lightmapPixels = currentLightmapPixels(width, height);
-  if (lightmapPixels) applyLightmap(sourceData.data, lightmapPixels, state.lightmapContribution);
+  applyLighting(sourceData.data, width, height);
 
   renderContext.putImageData(processImageData(sourceData, {
     palette: currentColors(), mode: state.mode, strength: state.strength,
@@ -744,10 +796,6 @@ function renderSunControl(): void {
   sunControlElements.gizmo.setAttribute('aria-label', `Sun direction: azimuth ${azimuth} degrees, elevation ${elevation} degrees`);
 }
 
-function renderSunControls(): void {
-  renderSunControl();
-}
-
 function updatePatternControls(): void {
   stripeAngleControl.hidden = state.mode !== 'stripes';
   noiseScaleControl.hidden = state.mode !== 'noise';
@@ -755,11 +803,11 @@ function updatePatternControls(): void {
 
 function updateAOControls(): void {
   aoBiasInput.value = String(Math.round(state.aoBias * 100) / 100);
-  aoBiasValue.textContent = `${state.aoBias >= 0 ? '+' : ''}${state.aoBias.toFixed(2)}`;
+  aoBiasValue.textContent = formatSignedFixed2(state.aoBias);
   aoScaleInput.value = String(Math.round(state.aoScale * 100) / 100);
-  aoScaleValue.textContent = `${state.aoScale.toFixed(2)}×`;
+  aoScaleValue.textContent = formatTimes2(state.aoScale);
   aoDistanceInput.value = String(state.aoDistance);
-  aoDistanceValue.textContent = `${state.aoDistance.toFixed(2)}×`;
+  aoDistanceValue.textContent = formatTimes2(state.aoDistance);
   renderLightmapControls();
 }
 
@@ -812,33 +860,27 @@ function applyModelUV(channel: string): void {
 function applyModelLod(level: number): void {
   if (level !== state.lodLevel && textures.lightmap.image) clearLightmap();
   state.lodLevel = level;
-  originalViewport?.applyLOD(level);
-  processedViewport?.applyLOD(level);
+  forEachViewport((viewport) => viewport.applyLOD(level));
   if (aoBakeScene) applyLodLevel(aoBakeScene, level);
 }
 
 function applySun(): void {
   renderSunControl();
   const lightmapActive = textures.lightmap.image !== null;
-  originalViewport?.setSunDirection(state.sun.azimuth, state.sun.elevation);
-  originalViewport?.setSunEnabled(state.sun.enabled && !lightmapActive);
-  originalViewport?.setSunColor(state.sun.color);
-  originalViewport?.setSunIntensity(state.sun.intensity);
   const ambientNeutral = lightmapActive || !state.ambient.enabled;
-  originalViewport?.setAmbientColor(ambientNeutral ? '#ffffff' : state.ambient.color);
-  originalViewport?.setAmbientIntensity(ambientNeutral ? Math.PI : state.ambient.intensity);
-  processedViewport?.setSunDirection(state.sun.azimuth, state.sun.elevation);
-  processedViewport?.setSunEnabled(state.sun.enabled && !lightmapActive);
-  processedViewport?.setSunColor(state.sun.color);
-  processedViewport?.setSunIntensity(state.sun.intensity);
-  processedViewport?.setAmbientColor(ambientNeutral ? '#ffffff' : state.ambient.color);
-  processedViewport?.setAmbientIntensity(ambientNeutral ? Math.PI : state.ambient.intensity);
+  forEachViewport((viewport) => {
+    viewport.setSunDirection(state.sun.azimuth, state.sun.elevation);
+    viewport.setSunEnabled(state.sun.enabled && !lightmapActive);
+    viewport.setSunColor(state.sun.color);
+    viewport.setSunIntensity(state.sun.intensity);
+    viewport.setAmbientColor(ambientNeutral ? '#ffffff' : state.ambient.color);
+    viewport.setAmbientIntensity(ambientNeutral ? Math.PI : state.ambient.intensity);
+  });
   scheduleImplicitLightmapBake();
 }
 
 function applyWorldAxis(): void {
-  originalViewport?.setWorldAxis(state.worldAxis);
-  processedViewport?.setWorldAxis(state.worldAxis);
+  forEachViewport((viewport) => viewport.setWorldAxis(state.worldAxis));
   if (aoBakeScene) aoBakeScene.rotation.set(upAxisRotation(state.worldAxis), 0, 0);
 }
 
@@ -854,7 +896,7 @@ function applyPreviewMode(): void {
   };
   applyPane(originalPreviewMode, originalCanvas, originalModelHost, originalPreviewToggle);
   applyPane(processedPreviewMode, previewCanvas, processedModelHost, processedPreviewToggle);
-  renderSunControls();
+  renderSunControl();
 }
 
 function closeModelPreview(): void {
@@ -879,7 +921,7 @@ function closeModelPreview(): void {
   applyPreviewMode();
   renderUVControl();
   renderLodControl();
-  renderSunControls();
+  renderSunControl();
   renderWorldAxisControl();
 }
 
@@ -910,7 +952,7 @@ async function setModel(files: File[]): Promise<void> {
     applyPreviewMode();
     renderUVControl();
     renderLodControl();
-    renderSunControls();
+    renderSunControl();
     renderWorldAxisControl();
     applySun();
     if (modelUVChannels.length) applyModelUV(state.uvMap);
@@ -1155,17 +1197,18 @@ function bindRange({ input, output, format, apply }: RangeBinding): void {
 
 function syncControlsFromState(): void {
   strengthInput.value = String(Math.round(state.strength * 100));
-  strengthValue.textContent = `${Math.round(state.strength * 100)}%`;
+  strengthValue.textContent = formatPercent(Math.round(state.strength * 100));
   stripeAngleInput.value = String(state.stripeAngle);
-  stripeAngleValue.textContent = `${state.stripeAngle}°`;
+  stripeAngleValue.textContent = formatDegrees(state.stripeAngle);
   noiseScaleInput.value = String(state.noiseScale);
-  noiseScaleValue.textContent = `${state.noiseScale} px`;
+  noiseScaleValue.textContent = formatPixels(state.noiseScale);
   seedInput.value = String(state.seed);
-  seedValue.textContent = String(state.seed);
+  seedValue.textContent = formatPlain(state.seed);
   setActiveMode(state.mode);
   updatePatternControls();
   updateAOControls();
-  renderSunControls();
+  renderSunControl();
+  renderNormalControls();
   renderAdjustments();
   bindAdjustmentEvents();
   renderPalettes();
@@ -1206,6 +1249,8 @@ function currentConfig() {
     ambientColor: state.ambient.color,
     ambientIntensity: state.ambient.intensity,
     lightmapContribution: state.lightmapContribution,
+    normalStrength: state.normalStrength,
+    normalFormat: state.normalFormat,
   };
 }
 
@@ -1264,6 +1309,8 @@ function applyPreset(preset: ConversionPreset): void {
     sun: { ...state.sun, color: preset.sunColor, intensity: preset.sunIntensity },
     ambient: { ...state.ambient, color: preset.ambientColor, intensity: preset.ambientIntensity },
     lightmapContribution: preset.lightmapContribution,
+    normalStrength: preset.normalStrength,
+    normalFormat: preset.normalFormat,
     paletteSnapshot: undefined,
     customColors: [],
   });
@@ -1313,6 +1360,10 @@ function clearTexture(channel: TextureChannelId): void {
   } else {
     textures[channel].image = null;
     textures[channel].name = '';
+    if (channel === 'normal') {
+      renderNormalControls();
+      scheduleImplicitLightmapBake();
+    }
   }
   renderTextureRibbon();
   render();
@@ -1350,6 +1401,10 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
       renderLightmapControls();
       applySun();
     }
+    if (channel === 'normal') {
+      renderNormalControls();
+      scheduleImplicitLightmapBake();
+    }
     renderTextureRibbon();
     render();
     showToast(`${textureLabel(channel)} loaded`);
@@ -1360,7 +1415,7 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
 
 function reset(): void {
   renderScheduler.cancel();
-  Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5, stripeAngle: 45, noiseScale: 1, seed: 1, aoBias: 0, aoScale: 1, aoDistance: 2, lightmapContribution: 1, sun: { azimuth: 45, elevation: 45, enabled: true, color: '#ffffff', intensity: 2.8 }, ambient: { color: '#ffffff', intensity: 2.2, enabled: true } });
+  Object.assign(state, defaultState(), { paletteSnapshot: undefined });
   textures.lightmap.image = null;
   textures.lightmap.name = '';
   renderTextureRibbon();
@@ -1381,7 +1436,7 @@ function bindAdjustmentEvents(): void {
     bindRange({
       input,
       output,
-      format: (value) => `${value > 0 ? '+' : ''}${value}`,
+      format: formatSignedInt,
       apply: (value) => { state[key] = value; },
     });
   });
@@ -1398,50 +1453,63 @@ document.querySelectorAll<HTMLButtonElement>('[data-resolution]').forEach((butto
 bindRange({
   input: strengthInput,
   output: strengthValue,
-  format: (value) => `${value}%`,
+  format: formatPercent,
   apply: (value) => { state.strength = value / 100; },
 });
 bindRange({
   input: stripeAngleInput,
   output: stripeAngleValue,
-  format: (value) => `${value}°`,
+  format: formatDegrees,
   apply: (value) => { state.stripeAngle = value; },
 });
 bindRange({
   input: noiseScaleInput,
   output: noiseScaleValue,
-  format: (value) => `${value} px`,
+  format: formatPixels,
   apply: (value) => { state.noiseScale = value; },
 });
 bindRange({
   input: seedInput,
   output: seedValue,
-  format: (value) => String(value),
+  format: formatPlain,
   apply: (value) => { state.seed = value; },
 });
 bindRange({
   input: aoBiasInput,
   output: aoBiasValue,
-  format: (value) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}`,
+  format: formatSignedFixed2,
   apply: (value) => { state.aoBias = Math.round(value * 100) / 100; },
 });
 bindRange({
   input: aoScaleInput,
   output: aoScaleValue,
-  format: (value) => `${value.toFixed(2)}×`,
+  format: formatTimes2,
   apply: (value) => { state.aoScale = Math.round(value * 100) / 100; },
 });
 bindRange({
   input: aoDistanceInput,
   output: aoDistanceValue,
-  format: (value) => `${value.toFixed(2)}×`,
+  format: formatTimes2,
   apply: (value) => { state.aoDistance = value; },
 });
 bindRange({
   input: lightmapContributionInput,
   output: lightmapContributionValue,
-  format: (value) => `${value}%`,
+  format: formatPercent,
   apply: (value) => { state.lightmapContribution = value / 100; },
+});
+bindRange({
+  input: normalStrengthInput,
+  output: normalStrengthValue,
+  format: formatPercent,
+  apply: (value) => {
+    state.normalStrength = value / 100;
+    scheduleImplicitLightmapBake();
+  },
+});
+normalFormatSelect.addEventListener('change', () => {
+  state.normalFormat = normalFormatSelect.value as NormalFormat;
+  scheduleImplicitLightmapBake();
 });
 generateAoButton.addEventListener('click', generateAo);
 bakeLightmapButton.addEventListener('click', bakeLighting);
@@ -1625,18 +1693,16 @@ modelInput.addEventListener('change', () => {
   if (files.length) void setModel(files);
   modelInput.value = '';
 });
-originalPreviewToggle.addEventListener('click', (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-preview-mode]');
-  if (!button?.dataset.previewMode) return;
-  originalPreviewMode = button.dataset.previewMode as PreviewMode;
-  applyPreviewMode();
-});
-processedPreviewToggle.addEventListener('click', (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-preview-mode]');
-  if (!button?.dataset.previewMode) return;
-  processedPreviewMode = button.dataset.previewMode as PreviewMode;
-  applyPreviewMode();
-});
+function bindPreviewToggle(toggle: HTMLElement, setMode: (mode: PreviewMode) => void): void {
+  toggle.addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-preview-mode]');
+    if (!button?.dataset.previewMode) return;
+    setMode(button.dataset.previewMode as PreviewMode);
+    applyPreviewMode();
+  });
+}
+bindPreviewToggle(originalPreviewToggle, (mode) => { originalPreviewMode = mode; });
+bindPreviewToggle(processedPreviewToggle, (mode) => { processedPreviewMode = mode; });
 uvMapSelect.addEventListener('change', () => applyModelUV(uvMapSelect.value));
 lodMapSelect.addEventListener('change', () => applyModelLod(Number(lodMapSelect.value)));
 worldAxisSelect.addEventListener('change', () => {
@@ -1678,30 +1744,31 @@ function bindSunControl(): void {
     event.preventDefault();
     applySun();
   });
+  const bindLightColor = (input: HTMLInputElement, target: LightState): void => {
+    input.addEventListener('input', () => {
+      target.color = input.value;
+      applySun();
+    });
+  };
+  const bindLightIntensity = (input: HTMLInputElement, target: LightState): void => {
+    input.addEventListener('input', () => {
+      target.intensity = Number(input.value);
+      applySun();
+    });
+  };
+
   sunControlElements.enabled.addEventListener('change', () => {
     state.sun.enabled = sunControlElements.enabled.checked;
     applySun();
   });
-  sunControlElements.color.addEventListener('input', () => {
-    state.sun.color = sunControlElements.color.value;
-    applySun();
-  });
-  sunControlElements.intensity.addEventListener('input', () => {
-    state.sun.intensity = Number(sunControlElements.intensity.value);
-    applySun();
-  });
+  bindLightColor(sunControlElements.color, state.sun);
+  bindLightIntensity(sunControlElements.intensity, state.sun);
   sunControlElements.ambientEnabled.addEventListener('change', () => {
     state.ambient.enabled = sunControlElements.ambientEnabled.checked;
     applySun();
   });
-  sunControlElements.ambientColor.addEventListener('input', () => {
-    state.ambient.color = sunControlElements.ambientColor.value;
-    applySun();
-  });
-  sunControlElements.ambientIntensity.addEventListener('input', () => {
-    state.ambient.intensity = Number(sunControlElements.ambientIntensity.value);
-    applySun();
-  });
+  bindLightColor(sunControlElements.ambientColor, state.ambient);
+  bindLightIntensity(sunControlElements.ambientIntensity, state.ambient);
 }
 
 bindSunControl();

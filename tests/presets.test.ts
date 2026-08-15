@@ -41,6 +41,8 @@ const config: ConversionConfig = {
   ambientColor: '#8fb4ff',
   ambientIntensity: 0.6,
   lightmapContribution: 0.75,
+  normalStrength: 0.6,
+  normalFormat: 'opengl',
 };
 
 let storage: MemoryStorage;
@@ -119,6 +121,23 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...current, lightmapContribution: 0 })).toBe(true);
     expect(isConversionPreset({ ...current, lightmapContribution: 1 })).toBe(true);
     expect(isConversionPreset({ ...current, lightmapContribution: 1.01 })).toBe(false);
+  });
+
+  it('migrates presets saved before normal mapping existed', () => {
+    const current = createPreset('Legacy normals', '', config);
+    const { normalStrength: _strength, normalFormat: _format, ...legacy } = current;
+    const parsed = parsePreset(JSON.stringify(legacy));
+    expect(parsed.normalStrength).toBe(1);
+    expect(parsed.normalFormat).toBe('opengl');
+  });
+
+  it('validates normal strength and format bounds', () => {
+    const base = createPreset('Normals', '', config);
+    expect(isConversionPreset({ ...base, normalStrength: 0 })).toBe(true);
+    expect(isConversionPreset({ ...base, normalStrength: 1 })).toBe(true);
+    expect(isConversionPreset({ ...base, normalStrength: 1.01 })).toBe(false);
+    expect(isConversionPreset({ ...base, normalFormat: 'directx' })).toBe(true);
+    expect(isConversionPreset({ ...base, normalFormat: 'vulkan' })).toBe(false);
   });
 
   it('persists, replaces by case-insensitive name, and deletes named presets', () => {

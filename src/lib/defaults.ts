@@ -1,0 +1,2 @@
+export const DEFAULT_SUN_INTENSITY = 2.8;
+export const DEFAULT_AMBIENT_INTENSITY = 2.2;

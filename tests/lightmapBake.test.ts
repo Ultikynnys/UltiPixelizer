@@ -61,4 +61,35 @@ describe('bakeMeshLightmap', () => {
     const pixels = bakeMeshLightmap(scene, 8, 8, defaults);
     expect(centerRGB(pixels)).toEqual([0, 0, 0]);
   });
+
+  it('ignores the normal map at zero strength', () => {
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const tilt = { data: new Uint8ClampedArray([255, 0, 0, 255]), width: 1, height: 1 };
+    const zero = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ff8040', normalMap: tilt, normalStrength: 0 });
+    const none = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ff8040' });
+    expect(centerRGB(zero)).toEqual(centerRGB(none));
+  });
+
+  it('bakes a flat normal map close to the unmapped result', () => {
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const flat = { data: new Uint8ClampedArray([128, 128, 255, 255]), width: 1, height: 1 };
+    const [r, g, b] = centerRGB(bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ff8040', normalMap: flat }));
+    expect(r).toBeGreaterThanOrEqual(254);
+    expect(g).toBeGreaterThanOrEqual(127);
+    expect(g).toBeLessThanOrEqual(128);
+    expect(b).toBeGreaterThanOrEqual(63);
+    expect(b).toBeLessThanOrEqual(64);
+  });
+
+  it('reduces sun contribution when the normal map tilts away from the sun', () => {
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const tilt = { data: new Uint8ClampedArray([255, 128, 128, 255]), width: 1, height: 1 };
+    const flat = { data: new Uint8ClampedArray([128, 128, 255, 255]), width: 1, height: 1 };
+    const tilted = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ffffff', normalMap: tilt });
+    const flatResult = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ffffff', normalMap: flat });
+    expect(centerRGB(tilted)[0]).toBeLessThan(centerRGB(flatResult)[0]);
+  });
 });

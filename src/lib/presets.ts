@@ -1,7 +1,9 @@
-import { isPalette, type Palette } from './palettes';
+import { isHexColor, isPalette, type Palette } from './palettes';
 import type { DitherMode } from './dither';
 import { createStoredCollection, type StorageLike } from './storage';
 import { slugify } from './strings';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
+import type { NormalFormat } from './normal';
 export type { StorageLike } from './storage';
 
 export const PRESET_VERSION = 4;
@@ -30,6 +32,8 @@ export type ConversionConfig = {
   ambientColor: string;
   ambientIntensity: number;
   lightmapContribution: number;
+  normalStrength: number;
+  normalFormat: NormalFormat;
 };
 
 export type ConversionPreset = ConversionConfig & {
@@ -66,11 +70,13 @@ export function isConversionPreset(value: unknown): value is ConversionPreset {
     && finiteInRange(preset.aoBias, -1, 1)
     && finiteInRange(preset.aoScale, 0, 2)
     && finiteInRange(preset.aoDistance, 0.05, 3)
-    && typeof preset.sunColor === 'string' && /^#[0-9a-f]{6}$/i.test(preset.sunColor)
+    && typeof preset.sunColor === 'string' && isHexColor(preset.sunColor)
     && finiteInRange(preset.sunIntensity, 0, 10)
-    && typeof preset.ambientColor === 'string' && /^#[0-9a-f]{6}$/i.test(preset.ambientColor)
+    && typeof preset.ambientColor === 'string' && isHexColor(preset.ambientColor)
     && finiteInRange(preset.ambientIntensity, 0, 5)
     && finiteInRange(preset.lightmapContribution, 0, 1)
+    && finiteInRange(preset.normalStrength, 0, 1)
+    && (preset.normalFormat === 'opengl' || preset.normalFormat === 'directx')
     && isPalette(preset.palette);
 }
 
@@ -119,10 +125,12 @@ function migratePreset(value: unknown): unknown {
   if (migrated.aoScale === undefined) migrated.aoScale = 1;
   if (migrated.aoDistance === undefined) migrated.aoDistance = 2;
   if (migrated.sunColor === undefined) migrated.sunColor = '#ffffff';
-  if (migrated.sunIntensity === undefined) migrated.sunIntensity = 2.8;
+  if (migrated.sunIntensity === undefined) migrated.sunIntensity = DEFAULT_SUN_INTENSITY;
   if (migrated.ambientColor === undefined) migrated.ambientColor = '#ffffff';
-  if (migrated.ambientIntensity === undefined) migrated.ambientIntensity = 2.2;
+  if (migrated.ambientIntensity === undefined) migrated.ambientIntensity = DEFAULT_AMBIENT_INTENSITY;
   if (migrated.lightmapContribution === undefined) migrated.lightmapContribution = 1;
+  if (migrated.normalStrength === undefined) migrated.normalStrength = 1;
+  if (migrated.normalFormat === undefined) migrated.normalFormat = 'opengl';
   return migrated;
 }
 
