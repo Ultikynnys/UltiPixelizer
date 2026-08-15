@@ -16,7 +16,7 @@ import { bakeMeshLightmap, type BakeLightmapOptions } from './lib/lightmapBake';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './lib/defaults';
 import { imageNormalMapPixels, type NormalFormat } from './lib/normal';
 import { safeFileName } from './lib/strings';
-import { vectorToSunDirection } from './lib/sunDirection';
+import { DEFAULT_SUN_DIRECTION, type DirectionVector } from './lib/sunDirection';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
 
 type SourceImage = CanvasImageSource & { width: number; height: number };
@@ -28,7 +28,7 @@ type PreviewMode = '2d' | '3d';
 type TextureSlot = { image: SourceImage | null; name: string };
 
 type LightState = { color: string; intensity: number; enabled: boolean };
-type SunState = LightState & { azimuth: number; elevation: number };
+type SunState = LightState & { direction: DirectionVector };
 
 const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string }> = [
   { id: 'base', label: 'BaseColor' },
@@ -108,7 +108,7 @@ function defaultState(): State {
     paletteFilter: 'all',
     uvMap: 'uv',
     lodLevel: 0,
-    sun: { azimuth: 45, elevation: 45, enabled: true, color: '#ffffff', intensity: DEFAULT_SUN_INTENSITY },
+    sun: { direction: { ...DEFAULT_SUN_DIRECTION }, enabled: true, color: '#ffffff', intensity: DEFAULT_SUN_INTENSITY },
     ambient: { color: '#ffffff', intensity: DEFAULT_AMBIENT_INTENSITY, enabled: true },
     worldAxis: 'blender',
     stripeAngle: 45,
@@ -564,8 +564,7 @@ function normalMapOptions() {
 
 function currentLightmapBakeOptions(): BakeLightmapOptions {
   return {
-    sunAzimuth: state.sun.azimuth,
-    sunElevation: state.sun.elevation,
+    sunDirection: state.sun.direction,
     sunColor: state.sun.color,
     sunIntensity: state.sun.intensity,
     sunEnabled: state.sun.enabled,
@@ -835,7 +834,7 @@ function applySun(): void {
   const lightmapActive = textures.lightmap.image !== null;
   const ambientNeutral = lightmapActive || !state.ambient.enabled;
   forEachViewport((viewport) => {
-    viewport.setSunDirection(state.sun.azimuth, state.sun.elevation);
+    viewport.setSunDirection(state.sun.direction);
     viewport.setSunEnabled(state.sun.enabled && !lightmapActive);
     viewport.setSunColor(state.sun.color);
     viewport.setSunIntensity(state.sun.intensity);
@@ -1677,9 +1676,7 @@ worldAxisSelect.addEventListener('change', () => {
 function bindSunControl(): void {
   sunControlElements.orientWithCamera.addEventListener('click', () => {
     if (!originalViewport || originalPreviewMode !== '3d') return;
-    const direction = vectorToSunDirection(originalViewport.getCameraForward());
-    state.sun.azimuth = direction.azimuth;
-    state.sun.elevation = direction.elevation;
+    state.sun.direction = originalViewport.getCameraForward();
     applySun();
   });
   const bindLightColor = (input: HTMLInputElement, target: LightState): void => {

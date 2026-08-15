@@ -1,12 +1,11 @@
 import { DoubleSide, Object3D, Ray, Vector3 } from 'three';
 import { hexToRgb, isHexColor } from './palettes';
-import { sunDirectionVector } from './sunDirection';
+import { normalizeDirection, type DirectionVector } from './sunDirection';
 import { collectBakeScene, rasterizeBake, type BakeTriangle, type UvPair } from './bakeGeometry';
 import { sampleNormalMap, type NormalMapSource } from './normal';
 
 export type BakeLightmapOptions = {
-  sunAzimuth: number;
-  sunElevation: number;
+  sunDirection: DirectionVector;
   sunColor: string;
   sunIntensity: number;
   sunEnabled?: boolean;
@@ -81,8 +80,8 @@ function computeTangentBasis(
  * Output contains irradiance only (no albedo), with white representing neutral light.
  */
 export function bakeMeshLightmap(scene: Object3D, width: number, height: number, options: BakeLightmapOptions): Uint8ClampedArray {
-  const travelVector = sunDirectionVector(options.sunAzimuth, options.sunElevation);
-  const directionToSun = new Vector3(-travelVector.x, -travelVector.y, -travelVector.z).normalize();
+  const worldDirection = normalizeDirection(options.sunDirection);
+  const directionToSun = new Vector3(worldDirection.x, worldDirection.y, worldDirection.z);
   const sunColor = parseColor(options.sunColor);
   const ambientColor = options.ambientEnabled === false ? [1, 1, 1] : parseColor(options.ambientColor);
   const ambientScale = options.ambientEnabled === false ? 1 : Math.max(0, options.ambientIntensity) / Math.PI;
