@@ -47,9 +47,9 @@ const state: State = {
 app.innerHTML = `
   <div class="app-shell">
     <header class="topbar">
-      <a class="brand" href="#" aria-label="DitherLab home">
+      <a class="brand" href="#" aria-label="UltiPixelizer home">
         <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <span>DITHER<span>LAB</span></span>
+        <span>ULTI<span>PIXELIZER</span></span>
         <span class="build-version" title="Build version and commit">${buildLabel}</span>
       </a>
       <button class="button button-quiet" id="resetButton" type="button">Reset settings</button>
