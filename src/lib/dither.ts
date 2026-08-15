@@ -1,6 +1,6 @@
 import { hexToRgb } from './palettes';
 
-export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'none';
+export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'cross' | 'diagonal' | 'noise' | 'vertical' | 'checker' | 'none';
 
 export type ProcessOptions = {
   palette: string[];
@@ -20,7 +20,33 @@ const BAYER_4 = [
   [15, 7, 13, 5],
 ];
 
+const thresholdModes = new Set<DitherMode>(['ordered', 'cross', 'diagonal', 'noise', 'vertical', 'checker']);
 const clamp = (value: number) => Math.max(0, Math.min(255, value));
+
+export function patternThreshold(mode: DitherMode, x: number, y: number): number {
+  switch (mode) {
+    case 'ordered':
+      return BAYER_4[y % 4][x % 4] / 15;
+    case 'cross': {
+      const horizontal = y % 4 === 1 || y % 4 === 2;
+      const vertical = x % 4 === 1 || x % 4 === 2;
+      return horizontal && vertical ? 0.08 : horizontal || vertical ? 0.38 : 0.88;
+    }
+    case 'diagonal':
+      return ((x + y) % 6) / 5;
+    case 'noise': {
+      let hash = Math.imul(x + 1, 0x45d9f3b) ^ Math.imul(y + 1, 0x27d4eb2d);
+      hash ^= hash >>> 16;
+      return (hash >>> 0) / 0xffffffff;
+    }
+    case 'vertical':
+      return (x % 4) / 3;
+    case 'checker':
+      return (x + y) % 2 === 0 ? 0.2 : 0.8;
+    default:
+      return 0.5;
+  }
+}
 
 export function nearestColor(color: RGB, palette: RGB[]): RGB {
   let best = palette[0] ?? [0, 0, 0];
@@ -81,8 +107,8 @@ export function processImageData(source: ImageData, options: ProcessOptions): Im
       const workIndex = pixel * 3;
       let current: RGB = [work[workIndex], work[workIndex + 1], work[workIndex + 2]];
 
-      if (options.mode === 'ordered') {
-        const offset = ((BAYER_4[y % 4][x % 4] / 15) - 0.5) * 72 * options.strength;
+      if (thresholdModes.has(options.mode)) {
+        const offset = (patternThreshold(options.mode, x, y) - 0.5) * 96 * options.strength;
         current = [clamp(current[0] + offset), clamp(current[1] + offset), clamp(current[2] + offset)];
       }
 

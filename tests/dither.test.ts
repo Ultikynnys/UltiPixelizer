@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { adjustColor, nearestColor, processImageData, type DitherMode } from '../src/lib/dither';
+import { adjustColor, nearestColor, patternThreshold, processImageData, type DitherMode } from '../src/lib/dither';
 import { hexToRgb, palettes } from '../src/lib/palettes';
 
 class TestImageData {
@@ -82,7 +82,7 @@ describe('dithering engine', () => {
     [64, 64, 64, 255], [128, 128, 128, 255], [224, 224, 224, 255],
   ];
 
-  it.each<DitherMode>(['none', 'ordered', 'floyd', 'atkinson'])('processes %s mode into palette colors', (mode) => {
+  it.each<DitherMode>(['none', 'ordered', 'floyd', 'atkinson', 'cross', 'diagonal', 'noise', 'vertical', 'checker'])('processes %s mode into palette colors', (mode) => {
     const source = imageData(sourcePixels, 3);
     const result = processImageData(source, options(mode));
     expect(result.width).toBe(3);
@@ -95,13 +95,25 @@ describe('dithering engine', () => {
     }
   });
 
-  it('produces deterministic ordered output and preserves the source', () => {
+  it('produces deterministic ordered and noise output and preserves the source', () => {
     const source = imageData(sourcePixels, 3);
     const original = [...source.data];
-    const first = processImageData(source, { ...options('ordered'), strength: 0.75 });
-    const second = processImageData(source, { ...options('ordered'), strength: 0.75 });
-    expect([...first.data]).toEqual([...second.data]);
+    for (const mode of ['ordered', 'noise'] as const) {
+      const first = processImageData(source, { ...options(mode), strength: 0.75 });
+      const second = processImageData(source, { ...options(mode), strength: 0.75 });
+      expect([...first.data]).toEqual([...second.data]);
+    }
     expect([...source.data]).toEqual(original);
+  });
+
+  it('defines bounded and distinct spatial thresholds', () => {
+    const modes: DitherMode[] = ['ordered', 'cross', 'diagonal', 'noise', 'vertical', 'checker'];
+    const signatures = modes.map((mode) => Array.from({ length: 16 }, (_, index) => patternThreshold(mode, index % 4, Math.floor(index / 4))));
+    for (const signature of signatures) {
+      expect(signature.every((value) => value >= 0 && value <= 1)).toBe(true);
+    }
+    expect(new Set(signatures.map((signature) => signature.join(','))).size).toBe(modes.length);
+    expect(patternThreshold('none', 0, 0)).toBe(0.5);
   });
 
   it('applies tone controls before palette mapping', () => {

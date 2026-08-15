@@ -126,6 +126,11 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
 .pattern-noise { background-image: radial-gradient(#e9e5d9 30%,transparent 33%); background-position: 0 0, 3px 3px; background-size: 5px 5px; }
 .pattern-atkinson { background-image: radial-gradient(#aaa 22%,transparent 25%); background-size: 7px 7px; }
 .pattern-grid { background-image: linear-gradient(45deg,#ddd 25%,transparent 25%,transparent 75%,#ddd 75%),linear-gradient(45deg,#ddd 25%,transparent 25%,transparent 75%,#ddd 75%); background-position: 0 0,3px 3px; background-size: 6px 6px; }
+.pattern-cross { background-image: linear-gradient(90deg,transparent 35%,#ddd 35%,#ddd 65%,transparent 65%),linear-gradient(transparent 35%,#ddd 35%,#ddd 65%,transparent 65%); background-size: 12px 12px; }
+.pattern-diagonal { background-image: repeating-linear-gradient(135deg,#ddd 0 2px,transparent 2px 6px); }
+.pattern-random { background-image: radial-gradient(circle at 10% 20%,#ddd 0 1px,transparent 2px),radial-gradient(circle at 75% 15%,#888 0 1px,transparent 2px),radial-gradient(circle at 35% 70%,#ddd 0 1px,transparent 2px),radial-gradient(circle at 85% 80%,#bbb 0 1px,transparent 2px); background-size: 11px 13px,13px 9px,9px 11px,15px 15px; }
+.pattern-vertical { background-image: repeating-linear-gradient(90deg,#ddd 0 2px,transparent 2px 6px); }
+.pattern-checker { background-image: linear-gradient(45deg,#ddd 25%,transparent 25%,transparent 75%,#ddd 75%),linear-gradient(45deg,#ddd 25%,transparent 25%,transparent 75%,#ddd 75%); background-position: 0 0,4px 4px; background-size: 8px 8px; }
 .pattern-none { background: linear-gradient(135deg,#171716 50%,#dedace 50%); }
 .control-row { align-items: end; display: flex; justify-content: space-between; margin: 19px 0 7px; }
 .control-row strong, .control-row small { display: block; }
