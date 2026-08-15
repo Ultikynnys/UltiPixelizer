@@ -149,15 +149,15 @@ app.innerHTML = `
             </div>
             <div id="customColors" class="custom-colors"></div>
             <div class="palette-editor-actions">
-              <button id="addColor" class="text-button" type="button">+ Add color</button>
-              <button id="newPalette" class="text-button" type="button">New</button>
-              <button id="duplicatePalette" class="text-button" type="button">Duplicate</button>
+              <button id="addColor" class="button button-secondary" type="button">+ Add color</button>
+              <button id="newPalette" class="button button-secondary" type="button">New</button>
+              <button id="duplicatePalette" class="button button-secondary" type="button">Duplicate</button>
             </div>
             <div class="palette-editor-buttons">
               <button id="saveCustomPalette" class="button button-primary" type="button">Save custom</button>
               <button id="exportCustomPalette" class="button button-secondary" type="button">Export</button>
               <label class="button button-secondary file-button"><input id="importCustomPalette" type="file" accept="application/json,.json" />Import</label>
-              <button id="deleteCustomPalette" class="button button-secondary danger-button" type="button" disabled>Delete</button>
+              <button id="deleteCustomPalette" class="button button-secondary" type="button" disabled>Delete</button>
             </div>
           </details>
         </section>
