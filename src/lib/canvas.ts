@@ -1,3 +1,7 @@
+export function cloneImageData(source: ImageData): ImageData {
+  return new ImageData(new Uint8ClampedArray(source.data), source.width, source.height, { colorSpace: source.colorSpace });
+}
+
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {

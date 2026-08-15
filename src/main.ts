@@ -1,5 +1,5 @@
 import './style.css';
-import { createSampleTexture, downloadCanvas, downloadText, loadImageFile } from './lib/canvas';
+import { cloneImageData, createSampleTexture, downloadCanvas, downloadText, loadImageFile } from './lib/canvas';
 import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomPalettes, parseCustomPalette, selectOrCreatePalette, serializeCustomPalette, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
 import { processImageData, type DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
@@ -695,14 +695,23 @@ function render(): void {
   const renderContext = renderedCanvas.getContext('2d', { willReadFrequently: true });
   if (!renderContext) return;
   renderContext.drawImage(source, 0, 0, width, height);
-  const sourceData = renderContext.getImageData(0, 0, width, height);
-  applyLighting(sourceData.data, width, height);
+  const unlitSourceData = renderContext.getImageData(0, 0, width, height);
+  const litSourceData = cloneImageData(unlitSourceData);
+  applyLighting(litSourceData.data, width, height);
 
-  renderContext.putImageData(processImageData(sourceData, {
+  const processedOptions = {
     palette: currentColors(), mode: state.mode, strength: state.strength,
     brightness: state.brightness, contrast: state.contrast, saturation: state.saturation,
     stripeAngle: state.stripeAngle, noiseScale: state.noiseScale, seed: state.seed,
-  }), 0, 0);
+  };
+  renderContext.putImageData(processImageData(litSourceData, processedOptions), 0, 0);
+
+  const unlitProcessedCanvas = document.createElement('canvas');
+  unlitProcessedCanvas.width = width;
+  unlitProcessedCanvas.height = height;
+  const unlitProcessedContext = unlitProcessedCanvas.getContext('2d');
+  if (!unlitProcessedContext) return;
+  unlitProcessedContext.putImageData(processImageData(unlitSourceData, processedOptions), 0, 0);
 
   previewCanvas.width = width;
   previewCanvas.height = height;
@@ -716,8 +725,8 @@ function render(): void {
 
   updatePreviewBadge(width, height);
   if (originalViewport && processedViewport) {
-    originalViewport.applyImage(litSourceNative);
-    processedViewport.applyImage(renderedCanvas);
+    originalViewport.applyImage(source);
+    processedViewport.applyImage(unlitProcessedCanvas);
   }
 }
 
