@@ -19,7 +19,7 @@ import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
 
 type SourceImage = CanvasImageSource & { width: number; height: number };
 
-type TextureChannelId = 'base' | 'ao' | 'normal';
+type TextureChannelId = 'base' | 'ao' | 'normal' | 'lightmap';
 
 type PreviewMode = '2d' | '3d';
 
@@ -32,6 +32,7 @@ const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string }> =
   { id: 'base', label: 'BaseColor' },
   { id: 'ao', label: 'AO' },
   { id: 'normal', label: 'Normal' },
+  { id: 'lightmap', label: 'Lightmap' },
 ];
 
 type State = {
@@ -71,6 +72,7 @@ const textures: Record<TextureChannelId, TextureSlot> = {
   base: { image: sample, name: 'sample-landscape.png' },
   ao: { image: null, name: '' },
   normal: { image: null, name: '' },
+  lightmap: { image: null, name: '' },
 };
 const sunOverlayMarkup = (): string => `
   <div class="sun-overlay" id="sunControl" hidden>
@@ -90,10 +92,10 @@ const sunOverlayMarkup = (): string => `
     </button>
     <output class="sun-gizmo-value" id="sunGizmoValue">A 45° · E 45°</output>
     <div class="light-controls">
-      <label class="light-color-control"><span>Sun color</span><input id="sunColor" type="color" value="#ffffff" aria-label="Sun color" /></label>
+      <label class="light-color-control"><span>Sun color</span>${colorControl('#ffffff', 'Sun color', 'id="sunColor"')}</label>
       ${rangeControl('sunIntensity', 'Sun intensity', 0, 10, 0.1, 2.8)}
       <div class="light-section-title">Ambient</div>
-      <label class="light-color-control"><span>Color</span><input id="ambientColor" type="color" value="#ffffff" aria-label="Ambient light color" /></label>
+      <label class="light-color-control"><span>Color</span>${colorControl('#ffffff', 'Ambient light color', 'id="ambientColor"')}</label>
       ${rangeControl('ambientIntensity', 'Intensity', 0, 5, 0.1, 2.2)}
     </div>
   </div>
@@ -142,9 +144,9 @@ app.innerHTML = `
         </a>
       </div>
       <div class="topbar-actions">
-        <button class="button button-quiet" id="saveButton" type="button">Save</button>
-        <button class="button button-quiet" id="loadButton" type="button">Load</button>
-        <button class="button button-quiet" id="resetButton" type="button">Reset settings</button>
+        <button class="button button-secondary" id="saveButton" type="button">Save</button>
+        <button class="button button-secondary" id="loadButton" type="button">Load</button>
+        <button class="button button-secondary" id="resetButton" type="button">Reset settings</button>
         <input id="loadConfigInput" type="file" accept=".json,application/json" hidden />
       </div>
     </header>
@@ -313,10 +315,8 @@ app.innerHTML = `
           <div class="lightmap-status" id="lightmapStatus">No lightmap loaded</div>
           <div class="lightmap-actions">
             <button class="button button-secondary" id="bakeLightmapButton" type="button">Bake Lighting</button>
-            <button class="button button-secondary" id="loadLightmapButton" type="button">Load Image</button>
             <button class="button button-quiet" id="clearLightmapButton" type="button" disabled>Clear</button>
           </div>
-          <input id="lightmapInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
         </section>
       </aside>
     </main>
@@ -397,9 +397,7 @@ const lightmapContributionInput = document.querySelector<HTMLInputElement>('#lig
 const lightmapContributionValue = document.querySelector<HTMLOutputElement>('#lightmapContributionValue')!;
 const lightmapStatus = document.querySelector<HTMLDivElement>('#lightmapStatus')!;
 const bakeLightmapButton = document.querySelector<HTMLButtonElement>('#bakeLightmapButton')!;
-const loadLightmapButton = document.querySelector<HTMLButtonElement>('#loadLightmapButton')!;
 const clearLightmapButton = document.querySelector<HTMLButtonElement>('#clearLightmapButton')!;
-const lightmapInput = document.querySelector<HTMLInputElement>('#lightmapInput')!;
 let savedCustomPalettes = loadCustomPalettes(localStorage);
 let editingCustomKey: string | null = null;
 let toastTimer = 0;
@@ -412,7 +410,6 @@ let processedViewport: ModelViewport | null = null;
 let modelUVChannels: string[] = [];
 let modelLodLevels: number[] = [];
 let aoBakeScene: Object3D | null = null;
-const lightmap: TextureSlot = { image: null, name: '' };
 let pendingTextureChannel: TextureChannelId | null = null;
 
 function escapeHtml(value: string): string {
@@ -486,7 +483,7 @@ function currentAOFactors(width: number, height: number): Uint8ClampedArray | nu
 }
 
 function currentLightmapPixels(width: number, height: number): Uint8ClampedArray | null {
-  return lightmap.image ? imageLightmapPixels(lightmap.image, width, height) : null;
+  return textures.lightmap.image ? imageLightmapPixels(textures.lightmap.image, width, height) : null;
 }
 
 function pixelsToCanvas(pixels: Uint8ClampedArray, width: number, height: number): HTMLCanvasElement {
@@ -502,11 +499,11 @@ function pixelsToCanvas(pixels: Uint8ClampedArray, width: number, height: number
 }
 
 function renderLightmapControls(): void {
-  const active = lightmap.image !== null;
+  const active = textures.lightmap.image !== null;
   lightmapContributionInput.value = String(Math.round(state.lightmapContribution * 100));
   lightmapContributionValue.textContent = `${Math.round(state.lightmapContribution * 100)}%`;
-  lightmapStatus.textContent = active && lightmap.image
-    ? `${lightmap.name} · ${lightmap.image.width} × ${lightmap.image.height}`
+  lightmapStatus.textContent = active && textures.lightmap.image
+    ? `${textures.lightmap.name} · ${textures.lightmap.image.width} × ${textures.lightmap.image.height}`
     : 'No lightmap loaded';
   clearLightmapButton.disabled = !active;
   bakeLightmapButton.disabled = aoBakeScene === null;
@@ -541,9 +538,10 @@ function bakeLighting(): void {
         ambientColor: state.ambient.color,
         ambientIntensity: state.ambient.intensity,
       });
-      lightmap.image = pixelsToCanvas(pixels, baseColor.width, baseColor.height);
-      lightmap.name = 'Baked lighting';
+      textures.lightmap.image = pixelsToCanvas(pixels, baseColor.width, baseColor.height);
+      textures.lightmap.name = 'Baked lighting';
       renderLightmapControls();
+      renderTextureRibbon();
       applySun();
       render();
       showToast('Lighting baked');
@@ -554,9 +552,10 @@ function bakeLighting(): void {
 }
 
 function clearLightmap(): void {
-  lightmap.image = null;
-  lightmap.name = '';
+  textures.lightmap.image = null;
+  textures.lightmap.name = '';
   renderLightmapControls();
+  renderTextureRibbon();
   applySun();
   render();
 }
@@ -667,7 +666,7 @@ function renderWorldAxisControl(): void {
 
 function renderSunControl(): void {
   sunControlElements.control.hidden = modelBundle === null || (originalPreviewMode !== '3d' && processedPreviewMode !== '3d');
-  const lightmapActive = lightmap.image !== null;
+  const lightmapActive = textures.lightmap.image !== null;
   sunControlElements.enabled.checked = state.sun.enabled;
   sunControlElements.enabled.disabled = lightmapActive;
   sunControlElements.control.classList.toggle('off', !state.sun.enabled || lightmapActive);
@@ -678,9 +677,11 @@ function renderSunControl(): void {
   sunControlElements.ambientColor.disabled = lightmapActive;
   sunControlElements.ambientIntensity.disabled = lightmapActive;
   sunControlElements.color.value = state.sun.color;
+  syncColorChip(sunControlElements.color);
   sunControlElements.intensity.value = String(state.sun.intensity);
   sunControlElements.intensityValue.textContent = state.sun.intensity.toFixed(1);
   sunControlElements.ambientColor.value = state.ambient.color;
+  syncColorChip(sunControlElements.ambientColor);
   sunControlElements.ambientIntensity.value = String(state.ambient.intensity);
   sunControlElements.ambientIntensityValue.textContent = state.ambient.intensity.toFixed(1);
   const point = sunDirectionToHemisphere(state.sun.azimuth, state.sun.elevation);
@@ -750,7 +751,7 @@ function renderTextureRibbon(): void {
 }
 
 function applyModelUV(channel: string): void {
-  if (channel !== state.uvMap && lightmap.image) clearLightmap();
+  if (channel !== state.uvMap && textures.lightmap.image) clearLightmap();
   state.uvMap = channel;
   if (aoBakeScene) applyUVChannel(aoBakeScene, channel);
   const originalStatus = originalViewport?.applyUV(channel);
@@ -762,7 +763,7 @@ function applyModelUV(channel: string): void {
 }
 
 function applyModelLod(level: number): void {
-  if (level !== state.lodLevel && lightmap.image) clearLightmap();
+  if (level !== state.lodLevel && textures.lightmap.image) clearLightmap();
   state.lodLevel = level;
   originalViewport?.applyLOD(level);
   processedViewport?.applyLOD(level);
@@ -771,7 +772,7 @@ function applyModelLod(level: number): void {
 
 function applySun(): void {
   renderSunControl();
-  const lightmapActive = lightmap.image !== null;
+  const lightmapActive = textures.lightmap.image !== null;
   originalViewport?.setSunDirection(state.sun.azimuth, state.sun.elevation);
   originalViewport?.setSunEnabled(state.sun.enabled && !lightmapActive);
   originalViewport?.setSunColor(state.sun.color);
@@ -818,8 +819,8 @@ function closeModelPreview(): void {
   modelLodLevels = [];
   disposeAOScene(aoBakeScene);
   aoBakeScene = null;
-  lightmap.image = null;
-  lightmap.name = '';
+  textures.lightmap.image = null;
+  textures.lightmap.name = '';
   renderLightmapControls();
   originalPreviewMode = '2d';
   processedPreviewMode = '2d';
@@ -844,6 +845,7 @@ async function setModel(files: File[]): Promise<void> {
     state.uvMap = modelUVChannels[0] ?? 'uv';
     aoBakeScene = buildAOScene(loaded.scene);
     applyLodLevel(aoBakeScene, state.lodLevel);
+    renderLightmapControls();
     originalViewport = new ModelViewport(originalModelHost);
     processedViewport = new ModelViewport(processedModelHost);
     originalViewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
@@ -893,7 +895,7 @@ function renderPalettes(): void {
       <span class="palette-card-actions">
         <button type="button" class="palette-card-duplicate" data-duplicate-palette="${escapeHtml(key)}" aria-label="Duplicate ${escapeHtml(palette.name)}" title="Duplicate ${escapeHtml(palette.name)}"><svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"><rect x="5" y="5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="2" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
         ${customKeys.has(key) ? `
-          <button type="button" class="palette-card-export" data-export-palette="${escapeHtml(key)}" aria-label="Export ${escapeHtml(palette.name)}" title="Export ${escapeHtml(palette.name)}"><svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v7M4.5 6.5L7 9l2.5-2.5M2.5 11.5h9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button type="button" class="palette-card-export" data-export-palette="${escapeHtml(key)}" aria-label="Export ${escapeHtml(palette.name)}" title="Export ${escapeHtml(palette.name)}"><svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 12v-7M4.5 7.5L7 5l2.5 2.5M2.5 11.5h9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <button type="button" class="palette-card-delete" data-delete-palette="${escapeHtml(key)}" aria-label="Delete ${escapeHtml(palette.name)}">×</button>` : ''}
       </span>
     </div>
@@ -903,7 +905,7 @@ function renderPalettes(): void {
       <span class="palette-card-new-label">Create new palette</span>
     </button>
     <button type="button" class="palette-card palette-card-new" data-import-palette aria-label="Import palette">
-      <span class="palette-card-new-icon">↓</span>
+      <span class="palette-card-new-icon"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v7M4.5 6.5L7 9l2.5-2.5M2.5 11.5h9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       <span class="palette-card-new-label">Import palette</span>
     </button>
   ` : '');
@@ -915,7 +917,7 @@ function renderPalettes(): void {
   activeSwatches.innerHTML = representativeColors(selectedColors, 24).map((color) => `<span style="--swatch:${color}" title="${color}"></span>`).join('');
   customColors.innerHTML = selectedColors.map((color, index) => `
     <div class="custom-color">
-      <label title="Edit ${color}"><input type="color" value="${color}" data-color-index="${index}" aria-label="Color ${index + 1}, ${color}" /><span style="--swatch:${color}"></span></label>
+      <label title="Edit ${color}">${colorControl(color, `Color ${index + 1}, ${color}`, `data-color-index="${index}"`)}</label>
       <button type="button" data-remove-color="${index}" aria-label="Remove color ${index + 1}">×</button>
     </div>
   `).join('') + `
@@ -933,6 +935,15 @@ function rangeControl(key: string, label: string, min: number, max: number, step
       <input class="range" id="${key}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label}" />
     </div>
   `;
+}
+
+// Single color-picker generator — visually-hidden input + live --swatch chip, matching the palette editor.
+// Every color input in the app goes through this; syncColorChip keeps the chip in lockstep with the value.
+function colorControl(value: string, ariaLabel: string, attrs: string = ''): string {
+  return `<input type="color" value="${value}" aria-label="${ariaLabel}" ${attrs}/><span style="--swatch:${value}"></span>`;
+}
+function syncColorChip(input: HTMLInputElement): void {
+  input.nextElementSibling?.setAttribute('style', `--swatch:${input.value}`);
 }
 
 function renderAdjustments(): void {
@@ -1240,10 +1251,13 @@ function updateFileMeta(name: string, width: number, height: number, updateHeadi
 
 function clearTexture(channel: TextureChannelId): void {
   if (channel === 'base') {
-    if (lightmap.image) clearLightmap();
+    if (textures.lightmap.image) clearLightmap();
     textures.base.image = sample;
     textures.base.name = 'sample-landscape.png';
     updateFileMeta(textures.base.name, sample.width, sample.height);
+  } else if (channel === 'lightmap') {
+    clearLightmap();
+    return;
   } else {
     textures[channel].image = null;
     textures[channel].name = '';
@@ -1270,11 +1284,19 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
   try {
     const image = await loadImageFile(file);
     renderScheduler.cancel();
-    if (channel === 'base' && lightmap.image) clearLightmap();
+    if (channel === 'base' && textures.lightmap.image) clearLightmap();
+    if (channel === 'lightmap') {
+      const baseColor = textures.base.image!;
+      if (!lightmapMatchesBaseColor(image, baseColor)) {
+        throw new Error(`Lightmap must match BaseColor: expected ${baseColor.width} × ${baseColor.height}, received ${image.width} × ${image.height}.`);
+      }
+    }
     textures[channel].image = image;
     textures[channel].name = file.name;
-    if (channel === 'base') {
-      updateFileMeta(file.name, image.width, image.height, !modelBundle);
+    if (channel === 'base') updateFileMeta(file.name, image.width, image.height, !modelBundle);
+    if (channel === 'lightmap') {
+      renderLightmapControls();
+      applySun();
     }
     renderTextureRibbon();
     render();
@@ -1287,8 +1309,9 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
 function reset(): void {
   renderScheduler.cancel();
   Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5, stripeAngle: 45, noiseScale: 1, seed: 1, aoBias: 0, aoScale: 1, aoDistance: 2, lightmapContribution: 1, sun: { azimuth: 45, elevation: 45, enabled: true, color: '#ffffff', intensity: 2.8 }, ambient: { color: '#ffffff', intensity: 2.2 } });
-  lightmap.image = null;
-  lightmap.name = '';
+  textures.lightmap.image = null;
+  textures.lightmap.name = '';
+  renderTextureRibbon();
   editingCustomKey = null;
   customPaletteName.value = '';
   customPaletteDescription.value = '';
@@ -1370,28 +1393,7 @@ bindRange({
 });
 generateAoButton.addEventListener('click', generateAo);
 bakeLightmapButton.addEventListener('click', bakeLighting);
-loadLightmapButton.addEventListener('click', () => lightmapInput.click());
 clearLightmapButton.addEventListener('click', clearLightmap);
-lightmapInput.addEventListener('change', async () => {
-  const file = lightmapInput.files?.[0];
-  lightmapInput.value = '';
-  if (!file) return;
-  try {
-    const image = await loadImageFile(file);
-    const baseColor = textures.base.image!;
-    if (!lightmapMatchesBaseColor(image, baseColor)) {
-      throw new Error(`Lightmap must match BaseColor: expected ${baseColor.width} × ${baseColor.height}, received ${image.width} × ${image.height}.`);
-    }
-    lightmap.image = image;
-    lightmap.name = file.name;
-    renderLightmapControls();
-    applySun();
-    render();
-    showToast(`Lightmap ${file.name} loaded`);
-  } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Could not load lightmap.');
-  }
-});
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.addEventListener('click', () => {
   state.mode = button.dataset.mode as DitherMode;
   setActiveMode(state.mode);
@@ -1446,7 +1448,7 @@ customColors.addEventListener('input', (event) => {
   if (!input) return;
   ensureCustomDraft();
   state.customColors[Number(input.dataset.colorIndex)] = input.value;
-  input.nextElementSibling?.setAttribute('style', `--swatch:${input.value}`);
+  syncColorChip(input);
   input.setAttribute('aria-label', `Color ${Number(input.dataset.colorIndex) + 1}, ${input.value}`);
   state.paletteSnapshot = activePaletteSnapshot();
   render();
@@ -1496,7 +1498,7 @@ importCustomPaletteInput.addEventListener('change', async () => {
 
 function pickTextureFromSlot(slot: HTMLElement): void {
   if (slot.classList.contains('disabled')) {
-    showToast('Load a model to enable AO and Normal maps.');
+    showToast('Load a model to enable model texture maps.');
     return;
   }
   pendingTextureChannel = slot.dataset.texture as TextureChannelId;
