@@ -37,6 +37,24 @@ describe('sun world direction', () => {
     }
   });
 
+  it('resolves all six cardinal camera orientations without a pole singularity', () => {
+    const localForward = new Vector3(0, 0, -1);
+    for (const expected of [
+      new Vector3(1, 0, 0),
+      new Vector3(-1, 0, 0),
+      new Vector3(0, 1, 0),
+      new Vector3(0, -1, 0),
+      new Vector3(0, 0, 1),
+      new Vector3(0, 0, -1),
+    ]) {
+      const quaternion = new Quaternion().setFromUnitVectors(localForward, expected);
+      const result = cameraForwardFromQuaternion(quaternion);
+      expect(result.x).toBeCloseTo(expected.x);
+      expect(result.y).toBeCloseTo(expected.y);
+      expect(result.z).toBeCloseTo(expected.z);
+    }
+  });
+
   it('uses a safe default for zero-length and non-finite vectors', () => {
     expect(normalizeDirection({ x: 0, y: 0, z: 0 })).toEqual(DEFAULT_SUN_DIRECTION);
     expect(normalizeDirection({ x: Number.NaN, y: 0, z: 0 })).toEqual(DEFAULT_SUN_DIRECTION);

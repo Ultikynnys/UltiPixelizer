@@ -3,6 +3,7 @@ import {
   BufferAttribute,
   CanvasTexture,
   Color,
+  DoubleSide,
   Material,
   Mesh,
   NearestFilter,
@@ -116,6 +117,7 @@ function applyTextureToMaterial(material: Material, texture: Texture): void {
   textured.map = texture;
   textured.color?.set(0xffffff);
   textured.transparent = true;
+  textured.side = DoubleSide;
   if ('specular' in textured) textured.specular?.set(0x000000);
   if ('shininess' in textured) textured.shininess = 0;
   if ('metalness' in textured) textured.metalness = 0;

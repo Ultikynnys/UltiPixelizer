@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture } from 'three';
+import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture } from 'three';
 import { applyTextureToModel, applyUVChannel, cloneModelScene, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, uvChannelIndex } from '../src/lib/modelScene';
 
 function mesh(channels: string[], materials = 1): Mesh {
@@ -37,7 +37,8 @@ describe('model scene processing', () => {
     const texture = new Texture();
     expect(applyTextureToModel(root, texture)).toBe(5);
     expect((single.material as MeshBasicMaterial).map).toBe(texture);
-    expect((multiple.material as MeshBasicMaterial[]).every((material) => material.map === texture)).toBe(true);
+    expect((single.material as MeshBasicMaterial).side).toBe(DoubleSide);
+    expect((multiple.material as MeshBasicMaterial[]).every((material) => material.map === texture && material.side === DoubleSide)).toBe(true);
   });
 
   it('creates a nearest-neighbor sRGB canvas texture', () => {

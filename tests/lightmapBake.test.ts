@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, PlaneGeometry, Scene } from 'three';
+import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, PlaneGeometry, Scene, Vector3 } from 'three';
 import { bakeMeshLightmap, type BakeLightmapOptions } from '../src/lib/lightmapBake';
 
 const defaults: BakeLightmapOptions = {
@@ -47,6 +47,28 @@ describe('bakeMeshLightmap', () => {
       ambientIntensity: Math.PI,
     });
     expect(centerRGB(pixels)).toEqual([64, 64, 64]);
+  });
+
+  it('lights a source-facing plane from all six cardinal ray directions', () => {
+    const planeNormal = new Vector3(0, 0, 1);
+    for (const rayDirection of [
+      new Vector3(1, 0, 0),
+      new Vector3(-1, 0, 0),
+      new Vector3(0, 1, 0),
+      new Vector3(0, -1, 0),
+      new Vector3(0, 0, 1),
+      new Vector3(0, 0, -1),
+    ]) {
+      const scene = new Scene();
+      const plane = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial());
+      plane.quaternion.setFromUnitVectors(planeNormal, rayDirection.clone().negate());
+      scene.add(plane);
+      const pixels = bakeMeshLightmap(scene, 8, 8, {
+        ...defaults,
+        sunDirection: rayDirection,
+      });
+      expect(centerRGB(pixels)).toEqual([255, 255, 255]);
+    }
   });
 
   it('casts directional shadows from UV-less geometry', () => {

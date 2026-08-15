@@ -1,7 +1,9 @@
 import {
   AmbientLight,
   AnimationClip,
+  AxesHelper,
   AnimationMixer,
+  Box3,
   DirectionalLight,
   LoadingManager,
   Object3D,
@@ -76,6 +78,7 @@ export class ModelViewport {
   private readonly resizeObserver: ResizeObserver;
   private readonly sun = new DirectionalLight(0xffffff, DEFAULT_SUN_INTENSITY);
   private readonly ambient = new AmbientLight(0xffffff, DEFAULT_AMBIENT_INTENSITY);
+  private readonly axes = new AxesHelper(1);
   private model: Object3D | null = null;
   private mixer: AnimationMixer | null = null;
   private frame = 0;
@@ -89,6 +92,7 @@ export class ModelViewport {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.scene.add(this.ambient);
+    this.scene.add(this.axes);
     this.sun.position.set(3, 5, 4);
     this.scene.add(this.sun);
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -104,6 +108,7 @@ export class ModelViewport {
     }
     this.model = model;
     this.scene.add(model);
+    this.fitAxesToModel();
     const target = fitCameraToObject(this.camera, model, this.host.clientWidth / Math.max(this.host.clientHeight, 1));
     this.controls.target.copy(target);
     this.controls.update();
@@ -115,6 +120,7 @@ export class ModelViewport {
   setWorldAxis(worldAxis: WorldAxis): void {
     if (!this.model) return;
     orientToWorldAxis(this.model, worldAxis);
+    this.fitAxesToModel();
     const target = fitCameraToObject(this.camera, this.model, this.host.clientWidth / Math.max(this.host.clientHeight, 1));
     this.controls.target.copy(target);
     this.controls.update();
@@ -179,6 +185,13 @@ export class ModelViewport {
     this.ambient.intensity = intensity;
   }
 
+  private fitAxesToModel(): void {
+    if (!this.model) return;
+    const bounds = new Box3().setFromObject(this.model);
+    const size = bounds.isEmpty() ? 1 : Math.max(bounds.getSize(new Vector3()).length() * 0.2, 0.01);
+    this.axes.scale.setScalar(size);
+  }
+
   private resize(): void {
     const width = Math.max(this.host.clientWidth, 1);
     const height = Math.max(this.host.clientHeight, 1);
@@ -201,6 +214,7 @@ export class ModelViewport {
     this.controls.dispose();
     this.timer.dispose();
     if (this.model) disposeModel(this.model);
+    this.axes.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
