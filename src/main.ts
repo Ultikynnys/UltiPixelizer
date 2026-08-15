@@ -92,6 +92,7 @@ const sunOverlayMarkup = (): string => `
       <label class="light-color-control"><span>Color</span>${colorControl('#ffffff', 'Ambient light color', 'id="ambientColor"')}</label>
       ${rangeControl('ambientIntensity', 'Intensity', 0, 5, 0.1, 2.2)}
     </div>
+    <div class="lightmap-active-label" role="status">Lightmap Active</div>
   </div>
 `;
 
