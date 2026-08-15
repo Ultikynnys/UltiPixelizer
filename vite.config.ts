@@ -7,5 +7,16 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    coverage: {
+      provider: 'v8',
+      include: ['src/lib/dither.ts', 'src/lib/palettes.ts'],
+      reporter: ['text', 'json-summary'],
+      thresholds: {
+        lines: 95,
+        functions: 100,
+        statements: 95,
+        branches: 85,
+      },
+    },
   },
 });
