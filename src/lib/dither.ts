@@ -1,0 +1,114 @@
+import { hexToRgb } from './palettes';
+
+export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'none';
+
+export type ProcessOptions = {
+  palette: string[];
+  mode: DitherMode;
+  strength: number;
+  brightness: number;
+  contrast: number;
+  saturation: number;
+};
+
+type RGB = [number, number, number];
+
+const BAYER_4 = [
+  [0, 8, 2, 10],
+  [12, 4, 14, 6],
+  [3, 11, 1, 9],
+  [15, 7, 13, 5],
+];
+
+const clamp = (value: number) => Math.max(0, Math.min(255, value));
+
+export function nearestColor(color: RGB, palette: RGB[]): RGB {
+  let best = palette[0] ?? [0, 0, 0];
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const candidate of palette) {
+    const red = color[0] - candidate[0];
+    const green = color[1] - candidate[1];
+    const blue = color[2] - candidate[2];
+    const distance = red * red * 0.299 + green * green * 0.587 + blue * blue * 0.114;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+export function adjustColor(color: RGB, brightness: number, contrast: number, saturation: number): RGB {
+  const brightnessOffset = brightness * 2.55;
+  const contrastFactor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+  let red = contrastFactor * (color[0] - 128) + 128 + brightnessOffset;
+  let green = contrastFactor * (color[1] - 128) + 128 + brightnessOffset;
+  let blue = contrastFactor * (color[2] - 128) + 128 + brightnessOffset;
+  const gray = red * 0.299 + green * 0.587 + blue * 0.114;
+  const saturationFactor = 1 + saturation / 100;
+  red = gray + (red - gray) * saturationFactor;
+  green = gray + (green - gray) * saturationFactor;
+  blue = gray + (blue - gray) * saturationFactor;
+  return [clamp(red), clamp(green), clamp(blue)];
+}
+
+export function processImageData(source: ImageData, options: ProcessOptions): ImageData {
+  const output = new ImageData(new Uint8ClampedArray(source.data), source.width, source.height);
+  const data = output.data;
+  const palette = options.palette.map(hexToRgb);
+  const work = new Float32Array(source.width * source.height * 3);
+
+  for (let pixel = 0; pixel < source.width * source.height; pixel += 1) {
+    const index = pixel * 4;
+    const adjusted = adjustColor([data[index], data[index + 1], data[index + 2]], options.brightness, options.contrast, options.saturation);
+    work[pixel * 3] = adjusted[0];
+    work[pixel * 3 + 1] = adjusted[1];
+    work[pixel * 3 + 2] = adjusted[2];
+  }
+
+  const spread = (x: number, y: number, error: RGB, factor: number) => {
+    if (x < 0 || x >= source.width || y < 0 || y >= source.height) return;
+    const target = (y * source.width + x) * 3;
+    for (let channel = 0; channel < 3; channel += 1) {
+      work[target + channel] += error[channel] * factor * options.strength;
+    }
+  };
+
+  for (let y = 0; y < source.height; y += 1) {
+    for (let x = 0; x < source.width; x += 1) {
+      const pixel = y * source.width + x;
+      const workIndex = pixel * 3;
+      let current: RGB = [work[workIndex], work[workIndex + 1], work[workIndex + 2]];
+
+      if (options.mode === 'ordered') {
+        const offset = ((BAYER_4[y % 4][x % 4] / 15) - 0.5) * 72 * options.strength;
+        current = [clamp(current[0] + offset), clamp(current[1] + offset), clamp(current[2] + offset)];
+      }
+
+      const matched = nearestColor(current, palette);
+      const outputIndex = pixel * 4;
+      data[outputIndex] = matched[0];
+      data[outputIndex + 1] = matched[1];
+      data[outputIndex + 2] = matched[2];
+
+      if (options.mode === 'floyd' || options.mode === 'atkinson') {
+        const error: RGB = [current[0] - matched[0], current[1] - matched[1], current[2] - matched[2]];
+        if (options.mode === 'floyd') {
+          spread(x + 1, y, error, 7 / 16);
+          spread(x - 1, y + 1, error, 3 / 16);
+          spread(x, y + 1, error, 5 / 16);
+          spread(x + 1, y + 1, error, 1 / 16);
+        } else {
+          spread(x + 1, y, error, 1 / 8);
+          spread(x + 2, y, error, 1 / 8);
+          spread(x - 1, y + 1, error, 1 / 8);
+          spread(x, y + 1, error, 1 / 8);
+          spread(x + 1, y + 1, error, 1 / 8);
+          spread(x, y + 2, error, 1 / 8);
+        }
+      }
+    }
+  }
+  return output;
+}
