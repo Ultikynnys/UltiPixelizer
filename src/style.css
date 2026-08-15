@@ -90,7 +90,7 @@ button { color: inherit; }
 .preview-pane figcaption { align-items: center; color: var(--paper); display: flex; font: 500 9px 'DM Mono', monospace; gap: 7px; letter-spacing: .1em; text-transform: uppercase; }
 .preview-pane figcaption span { color: var(--accent); }
 .preview-pane figcaption .fig-dims { color: var(--muted); margin-left: auto; }
-.canvas-frame { align-items: center; background: #171716; border: 1px solid #3d3d39; display: flex; justify-content: center; min-width: 0; overflow: hidden; }
+.canvas-frame { align-items: center; background: #171716; border: 1px solid #3d3d39; display: flex; justify-content: center; min-width: 0; overflow: hidden; position: relative; }
 .preview-pane canvas { display: block; image-rendering: pixelated; max-height: clamp(240px, 52vh, 560px); max-width: 100%; min-width: 0; object-fit: contain; width: 100%; }
 .preview-pane canvas[hidden], .model-host[hidden], .uv-control[hidden], .sun-control[hidden] { display: none; }
 .model-host { height: clamp(280px, 52vh, 560px); min-height: 0; width: 100%; }
@@ -101,7 +101,7 @@ button { color: inherit; }
 .canvas-stage:hover .drop-hint, .canvas-stage.dragging .drop-hint { opacity: 1; transform: none; }
 .preview-mode-toggle {
   align-items: center; background: rgba(23,23,22,.92); border: 1px solid #4b4b47; border-radius: 3px;
-  display: flex; gap: 2px; padding: 3px; position: absolute; right: 14px; top: 14px; z-index: 10;
+  display: flex; gap: 2px; padding: 3px; position: absolute; right: 8px; top: 8px; z-index: 10;
 }
 .preview-mode-toggle[hidden] { display: none; }
 .preview-mode-toggle button {

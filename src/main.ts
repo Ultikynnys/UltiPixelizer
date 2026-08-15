@@ -18,6 +18,8 @@ type SourceImage = CanvasImageSource & { width: number; height: number };
 
 type TextureChannelId = 'base' | 'ao' | 'normal';
 
+type PreviewMode = '2d' | '3d';
+
 type TextureSlot = { image: SourceImage | null; name: string };
 
 const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string }> = [
@@ -147,18 +149,28 @@ app.innerHTML = `
           <div class="comparison-grid" aria-label="Original and dithered texture comparison">
             <figure class="preview-pane original-pane">
               <figcaption><span>01</span> Original <span class="fig-dims" id="sourceDimensions">640 × 461</span></figcaption>
-              <div class="canvas-frame"><canvas id="originalCanvas" aria-label="Original texture preview"></canvas><div class="model-host" id="originalModelHost" hidden></div></div>
+              <div class="canvas-frame">
+                <canvas id="originalCanvas" aria-label="Original texture preview"></canvas>
+                <div class="model-host" id="originalModelHost" hidden></div>
+                <div class="preview-mode-toggle" id="originalPreviewToggle" hidden role="group" aria-label="Preview mode">
+                  <button type="button" data-preview-mode="2d" class="active">2D</button>
+                  <button type="button" data-preview-mode="3d">3D</button>
+                </div>
+              </div>
             </figure>
             <figure class="preview-pane processed-pane">
               <figcaption><span>02</span> Dithered <span class="fig-dims" id="processedDimensions">128 × 92 PX</span></figcaption>
-              <div class="canvas-frame"><canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas><div class="model-host" id="processedModelHost" hidden></div></div>
+              <div class="canvas-frame">
+                <canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas>
+                <div class="model-host" id="processedModelHost" hidden></div>
+                <div class="preview-mode-toggle" id="processedPreviewToggle" hidden role="group" aria-label="Preview mode">
+                  <button type="button" data-preview-mode="2d" class="active">2D</button>
+                  <button type="button" data-preview-mode="3d">3D</button>
+                </div>
+              </div>
             </figure>
           </div>
           <div class="drop-hint" id="dropHint">Drop an image or model bundle anywhere</div>
-          <div class="preview-mode-toggle" id="previewModeToggle" hidden role="group" aria-label="Preview mode">
-            <button type="button" data-preview-mode="2d" class="active">2D</button>
-            <button type="button" data-preview-mode="3d">3D</button>
-          </div>
         </div>
 
         <footer class="preview-footer">
@@ -286,7 +298,8 @@ const toast = document.querySelector<HTMLDivElement>('#toast')!;
 const loadConfigInput = document.querySelector<HTMLInputElement>('#loadConfigInput')!;
 const textureRibbon = document.querySelector<HTMLDivElement>('#textureRibbon')!;
 const textureInput = document.querySelector<HTMLInputElement>('#textureInput')!;
-const previewModeToggle = document.querySelector<HTMLDivElement>('#previewModeToggle')!;
+const originalPreviewToggle = document.querySelector<HTMLDivElement>('#originalPreviewToggle')!;
+const processedPreviewToggle = document.querySelector<HTMLDivElement>('#processedPreviewToggle')!;
 const aoIntensityInput = document.querySelector<HTMLInputElement>('#aoIntensity')!;
 const aoIntensityValue = document.querySelector<HTMLOutputElement>('#aoIntensityValue')!;
 const aoDistanceInput = document.querySelector<HTMLInputElement>('#aoDistance')!;
@@ -299,7 +312,8 @@ let editingCustomKey: string | null = null;
 let toastTimer = 0;
 let renderedCanvas = document.createElement('canvas');
 let modelBundle: ModelFileBundle | null = null;
-let previewMode: '2d' | '3d' = '2d';
+let originalPreviewMode: PreviewMode = '2d';
+let processedPreviewMode: PreviewMode = '2d';
 let originalViewport: ModelViewport | null = null;
 let processedViewport: ModelViewport | null = null;
 let modelUVChannels: string[] = [];
@@ -384,7 +398,7 @@ function computeAO(): void {
     textures.ao.name = '';
     return;
   }
-  textures.ao.image = factorsToCanvas(bakeMeshAO(scene, AO_BAKE_SIZE, AO_BAKE_SIZE, { distance: state.aoDistance }), AO_BAKE_SIZE);
+  textures.ao.image = factorsToCanvas(bakeMeshAO(scene, AO_BAKE_SIZE, AO_BAKE_SIZE, { samples: 64, distance: state.aoDistance }), AO_BAKE_SIZE);
   textures.ao.name = 'Generated AO';
 }
 
@@ -554,15 +568,17 @@ function applySunDirection(): void {
 }
 
 function applyPreviewMode(): void {
-  const threeD = modelBundle !== null && previewMode === '3d';
-  originalModelHost.hidden = !threeD;
-  processedModelHost.hidden = !threeD;
-  originalCanvas.hidden = threeD;
-  previewCanvas.hidden = threeD;
-  previewModeToggle.hidden = modelBundle === null;
-  previewModeToggle.querySelectorAll<HTMLButtonElement>('[data-preview-mode]').forEach((button) => {
-    button.classList.toggle('active', button.dataset.previewMode === previewMode);
-  });
+  const applyPane = (mode: PreviewMode, canvas: HTMLCanvasElement, host: HTMLDivElement, toggle: HTMLDivElement): void => {
+    const threeD = modelBundle !== null && mode === '3d';
+    host.hidden = !threeD;
+    canvas.hidden = threeD;
+    toggle.hidden = modelBundle === null;
+    toggle.querySelectorAll<HTMLButtonElement>('[data-preview-mode]').forEach((button) => {
+      button.classList.toggle('active', button.dataset.previewMode === mode);
+    });
+  };
+  applyPane(originalPreviewMode, originalCanvas, originalModelHost, originalPreviewToggle);
+  applyPane(processedPreviewMode, previewCanvas, processedModelHost, processedPreviewToggle);
 }
 
 function closeModelPreview(): void {
@@ -576,7 +592,8 @@ function closeModelPreview(): void {
   modelLodLevels = [];
   disposeAOScene(aoBakeScene);
   aoBakeScene = null;
-  previewMode = '2d';
+  originalPreviewMode = '2d';
+  processedPreviewMode = '2d';
   applyPreviewMode();
   renderUVControl();
   renderLodControl();
@@ -604,7 +621,8 @@ async function setModel(files: File[]): Promise<void> {
     originalViewport.applyLOD(state.lodLevel);
     processedViewport.applyLOD(state.lodLevel);
     disposeModel(loaded.scene);
-    previewMode = '3d';
+    originalPreviewMode = '3d';
+    processedPreviewMode = '3d';
     applyPreviewMode();
     renderUVControl();
     renderLodControl();
@@ -1239,10 +1257,16 @@ modelInput.addEventListener('change', () => {
   if (files.length) void setModel(files);
   modelInput.value = '';
 });
-previewModeToggle.addEventListener('click', (event) => {
+originalPreviewToggle.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-preview-mode]');
   if (!button?.dataset.previewMode) return;
-  previewMode = button.dataset.previewMode as '2d' | '3d';
+  originalPreviewMode = button.dataset.previewMode as PreviewMode;
+  applyPreviewMode();
+});
+processedPreviewToggle.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-preview-mode]');
+  if (!button?.dataset.previewMode) return;
+  processedPreviewMode = button.dataset.previewMode as PreviewMode;
   applyPreviewMode();
 });
 uvMapSelect.addEventListener('change', () => applyModelUV(uvMapSelect.value));
