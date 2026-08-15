@@ -67,22 +67,25 @@ export function materialsOf(mesh: Mesh): Material[] {
 export function cloneModelScene(source: Object3D): Object3D {
   const clone = cloneSkeleton(source);
   const textures = new Map<Texture, Texture>();
+  const cloneMaterial = (sourceMaterial: Material): Material => {
+    const material = sourceMaterial.clone();
+    for (const [property, value] of Object.entries(material)) {
+      if (!(value instanceof Texture)) continue;
+      let texture = textures.get(value);
+      if (!texture) {
+        texture = value.clone();
+        textures.set(value, texture);
+      }
+      (material as unknown as Record<string, unknown>)[property] = texture;
+    }
+    return material;
+  };
   clone.traverse((child) => {
     if (!(child instanceof Mesh)) return;
     child.geometry = child.geometry.clone();
-    child.material = materialsOf(child).map((sourceMaterial) => {
-      const material = sourceMaterial.clone();
-      for (const [property, value] of Object.entries(material)) {
-        if (!(value instanceof Texture)) continue;
-        let texture = textures.get(value);
-        if (!texture) {
-          texture = value.clone();
-          textures.set(value, texture);
-        }
-        (material as unknown as Record<string, unknown>)[property] = texture;
-      }
-      return material;
-    });
+    child.material = Array.isArray(child.material)
+      ? child.material.map(cloneMaterial)
+      : cloneMaterial(child.material);
   });
   return clone;
 }

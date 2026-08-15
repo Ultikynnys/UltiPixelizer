@@ -48,19 +48,24 @@ describe('model scene processing', () => {
     expect(texture.generateMipmaps).toBe(false);
   });
 
-  it('deep-clones mutable geometry, materials, and textures', () => {
+  it('deep-clones mutable geometry, materials, and textures without changing material shape', () => {
     const root = new Object3D();
-    const sourceMesh = mesh(['uv'], 2);
-    const sourceMaterials = sourceMesh.material as MeshBasicMaterial[];
+    const single = mesh(['uv']);
+    const multiple = mesh(['uv'], 2);
+    const sourceMaterials = multiple.material as MeshBasicMaterial[];
     const texture = new Texture();
+    (single.material as MeshBasicMaterial).map = texture;
     sourceMaterials.forEach((material) => { material.map = texture; });
-    root.add(sourceMesh);
+    root.add(single, multiple);
     const clone = cloneModelScene(root);
-    const clonedMesh = clone.children[0] as Mesh;
-    const clonedMaterials = clonedMesh.material as MeshBasicMaterial[];
-    expect(clonedMesh.geometry).not.toBe(sourceMesh.geometry);
-    expect(clonedMesh.material).not.toBe(sourceMesh.material);
-    expect(Array.isArray(clonedMesh.material)).toBe(true);
+    const clonedSingle = clone.children[0] as Mesh;
+    const clonedMultiple = clone.children[1] as Mesh;
+    const clonedMaterials = clonedMultiple.material as MeshBasicMaterial[];
+    expect(clonedSingle.geometry).not.toBe(single.geometry);
+    expect(clonedSingle.material).not.toBe(single.material);
+    expect(Array.isArray(clonedSingle.material)).toBe(false);
+    expect(Array.isArray(clonedMultiple.material)).toBe(true);
+    expect((clonedSingle.material as MeshBasicMaterial).map).not.toBe(texture);
     expect(clonedMaterials[0].map).not.toBe(texture);
     expect(clonedMaterials[0].map).toBe(clonedMaterials[1].map);
   });
