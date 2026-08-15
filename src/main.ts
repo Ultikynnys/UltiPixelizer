@@ -16,7 +16,7 @@ import { bakeMeshLightmap, type BakeLightmapOptions } from './lib/lightmapBake';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './lib/defaults';
 import { imageNormalMapPixels, type NormalFormat } from './lib/normal';
 import { safeFileName } from './lib/strings';
-import { vectorToSunDirection } from './lib/sunGizmo';
+import { vectorToSunDirection } from './lib/sunDirection';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
 
 type SourceImage = CanvasImageSource & { width: number; height: number };
@@ -1677,7 +1677,7 @@ worldAxisSelect.addEventListener('change', () => {
 function bindSunControl(): void {
   sunControlElements.orientWithCamera.addEventListener('click', () => {
     if (!originalViewport || originalPreviewMode !== '3d') return;
-    const direction = vectorToSunDirection(originalViewport.getCameraDirection());
+    const direction = vectorToSunDirection(originalViewport.getCameraForward());
     state.sun.azimuth = direction.azimuth;
     state.sun.elevation = direction.elevation;
     applySun();

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { sunDirectionVector, vectorToSunDirection } from '../src/lib/sunGizmo';
+import { sunDirectionVector, vectorToSunDirection } from '../src/lib/sunDirection';
 
 describe('sun direction conversion', () => {
-  it('converts angles to the viewport world-space direction', () => {
+  it('converts angles to the world-space light-travel direction', () => {
     expect(sunDirectionVector(0, 0)).toEqual({ x: 1, y: 0, z: 0 });
     expect(sunDirectionVector(90, 0).x).toBeCloseTo(0);
     expect(sunDirectionVector(90, 0).z).toBeCloseTo(1);
@@ -10,7 +10,7 @@ describe('sun direction conversion', () => {
     expect(sunDirectionVector(270, -90)).toEqual(expect.objectContaining({ y: -1 }));
   });
 
-  it('converts camera-facing vectors to sun angles', () => {
+  it('converts camera-forward vectors to sun angles', () => {
     expect(vectorToSunDirection({ x: 1, y: 0, z: 0 })).toEqual({ azimuth: 0, elevation: 0 });
     expect(vectorToSunDirection({ x: 0, y: 0, z: 1 }).azimuth).toBeCloseTo(90);
     expect(vectorToSunDirection({ x: -1, y: 0, z: 0 }).azimuth).toBeCloseTo(180);
@@ -22,6 +22,15 @@ describe('sun direction conversion', () => {
     expect(vectorToSunDirection({ x: 10, y: 10, z: 0 }).elevation).toBeCloseTo(45);
     expect(vectorToSunDirection({ x: 0, y: 0, z: 0 })).toEqual({ azimuth: 0, elevation: 0 });
     expect(vectorToSunDirection({ x: Number.NaN, y: 0, z: 0 })).toEqual({ azimuth: 0, elevation: 0 });
+  });
+
+  it('preserves an arbitrary normalized camera-forward vector through the angle pipeline', () => {
+    const forward = { x: -0.3713906764, y: 0.5570860145, z: -0.7427813527 };
+    const angles = vectorToSunDirection(forward);
+    const result = sunDirectionVector(angles.azimuth, angles.elevation);
+    expect(result.x).toBeCloseTo(forward.x);
+    expect(result.y).toBeCloseTo(forward.y);
+    expect(result.z).toBeCloseTo(forward.z);
   });
 
   it('round-trips angles across the full camera elevation range', () => {

@@ -8,6 +8,7 @@ import {
   PerspectiveCamera,
   Scene,
   Timer,
+  Vector3,
   WebGLRenderer,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -19,7 +20,7 @@ import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
 import { applyTextureToModel, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject, materialsOf } from './modelScene';
-import { sunDirectionVector, type DirectionVector } from './sunGizmo';
+import { sunDirectionVector, type DirectionVector } from './sunDirection';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
 
@@ -143,15 +144,14 @@ export class ModelViewport {
     return this.model ? applyLodLevel(this.model, level) : 0;
   }
 
-  getCameraDirection(): DirectionVector {
-    const direction = this.camera.position.clone().sub(this.controls.target);
-    if (direction.lengthSq() > 0) direction.normalize();
-    return { x: direction.x, y: direction.y, z: direction.z };
+  getCameraForward(): DirectionVector {
+    const forward = this.camera.getWorldDirection(new Vector3());
+    return { x: forward.x, y: forward.y, z: forward.z };
   }
 
   setSunDirection(azimuthDeg: number, elevationDeg: number): void {
-    const direction = sunDirectionVector(azimuthDeg, elevationDeg);
-    this.sun.position.set(direction.x, direction.y, direction.z);
+    const travelDirection = sunDirectionVector(azimuthDeg, elevationDeg);
+    this.sun.position.set(-travelDirection.x, -travelDirection.y, -travelDirection.z);
   }
 
   setSunEnabled(enabled: boolean): void {

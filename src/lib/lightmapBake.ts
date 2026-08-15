@@ -1,6 +1,6 @@
 import { DoubleSide, Object3D, Ray, Vector3 } from 'three';
 import { hexToRgb, isHexColor } from './palettes';
-import { sunDirectionVector } from './sunGizmo';
+import { sunDirectionVector } from './sunDirection';
 import { collectBakeScene, rasterizeBake, type BakeTriangle, type UvPair } from './bakeGeometry';
 import { sampleNormalMap, type NormalMapSource } from './normal';
 
@@ -81,8 +81,8 @@ function computeTangentBasis(
  * Output contains irradiance only (no albedo), with white representing neutral light.
  */
 export function bakeMeshLightmap(scene: Object3D, width: number, height: number, options: BakeLightmapOptions): Uint8ClampedArray {
-  const sunVector = sunDirectionVector(options.sunAzimuth, options.sunElevation);
-  const sunDirection = new Vector3(sunVector.x, sunVector.y, sunVector.z).normalize();
+  const travelVector = sunDirectionVector(options.sunAzimuth, options.sunElevation);
+  const directionToSun = new Vector3(-travelVector.x, -travelVector.y, -travelVector.z).normalize();
   const sunColor = parseColor(options.sunColor);
   const ambientColor = options.ambientEnabled === false ? [1, 1, 1] : parseColor(options.ambientColor);
   const ambientScale = options.ambientEnabled === false ? 1 : Math.max(0, options.ambientIntensity) / Math.PI;
@@ -97,11 +97,11 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
   const visibility = new Float32Array(vertices.length);
   for (let i = 0; i < vertices.length; i += 1) {
     const vertex = vertices[i];
-    const lambert = Math.max(0, vertex.normal.dot(sunDirection));
+    const lambert = Math.max(0, vertex.normal.dot(directionToSun));
     let sunVisibility = lambert > 0 && sunScale > 0 ? 1 : 0;
     if (sunVisibility && bvh) {
       _ray.origin.copy(vertex.position).addScaledVector(vertex.normal, epsilon);
-      _ray.direction.copy(sunDirection);
+      _ray.direction.copy(directionToSun);
       if (bvh.raycastFirst(_ray, DoubleSide, epsilon)) sunVisibility = 0;
     }
     visibility[i] = sunVisibility;
@@ -135,7 +135,7 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
         tangent.y * tx + bitangent.y * ty + normal.y * tz,
         tangent.z * tx + bitangent.z * ty + normal.z * tz,
       ).normalize();
-      const lambert = Math.max(0, mapped.dot(sunDirection));
+      const lambert = Math.max(0, mapped.dot(directionToSun));
       const sunVisibility = w0 * visibility[triangle.verts[0]]
         + w1 * visibility[triangle.verts[1]]
         + w2 * visibility[triangle.verts[2]];
