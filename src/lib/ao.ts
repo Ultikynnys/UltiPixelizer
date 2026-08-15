@@ -22,13 +22,19 @@ export function redChannelFactors(source: AOFactorSource, invert = false): Uint8
 }
 
 /**
- * Multiplies each pixel's RGB by its AO visibility factor, scaled by intensity
- * (0 = no effect, 1 = full occlusion). Mutates `data` in place.
+ * Remaps each pixel's AO occlusion with bias/scale, then multiplies its RGB by
+ * the remaining visibility. The remapped occlusion is clamped to [0, 1], so
+ * pixels can never be pushed below black or brightened past their source.
+ * Mutates `data` in place.
+ *
+ * - `bias` shifts the whole occlusion curve (−1 = fully bright, +1 = fully dark).
+ * - `scale` scales occlusion strength (0 = no effect, 1 = as baked).
  */
-export function applyAO(data: Uint8ClampedArray, factors: Uint8ClampedArray, intensity = 1): void {
+export function applyAO(data: Uint8ClampedArray, factors: Uint8ClampedArray, bias = 0, scale = 1): void {
   for (let i = 0; i < factors.length; i += 1) {
-    const visibility = factors[i] / 255;
-    const multiplier = 1 - intensity * (1 - visibility);
+    const occlusion = 1 - factors[i] / 255;
+    const adjusted = Math.min(1, Math.max(0, bias + scale * occlusion));
+    const multiplier = 1 - adjusted;
     const offset = i * 4;
     data[offset] = data[offset] * multiplier;
     data[offset + 1] = data[offset + 1] * multiplier;

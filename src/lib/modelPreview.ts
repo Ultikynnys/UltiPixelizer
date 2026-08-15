@@ -15,7 +15,7 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import type { ModelFileBundle } from './modelFiles';
+import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
 import { applyTextureToModel, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject, materialsOf } from './modelScene';
 
@@ -27,7 +27,15 @@ function configureManager(bundle: ModelFileBundle): LoadingManager {
   return manager;
 }
 
-export async function loadModel(bundle: ModelFileBundle, files: File[]): Promise<LoadedModel> {
+export function upAxisRotation(worldAxis: WorldAxis): number {
+  return worldAxis === 'blender' ? -Math.PI / 2 : 0;
+}
+
+function orientToWorldAxis(object: Object3D, worldAxis: WorldAxis): void {
+  object.rotation.set(upAxisRotation(worldAxis), 0, 0);
+}
+
+export async function loadModel(bundle: ModelFileBundle, files: File[], worldAxis: WorldAxis): Promise<LoadedModel> {
   const manager = configureManager(bundle);
   if (bundle.format === 'glb' || bundle.format === 'gltf') {
     const result = await new GLTFLoader(manager).loadAsync(bundle.primaryUrl);
@@ -35,6 +43,7 @@ export async function loadModel(bundle: ModelFileBundle, files: File[]): Promise
   }
   if (bundle.format === 'fbx') {
     const scene = await new FBXLoader(manager).loadAsync(bundle.primaryUrl);
+    orientToWorldAxis(scene, worldAxis);
     return { scene, animations: scene.animations };
   }
   const objLoader = new OBJLoader(manager);
@@ -49,7 +58,9 @@ export async function loadModel(bundle: ModelFileBundle, files: File[]): Promise
       URL.revokeObjectURL(mtlUrl);
     }
   }
-  return { scene: await objLoader.loadAsync(bundle.primaryUrl), animations: [] };
+  const scene = await objLoader.loadAsync(bundle.primaryUrl);
+  orientToWorldAxis(scene, worldAxis);
+  return { scene, animations: [] };
 }
 
 export class ModelViewport {
@@ -94,6 +105,14 @@ export class ModelViewport {
     this.mixer = animations.length ? new AnimationMixer(model) : null;
     if (this.mixer && !matchMedia('(prefers-reduced-motion: reduce)').matches) this.mixer.clipAction(animations[0]).play();
     this.resize();
+  }
+
+  setWorldAxis(worldAxis: WorldAxis): void {
+    if (!this.model) return;
+    orientToWorldAxis(this.model, worldAxis);
+    const target = fitCameraToObject(this.camera, this.model, this.host.clientWidth / Math.max(this.host.clientHeight, 1));
+    this.controls.target.copy(target);
+    this.controls.update();
   }
 
   applyImage(image: CanvasImageSource): number {

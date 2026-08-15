@@ -33,7 +33,8 @@ const config: ConversionConfig = {
   stripeAngle: 45,
   noiseScale: 1,
   seed: 1,
-  aoIntensity: 1,
+  aoBias: 0,
+  aoScale: 1,
   aoDistance: 2,
 };
 
@@ -62,6 +63,15 @@ describe('conversion presets', () => {
     const oldPreset = createPreset('Legacy', '', config);
     const { seed: _removed, ...legacy } = oldPreset;
     expect(parsePreset(JSON.stringify(legacy)).seed).toBe(1);
+  });
+
+  it('migrates presets saved before AO bias/scale existed', () => {
+    const oldPreset = createPreset('Legacy', '', config);
+    const { aoBias: _bias, aoScale: _scale, ...legacy } = oldPreset;
+    const parsed = parsePreset(JSON.stringify({ ...legacy, version: 1, aoIntensity: 0.6 }));
+    expect(parsed.aoScale).toBe(0.6);
+    expect(parsed.aoBias).toBe(0);
+    expect('aoIntensity' in parsed).toBe(false);
   });
 
   it('rejects empty names, malformed JSON, invalid exports, and unsupported settings', () => {

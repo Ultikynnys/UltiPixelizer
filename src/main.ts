@@ -4,10 +4,10 @@ import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomP
 import { processImageData, type DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
-import { createModelFileBundle, modelFormat, type ModelFileBundle } from './lib/modelFiles';
+import { createModelFileBundle, modelFormat, type ModelFileBundle, type WorldAxis } from './lib/modelFiles';
 import { cloneModelScene, disposeModel, geometryUVChannels } from './lib/modelScene';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
-import { loadModel, ModelViewport } from './lib/modelPreview';
+import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
 import { createPreset, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
 import { applyAO, imageAOFactors } from './lib/ao';
 import { bakeMeshAO } from './lib/aoBake';
@@ -43,10 +43,12 @@ type State = {
   lodLevel: number;
   sunAzimuth: number;
   sunElevation: number;
+  worldAxis: WorldAxis;
   stripeAngle: number;
   noiseScale: number;
   seed: number;
-  aoIntensity: number;
+  aoBias: number;
+  aoScale: number;
   aoDistance: number;
 };
 
@@ -77,10 +79,12 @@ const state: State = {
   lodLevel: 0,
   sunAzimuth: 45,
   sunElevation: 45,
+  worldAxis: 'blender',
   stripeAngle: 45,
   noiseScale: 1,
   seed: 1,
-  aoIntensity: 1,
+  aoBias: 0,
+  aoScale: 1,
   aoDistance: 2,
 };
 
@@ -120,6 +124,10 @@ app.innerHTML = `
           <div class="toolbar-actions">
             <label class="uv-control" id="uvControl" hidden><span>UV map</span><select id="uvMap" aria-label="Model UV map"></select></label>
             <label class="uv-control" id="lodControl" hidden><span>LOD</span><select id="lodMap" aria-label="Model LOD level"></select></label>
+            <label class="uv-control" id="worldAxisControl" hidden><span>World axis</span><select id="worldAxis" aria-label="Model world axis">
+              <option value="blender">Blender · Z-up</option>
+              <option value="maya">Maya · Y-up</option>
+            </select></label>
             <div class="sun-control" id="sunControl" hidden>
               <span>Sun</span>
               <label class="sun-axis"><span>Azimuth</span><input id="sunAzimuth" class="range sun-range" type="range" min="0" max="360" value="45" aria-label="Sun azimuth" /></label>
@@ -256,8 +264,10 @@ app.innerHTML = `
 
         <section class="panel">
           <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING / 05</p><h2>Ambient occlusion</h2></div></div>
-          <label class="control-row"><span><strong>Strength</strong><small>Occlusion darkness</small></span><output id="aoIntensityValue">100%</output></label>
-          <input class="range" id="aoIntensity" type="range" min="0" max="100" value="100" aria-label="Ambient occlusion strength" />
+          <label class="control-row"><span><strong>Bias</strong><small>Shift occlusion baseline</small></span><output id="aoBiasValue">+0.00</output></label>
+          <input class="range" id="aoBias" type="range" min="-1" max="1" step="0.01" value="0" aria-label="Ambient occlusion bias" />
+          <label class="control-row"><span><strong>Scale</strong><small>Occlusion strength</small></span><output id="aoScaleValue">1.00×</output></label>
+          <input class="range" id="aoScale" type="range" min="0" max="2" step="0.01" value="1" aria-label="Ambient occlusion scale" />
           <label class="control-row"><span><strong>Distance</strong><small>Ray reach for generated AO</small></span><output id="aoDistanceValue">2.00×</output></label>
           <input class="range" id="aoDistance" type="range" min="0.05" max="3" step="0.05" value="2" aria-label="Ambient occlusion distance" />
           <button class="button button-secondary ao-generate-button" id="generateAoButton" type="button">Generate AO</button>
@@ -283,6 +293,8 @@ const uvControl = document.querySelector<HTMLLabelElement>('#uvControl')!;
 const uvMapSelect = document.querySelector<HTMLSelectElement>('#uvMap')!;
 const lodControl = document.querySelector<HTMLLabelElement>('#lodControl')!;
 const lodMapSelect = document.querySelector<HTMLSelectElement>('#lodMap')!;
+const worldAxisControl = document.querySelector<HTMLLabelElement>('#worldAxisControl')!;
+const worldAxisSelect = document.querySelector<HTMLSelectElement>('#worldAxis')!;
 const sunControl = document.querySelector<HTMLDivElement>('#sunControl')!;
 const sunAzimuthInput = document.querySelector<HTMLInputElement>('#sunAzimuth')!;
 const sunElevationInput = document.querySelector<HTMLInputElement>('#sunElevation')!;
@@ -300,8 +312,10 @@ const textureRibbon = document.querySelector<HTMLDivElement>('#textureRibbon')!;
 const textureInput = document.querySelector<HTMLInputElement>('#textureInput')!;
 const originalPreviewToggle = document.querySelector<HTMLDivElement>('#originalPreviewToggle')!;
 const processedPreviewToggle = document.querySelector<HTMLDivElement>('#processedPreviewToggle')!;
-const aoIntensityInput = document.querySelector<HTMLInputElement>('#aoIntensity')!;
-const aoIntensityValue = document.querySelector<HTMLOutputElement>('#aoIntensityValue')!;
+const aoBiasInput = document.querySelector<HTMLInputElement>('#aoBias')!;
+const aoBiasValue = document.querySelector<HTMLOutputElement>('#aoBiasValue')!;
+const aoScaleInput = document.querySelector<HTMLInputElement>('#aoScale')!;
+const aoScaleValue = document.querySelector<HTMLOutputElement>('#aoScaleValue')!;
 const aoDistanceInput = document.querySelector<HTMLInputElement>('#aoDistance')!;
 const aoDistanceValue = document.querySelector<HTMLOutputElement>('#aoDistanceValue')!;
 const strengthInput = document.querySelector<HTMLInputElement>('#strength')!;
@@ -445,7 +459,7 @@ function litCanvas(image: CanvasImageSource, width: number, height: number): HTM
   context.drawImage(image, 0, 0, width, height);
   const data = context.getImageData(0, 0, width, height);
   const aoFactors = currentAOFactors(width, height);
-  if (aoFactors) applyAO(data.data, aoFactors, state.aoIntensity);
+  if (aoFactors) applyAO(data.data, aoFactors, state.aoBias, state.aoScale);
   context.putImageData(data, 0, 0);
   return canvas;
 }
@@ -461,7 +475,7 @@ function render(): void {
   renderContext.drawImage(source, 0, 0, width, height);
   const sourceData = renderContext.getImageData(0, 0, width, height);
   const aoFactors = currentAOFactors(width, height);
-  if (aoFactors) applyAO(sourceData.data, aoFactors, state.aoIntensity);
+  if (aoFactors) applyAO(sourceData.data, aoFactors, state.aoBias, state.aoScale);
 
   renderContext.putImageData(processImageData(sourceData, {
     palette: currentColors(), mode: state.mode, strength: state.strength,
@@ -496,6 +510,12 @@ function renderLodControl(): void {
   lodMapSelect.innerHTML = modelLodLevels.map((level) => `<option value="${level}" ${level === state.lodLevel ? 'selected' : ''}>LOD ${level}</option>`).join('');
 }
 
+function renderWorldAxisControl(): void {
+  const supportsAxis = modelBundle !== null && (modelBundle.format === 'fbx' || modelBundle.format === 'obj');
+  worldAxisControl.hidden = !supportsAxis;
+  worldAxisSelect.value = state.worldAxis;
+}
+
 function renderSunControl(): void {
   sunControl.hidden = !modelBundle;
 }
@@ -506,8 +526,10 @@ function updatePatternControls(): void {
 }
 
 function updateAOControls(): void {
-  aoIntensityInput.value = String(Math.round(state.aoIntensity * 100));
-  aoIntensityValue.textContent = `${Math.round(state.aoIntensity * 100)}%`;
+  aoBiasInput.value = String(Math.round(state.aoBias * 100) / 100);
+  aoBiasValue.textContent = `${state.aoBias >= 0 ? '+' : ''}${state.aoBias.toFixed(2)}`;
+  aoScaleInput.value = String(Math.round(state.aoScale * 100) / 100);
+  aoScaleValue.textContent = `${state.aoScale.toFixed(2)}×`;
   aoDistanceInput.value = String(state.aoDistance);
   aoDistanceValue.textContent = `${state.aoDistance.toFixed(2)}×`;
 }
@@ -567,6 +589,12 @@ function applySunDirection(): void {
   processedViewport?.setSunDirection(state.sunAzimuth, state.sunElevation);
 }
 
+function applyWorldAxis(): void {
+  originalViewport?.setWorldAxis(state.worldAxis);
+  processedViewport?.setWorldAxis(state.worldAxis);
+  if (aoBakeScene) aoBakeScene.rotation.set(upAxisRotation(state.worldAxis), 0, 0);
+}
+
 function applyPreviewMode(): void {
   const applyPane = (mode: PreviewMode, canvas: HTMLCanvasElement, host: HTMLDivElement, toggle: HTMLDivElement): void => {
     const threeD = modelBundle !== null && mode === '3d';
@@ -598,13 +626,14 @@ function closeModelPreview(): void {
   renderUVControl();
   renderLodControl();
   renderSunControl();
+  renderWorldAxisControl();
 }
 
 async function setModel(files: File[]): Promise<void> {
   let bundle: ModelFileBundle | null = null;
   try {
     bundle = createModelFileBundle(files);
-    const loaded = await loadModel(bundle, files);
+    const loaded = await loadModel(bundle, files, state.worldAxis);
     closeModelPreview();
     modelBundle = bundle;
     const lodPreparation = prepareModelLods(loaded.scene);
@@ -627,6 +656,7 @@ async function setModel(files: File[]): Promise<void> {
     renderUVControl();
     renderLodControl();
     renderSunControl();
+    renderWorldAxisControl();
     applySunDirection();
     if (modelUVChannels.length) applyModelUV(state.uvMap);
     renderTextureRibbon();
@@ -874,7 +904,8 @@ function currentConfig() {
     stripeAngle: state.stripeAngle,
     noiseScale: state.noiseScale,
     seed: state.seed,
-    aoIntensity: state.aoIntensity,
+    aoBias: state.aoBias,
+    aoScale: state.aoScale,
     aoDistance: state.aoDistance,
   };
 }
@@ -927,7 +958,8 @@ function applyPreset(preset: ConversionPreset): void {
     stripeAngle: preset.stripeAngle,
     noiseScale: preset.noiseScale,
     seed: preset.seed,
-    aoIntensity: preset.aoIntensity,
+    aoBias: preset.aoBias,
+    aoScale: preset.aoScale,
     aoDistance: preset.aoDistance,
     paletteSnapshot: matchesCatalog ? undefined : { ...preset.palette, colors: [...preset.palette.colors] },
     customColors: matchesCatalog ? [] : [...preset.palette.colors],
@@ -1010,7 +1042,7 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
 
 function reset(): void {
   renderScheduler.cancel();
-  Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5, stripeAngle: 45, noiseScale: 1, seed: 1, aoIntensity: 1, aoDistance: 2 });
+  Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5, stripeAngle: 45, noiseScale: 1, seed: 1, aoBias: 0, aoScale: 1, aoDistance: 2 });
   editingCustomKey = null;
   customPaletteName.value = '';
   customPaletteDescription.value = '';
@@ -1066,10 +1098,16 @@ bindRange({
   apply: (value) => { state.seed = value; },
 });
 bindRange({
-  input: aoIntensityInput,
-  output: aoIntensityValue,
-  format: (value) => `${value}%`,
-  apply: (value) => { state.aoIntensity = value / 100; },
+  input: aoBiasInput,
+  output: aoBiasValue,
+  format: (value) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}`,
+  apply: (value) => { state.aoBias = Math.round(value * 100) / 100; },
+});
+bindRange({
+  input: aoScaleInput,
+  output: aoScaleValue,
+  format: (value) => `${value.toFixed(2)}×`,
+  apply: (value) => { state.aoScale = Math.round(value * 100) / 100; },
 });
 bindRange({
   input: aoDistanceInput,
@@ -1271,6 +1309,10 @@ processedPreviewToggle.addEventListener('click', (event) => {
 });
 uvMapSelect.addEventListener('change', () => applyModelUV(uvMapSelect.value));
 lodMapSelect.addEventListener('change', () => applyModelLod(Number(lodMapSelect.value)));
+worldAxisSelect.addEventListener('change', () => {
+  state.worldAxis = worldAxisSelect.value as WorldAxis;
+  applyWorldAxis();
+});
 sunAzimuthInput.addEventListener('input', () => {
   state.sunAzimuth = Number(sunAzimuthInput.value);
   applySunDirection();

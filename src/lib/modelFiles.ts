@@ -1,4 +1,5 @@
 export type ModelFormat = 'fbx' | 'obj' | 'gltf' | 'glb';
+export type WorldAxis = 'blender' | 'maya';
 
 const modelExtensions = new Set<ModelFormat>(['fbx', 'obj', 'gltf', 'glb']);
 const imageResourcePattern = /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;

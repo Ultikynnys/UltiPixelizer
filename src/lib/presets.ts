@@ -4,7 +4,7 @@ import { createStoredCollection, type StorageLike } from './storage';
 import { slugify } from './strings';
 export type { StorageLike } from './storage';
 
-export const PRESET_VERSION = 1;
+export const PRESET_VERSION = 2;
 export const PRESET_STORAGE_KEY = 'ultipixelizer:conversion-presets:v1';
 
 export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'none'];
@@ -22,7 +22,8 @@ export type ConversionConfig = {
   stripeAngle: number;
   noiseScale: number;
   seed: number;
-  aoIntensity: number;
+  aoBias: number;
+  aoScale: number;
   aoDistance: number;
 };
 
@@ -57,7 +58,8 @@ export function isConversionPreset(value: unknown): value is ConversionPreset {
     && finiteInRange(preset.stripeAngle, 0, 135)
     && finiteInRange(preset.noiseScale, 1, 32)
     && finiteInRange(preset.seed, 0, 9999)
-    && finiteInRange(preset.aoIntensity, 0, 1)
+    && finiteInRange(preset.aoBias, -1, 1)
+    && finiteInRange(preset.aoScale, 0, 2)
     && finiteInRange(preset.aoDistance, 0.05, 3)
     && isPalette(preset.palette);
 }
@@ -83,7 +85,11 @@ export function serializePreset(preset: ConversionPreset): string {
 
 function migratePreset(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value;
-  const preset = value as Record<string, unknown>;
+  let preset = value as Record<string, unknown>;
+  if (preset.version === 1) {
+    const { aoIntensity, ...rest } = preset;
+    preset = { ...rest, version: PRESET_VERSION, aoBias: 0, aoScale: typeof aoIntensity === 'number' ? aoIntensity : 1 };
+  }
   if (preset.version !== PRESET_VERSION) return value;
   const migrated: Record<string, unknown> = { ...preset };
   if (migrated.mode === 'diagonal') {
@@ -97,7 +103,8 @@ function migratePreset(value: unknown): unknown {
   if (migrated.noiseScale === undefined) migrated.noiseScale = 1;
   if (migrated.seed === undefined) migrated.seed = 1;
   if (migrated.uvMap === undefined) migrated.uvMap = 'uv';
-  if (migrated.aoIntensity === undefined) migrated.aoIntensity = 1;
+  if (migrated.aoBias === undefined) migrated.aoBias = 0;
+  if (migrated.aoScale === undefined) migrated.aoScale = 1;
   if (migrated.aoDistance === undefined) migrated.aoDistance = 2;
   return migrated;
 }

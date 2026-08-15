@@ -26,15 +26,30 @@ describe('ambient occlusion factors', () => {
   it('darkens occluded pixels and leaves unoccluded pixels untouched', () => {
     const data = frame([[200, 100, 50, 255], [200, 100, 50, 255], [200, 100, 50, 255]]);
     const factors = new Uint8ClampedArray([255, 0, 128]);
-    applyAO(data, factors, 1);
+    applyAO(data, factors, 0, 1);
     expect(Array.from(data.slice(0, 3))).toEqual([200, 100, 50]);
     expect(Array.from(data.slice(4, 7))).toEqual([0, 0, 0]);
     expect(Array.from(data.slice(8, 11))).toEqual([100, 50, 25]);
   });
 
-  it('scales occlusion by intensity (zero intensity leaves pixels unchanged)', () => {
+  it('scale of zero leaves pixels unchanged', () => {
     const data = frame([[200, 100, 50, 255]]);
-    applyAO(data, new Uint8ClampedArray([0]), 0);
+    applyAO(data, new Uint8ClampedArray([0]), 0, 0);
     expect(Array.from(data.slice(0, 3))).toEqual([200, 100, 50]);
+  });
+
+  it('shifts the whole occlusion curve with bias', () => {
+    const data = frame([[200, 100, 50, 255], [200, 100, 50, 255]]);
+    const factors = new Uint8ClampedArray([255, 0]);
+    applyAO(data, factors, 0.5, 1);
+    expect(Array.from(data.slice(0, 3))).toEqual([100, 50, 25]);
+    expect(Array.from(data.slice(4, 7))).toEqual([0, 0, 0]);
+  });
+
+  it('clamps remapped occlusion so AO never exceeds [0, 1]', () => {
+    const data = frame([[100, 100, 100, 255], [100, 100, 100, 255]]);
+    applyAO(data, new Uint8ClampedArray([0, 255]), -1, 4);
+    expect(Array.from(data.slice(0, 3))).toEqual([0, 0, 0]);
+    expect(Array.from(data.slice(4, 7))).toEqual([100, 100, 100]);
   });
 });
