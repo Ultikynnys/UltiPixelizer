@@ -16,7 +16,7 @@ import { bakeMeshLightmap, type BakeLightmapOptions } from './lib/lightmapBake';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './lib/defaults';
 import { imageNormalMapPixels, type NormalFormat } from './lib/normal';
 import { safeFileName } from './lib/strings';
-import { hemisphereToSunDirection, sunDirectionToHemisphere } from './lib/sunGizmo';
+import { vectorToSunDirection } from './lib/sunGizmo';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
 
 type SourceImage = CanvasImageSource & { width: number; height: number };
@@ -84,17 +84,7 @@ const sunOverlayMarkup = (): string => `
       <span>Sun</span>
       <label class="sun-toggle" title="Toggle sun lighting"><input id="sunEnabled" type="checkbox" checked aria-label="Toggle sun lighting" /><span aria-hidden="true"></span></label>
     </div>
-    <button class="sun-gizmo" id="sunGizmo" type="button" aria-label="Sun direction: azimuth 45 degrees, elevation 45 degrees" title="Drag to aim · Arrow keys adjust 1° · Shift + arrow adjusts 10°">
-      <svg viewBox="0 0 64 64" aria-hidden="true">
-        <defs><radialGradient id="sunSphereShade" cx="35%" cy="28%" r="72%"><stop offset="0" style="stop-color:var(--line-bright)"/><stop offset=".72" style="stop-color:var(--panel)"/><stop offset="1" style="stop-color:var(--ink)"/></radialGradient></defs>
-        <circle class="sun-gizmo-sphere" cx="32" cy="32" r="27" style="fill:url(#sunSphereShade)"/>
-        <ellipse class="sun-gizmo-grid" cx="32" cy="32" rx="27" ry="9"/>
-        <path class="sun-gizmo-grid" d="M32 5c9 7 13 16 13 27S41 52 32 59M32 5c-9 7-13 16-13 27s4 20 13 27"/>
-        <line class="sun-gizmo-ray" id="sunGizmoRay" x1="32" y1="32" x2="42" y2="42"/>
-        <circle class="sun-gizmo-handle" id="sunGizmoHandle" cx="42" cy="42" r="4"/>
-      </svg>
-    </button>
-    <output class="sun-gizmo-value" id="sunGizmoValue">A 45° · E 45°</output>
+    <button class="orient-sun-button" id="orientSunWithCamera" type="button" title="Copy the Original 3D viewport angle to the sun">Orient Sun with Camera</button>
     <div class="light-controls">
       <label class="light-color-control"><span>Sun color</span>${colorControl('#ffffff', 'Sun color', 'id="sunColor"')}</label>
       ${rangeControl('sunIntensity', 'Sun intensity', 0, 10, 0.1, 2.8)}
@@ -232,21 +222,6 @@ app.innerHTML = `
 
       <aside class="control-column">
         <section class="panel">
-          <div class="panel-heading">
-            <div><p class="eyebrow">RESOLUTION</p><h2>Pixel grid</h2></div>
-            <output class="value-pill" id="resolutionValue">128 px</output>
-          </div>
-          <input class="range" id="resolution" type="range" min="24" max="512" step="8" value="128" aria-label="Pixelization width" />
-          <div class="range-labels"><span>CHUNKY</span><span>FINE</span></div>
-          <div class="resolution-presets" role="group" aria-label="Resolution presets">
-            <button type="button" data-resolution="32">32</button>
-            <button type="button" data-resolution="64">64</button>
-            <button class="active" type="button" data-resolution="128">128</button>
-            <button type="button" data-resolution="256">256</button>
-          </div>
-        </section>
-
-        <section class="panel">
           <div class="panel-heading compact"><div><p class="eyebrow">COLOR SYSTEM / 02</p><h2>Palette library</h2></div><span class="catalog-count" id="paletteCount">${Object.keys(palettes).length} PRESETS</span></div>
           <div class="palette-filters" id="paletteFilters" role="group" aria-label="Filter palette library">
             <button class="active" type="button" data-filter="all">All</button>
@@ -302,23 +277,36 @@ app.innerHTML = `
         </section>
 
         <section class="panel adjustments">
-          <div class="panel-heading compact"><div><p class="eyebrow">TONE CONTROL / 04</p><h2>Adjustments</h2></div></div>
+          <div class="panel-heading compact">
+            <div><p class="eyebrow">RESOLUTION + TONE / 01</p><h2>Adjustments</h2></div>
+            <output class="value-pill" id="resolutionValue">128 px</output>
+          </div>
+          <div class="resolution-block">
+            <input class="range" id="resolution" type="range" min="24" max="512" step="8" value="128" aria-label="Pixelization width" />
+            <div class="range-labels"><span>CHUNKY</span><span>FINE</span></div>
+            <div class="resolution-presets" role="group" aria-label="Resolution presets">
+              <button type="button" data-resolution="32">32</button>
+              <button type="button" data-resolution="64">64</button>
+              <button class="active" type="button" data-resolution="128">128</button>
+              <button type="button" data-resolution="256">256</button>
+            </div>
+          </div>
           <div id="adjustmentControls"></div>
         </section>
 
         <section class="panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING / 05</p><h2>Ambient occlusion</h2></div></div>
+          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING / 04</p><h2>Ambient occlusion</h2></div></div>
           <label class="control-row"><span><strong>Bias</strong><small>Shift occlusion baseline</small></span><output id="aoBiasValue">+0.00</output></label>
           <input class="range" id="aoBias" type="range" min="-1" max="1" step="0.01" value="0" aria-label="Ambient occlusion bias" />
           <label class="control-row"><span><strong>Scale</strong><small>Occlusion strength</small></span><output id="aoScaleValue">1.00×</output></label>
           <input class="range" id="aoScale" type="range" min="0" max="2" step="0.01" value="1" aria-label="Ambient occlusion scale" />
           <label class="control-row"><span><strong>Distance</strong><small>Ray reach for generated AO</small></span><output id="aoDistanceValue">2.00×</output></label>
           <input class="range" id="aoDistance" type="range" min="0.05" max="3" step="0.05" value="2" aria-label="Ambient occlusion distance" />
-          <button class="button button-secondary ao-generate-button" id="generateAoButton" type="button">Generate AO</button>
+          <button class="button button-secondary button-full" id="generateAoButton" type="button">Generate AO</button>
         </section>
 
         <section class="panel normals-panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">SURFACE NORMALS / 06</p><h2>Normal map</h2></div></div>
+          <div class="panel-heading compact"><div><p class="eyebrow">SURFACE NORMALS / 05</p><h2>Normal map</h2></div></div>
           <p class="panel-description">Perturb the baked sun lighting with the loaded normal map's surface detail.</p>
           ${rangeControl('normalStrength', 'Normal strength', 0, 100, 1, 100, '100%')}
           <label class="control-row"><span><strong>Format</strong><small>Green channel convention</small></span></label>
@@ -330,15 +318,12 @@ app.innerHTML = `
         </section>
 
         <section class="panel lightmap-panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTMAP BAKE / 07</p><h2>Baked lighting</h2></div></div>
+          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTMAP BAKE / 06</p><h2>Baked lighting</h2></div></div>
           <p class="panel-description">Bake the current sun and ambient lighting into UV space, or load a matching custom lightmap.</p>
           <label class="control-row"><span><strong>Contribution</strong><small>White to full lightmap</small></span><output id="lightmapContributionValue">100%</output></label>
           <input class="range" id="lightmapContribution" type="range" min="0" max="100" step="1" value="100" aria-label="Lightmap contribution" />
           <div class="lightmap-status" id="lightmapStatus">No lightmap loaded</div>
-          <div class="lightmap-actions">
-            <button class="button button-secondary" id="bakeLightmapButton" type="button">Bake Lighting</button>
-            <button class="button button-quiet" id="clearLightmapButton" type="button" disabled>Clear</button>
-          </div>
+          <button class="button button-secondary button-full" id="bakeLightmapButton" type="button">Generate Lighting</button>
         </section>
       </aside>
     </main>
@@ -366,10 +351,7 @@ const worldAxisSelect = document.querySelector<HTMLSelectElement>('#worldAxis')!
 type SunElements = {
   control: HTMLDivElement;
   enabled: HTMLInputElement;
-  gizmo: HTMLButtonElement;
-  ray: SVGLineElement;
-  handle: SVGCircleElement;
-  value: HTMLOutputElement;
+  orientWithCamera: HTMLButtonElement;
   color: HTMLInputElement;
   intensity: HTMLInputElement;
   intensityValue: HTMLOutputElement;
@@ -382,10 +364,7 @@ type SunElements = {
 const sunControlElements: SunElements = {
   control: document.querySelector<HTMLDivElement>('#sunControl')!,
   enabled: document.querySelector<HTMLInputElement>('#sunEnabled')!,
-  gizmo: document.querySelector<HTMLButtonElement>('#sunGizmo')!,
-  ray: document.querySelector<SVGLineElement>('#sunGizmoRay')!,
-  handle: document.querySelector<SVGCircleElement>('#sunGizmoHandle')!,
-  value: document.querySelector<HTMLOutputElement>('#sunGizmoValue')!,
+  orientWithCamera: document.querySelector<HTMLButtonElement>('#orientSunWithCamera')!,
   color: document.querySelector<HTMLInputElement>('#sunColor')!,
   intensity: document.querySelector<HTMLInputElement>('#sunIntensity')!,
   intensityValue: document.querySelector<HTMLOutputElement>('#sunIntensityValue')!,
@@ -421,7 +400,6 @@ const lightmapContributionInput = document.querySelector<HTMLInputElement>('#lig
 const lightmapContributionValue = document.querySelector<HTMLOutputElement>('#lightmapContributionValue')!;
 const lightmapStatus = document.querySelector<HTMLDivElement>('#lightmapStatus')!;
 const bakeLightmapButton = document.querySelector<HTMLButtonElement>('#bakeLightmapButton')!;
-const clearLightmapButton = document.querySelector<HTMLButtonElement>('#clearLightmapButton')!;
 const normalStrengthInput = document.querySelector<HTMLInputElement>('#normalStrength')!;
 const normalStrengthValue = document.querySelector<HTMLOutputElement>('#normalStrengthValue')!;
 const normalFormatSelect = document.querySelector<HTMLSelectElement>('#normalFormat')!;
@@ -544,7 +522,6 @@ function renderLightmapControls(): void {
   lightmapStatus.textContent = active && textures.lightmap.image
     ? `${textures.lightmap.name} · ${textures.lightmap.image.width} × ${textures.lightmap.image.height}`
     : 'No lightmap loaded';
-  clearLightmapButton.disabled = !active;
   bakeLightmapButton.disabled = aoBakeScene === null;
 }
 
@@ -768,7 +745,7 @@ function renderSunControl(): void {
   sunControlElements.enabled.disabled = lightmapActive;
   sunControlElements.control.classList.toggle('off', !state.sun.enabled || lightmapActive);
   sunControlElements.control.classList.toggle('lightmap-active', lightmapActive);
-  sunControlElements.gizmo.disabled = !state.sun.enabled || lightmapActive;
+  sunControlElements.orientWithCamera.disabled = !state.sun.enabled || lightmapActive || originalPreviewMode !== '3d' || originalViewport === null;
   sunControlElements.color.disabled = !state.sun.enabled || lightmapActive;
   sunControlElements.intensity.disabled = !state.sun.enabled || lightmapActive;
   sunControlElements.ambientEnabled.checked = state.ambient.enabled;
@@ -783,17 +760,6 @@ function renderSunControl(): void {
   syncColorChip(sunControlElements.ambientColor);
   sunControlElements.ambientIntensity.value = String(state.ambient.intensity);
   sunControlElements.ambientIntensityValue.textContent = state.ambient.intensity.toFixed(1);
-  const point = sunDirectionToHemisphere(state.sun.azimuth, state.sun.elevation);
-  const x = 32 + point.x * 27;
-  const y = 32 + point.y * 27;
-  sunControlElements.ray.setAttribute('x2', String(x));
-  sunControlElements.ray.setAttribute('y2', String(y));
-  sunControlElements.handle.setAttribute('cx', String(x));
-  sunControlElements.handle.setAttribute('cy', String(y));
-  const azimuth = Math.round(state.sun.azimuth) % 360;
-  const elevation = Math.round(state.sun.elevation);
-  sunControlElements.value.textContent = `A ${azimuth}° · E ${elevation}°`;
-  sunControlElements.gizmo.setAttribute('aria-label', `Sun direction: azimuth ${azimuth} degrees, elevation ${elevation} degrees`);
 }
 
 function updatePatternControls(): void {
@@ -1513,7 +1479,6 @@ normalFormatSelect.addEventListener('change', () => {
 });
 generateAoButton.addEventListener('click', generateAo);
 bakeLightmapButton.addEventListener('click', bakeLighting);
-clearLightmapButton.addEventListener('click', clearLightmap);
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.addEventListener('click', () => {
   state.mode = button.dataset.mode as DitherMode;
   setActiveMode(state.mode);
@@ -1710,38 +1675,11 @@ worldAxisSelect.addEventListener('change', () => {
   applyWorldAxis();
 });
 function bindSunControl(): void {
-  const aimFromPointer = (event: PointerEvent): void => {
-    const bounds = sunControlElements.gizmo.getBoundingClientRect();
-    const radius = Math.min(bounds.width, bounds.height) * (27 / 64);
-    if (radius <= 0) return;
-    const direction = hemisphereToSunDirection(
-      (event.clientX - (bounds.left + bounds.width / 2)) / radius,
-      (event.clientY - (bounds.top + bounds.height / 2)) / radius,
-      state.sun.azimuth,
-    );
+  sunControlElements.orientWithCamera.addEventListener('click', () => {
+    if (!originalViewport || originalPreviewMode !== '3d') return;
+    const direction = vectorToSunDirection(originalViewport.getCameraDirection());
     state.sun.azimuth = direction.azimuth;
     state.sun.elevation = direction.elevation;
-    applySun();
-  };
-
-  sunControlElements.gizmo.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
-    sunControlElements.gizmo.setPointerCapture(event.pointerId);
-    sunControlElements.gizmo.classList.add('dragging');
-    aimFromPointer(event);
-  });
-  sunControlElements.gizmo.addEventListener('pointermove', (event) => {
-    if (sunControlElements.gizmo.hasPointerCapture(event.pointerId)) aimFromPointer(event);
-  });
-  sunControlElements.gizmo.addEventListener('lostpointercapture', () => sunControlElements.gizmo.classList.remove('dragging'));
-  sunControlElements.gizmo.addEventListener('keydown', (event) => {
-    const step = event.shiftKey ? 10 : 1;
-    if (event.key === 'ArrowLeft') state.sun.azimuth = (state.sun.azimuth - step + 360) % 360;
-    else if (event.key === 'ArrowRight') state.sun.azimuth = (state.sun.azimuth + step) % 360;
-    else if (event.key === 'ArrowUp') state.sun.elevation = Math.min(state.sun.elevation + step, 90);
-    else if (event.key === 'ArrowDown') state.sun.elevation = Math.max(state.sun.elevation - step, 0);
-    else return;
-    event.preventDefault();
     applySun();
   });
   const bindLightColor = (input: HTMLInputElement, target: LightState): void => {

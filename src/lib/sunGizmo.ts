@@ -3,11 +3,6 @@ export type SunDirection = {
   elevation: number;
 };
 
-export type HemispherePoint = {
-  x: number;
-  y: number;
-};
-
 export type DirectionVector = { x: number; y: number; z: number };
 
 const clamp = (value: number, minimum: number, maximum: number): number =>
@@ -15,24 +10,10 @@ const clamp = (value: number, minimum: number, maximum: number): number =>
 
 const wrapDegrees = (degrees: number): number => ((degrees % 360) + 360) % 360;
 
-/**
- * Projects a sun direction onto a top-down unit hemisphere.
- * The zenith is at the center and the horizon is on the rim.
- */
-export function sunDirectionToHemisphere(azimuth: number, elevation: number): HemispherePoint {
-  const azimuthRadians = (wrapDegrees(azimuth) * Math.PI) / 180;
-  const radius = 1 - clamp(elevation, 0, 90) / 90;
-  if (radius === 0) return { x: 0, y: 0 };
-  return {
-    x: Math.cos(azimuthRadians) * radius,
-    y: Math.sin(azimuthRadians) * radius,
-  };
-}
-
-/** Converts gizmo angles to the world-space direction used by the viewport and bakers. */
+/** Converts sun angles to the world-space direction used by the viewports and bakers. */
 export function sunDirectionVector(azimuth: number, elevation: number): DirectionVector {
   const azimuthRadians = (wrapDegrees(azimuth) * Math.PI) / 180;
-  const elevationRadians = (clamp(elevation, 0, 90) * Math.PI) / 180;
+  const elevationRadians = (clamp(elevation, -90, 90) * Math.PI) / 180;
   const cosElevation = Math.cos(elevationRadians);
   return {
     x: cosElevation * Math.cos(azimuthRadians),
@@ -41,11 +22,12 @@ export function sunDirectionVector(azimuth: number, elevation: number): Directio
   };
 }
 
-/** Converts a point on (or beyond) the unit disc back into a sun direction. */
-export function hemisphereToSunDirection(x: number, y: number, zenithAzimuth = 0): SunDirection {
-  const radius = Math.min(Math.hypot(x, y), 1);
+/** Converts a world-space direction into wrapped azimuth and signed elevation angles. */
+export function vectorToSunDirection(direction: DirectionVector): SunDirection {
+  const length = Math.hypot(direction.x, direction.y, direction.z);
+  if (!Number.isFinite(length) || length === 0) return { azimuth: 0, elevation: 0 };
   return {
-    azimuth: radius < 0.05 ? wrapDegrees(zenithAzimuth) : wrapDegrees((Math.atan2(y, x) * 180) / Math.PI),
-    elevation: (1 - radius) * 90,
+    azimuth: wrapDegrees((Math.atan2(direction.z, direction.x) * 180) / Math.PI),
+    elevation: (Math.asin(clamp(direction.y / length, -1, 1)) * 180) / Math.PI,
   };
 }

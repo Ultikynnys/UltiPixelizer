@@ -19,7 +19,7 @@ import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
 import { applyTextureToModel, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject, materialsOf } from './modelScene';
-import { sunDirectionVector } from './sunGizmo';
+import { sunDirectionVector, type DirectionVector } from './sunGizmo';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
 
@@ -141,6 +141,12 @@ export class ModelViewport {
 
   applyLOD(level: number): number {
     return this.model ? applyLodLevel(this.model, level) : 0;
+  }
+
+  getCameraDirection(): DirectionVector {
+    const direction = this.camera.position.clone().sub(this.controls.target);
+    if (direction.lengthSq() > 0) direction.normalize();
+    return { x: direction.x, y: direction.y, z: direction.z };
   }
 
   setSunDirection(azimuthDeg: number, elevationDeg: number): void {
