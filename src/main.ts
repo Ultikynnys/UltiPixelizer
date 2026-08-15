@@ -95,12 +95,6 @@ app.innerHTML = `
       </section>
 
       <aside class="control-column">
-        <section class="panel intro-panel">
-          <p class="eyebrow">PIXEL ENGINE / 01</p>
-          <h2>Break the smooth.</h2>
-          <p>Reduce, remap, and scatter your texture into deliberate pixels.</p>
-        </section>
-
         <section class="panel">
           <div class="panel-heading">
             <div><p class="eyebrow">RESOLUTION</p><h2>Pixel grid</h2></div>

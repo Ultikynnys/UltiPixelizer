@@ -76,10 +76,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
 
 .control-column { background: var(--surface); border-left: 1px solid var(--line); max-height: calc(100vh - 72px); overflow-y: auto; scrollbar-color: #4b4b47 var(--surface); }
 .panel { border-bottom: 1px solid var(--line); padding: 24px 25px; }
-.intro-panel { background: #252523; padding-bottom: 25px; padding-top: 28px; }
 .panel h2 { font-size: 17px; letter-spacing: -.03em; margin: 0; }
-.intro-panel h2 { font-size: 23px; }
-.intro-panel > p:last-child { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 8px 0 0; max-width: 310px; }
 .panel-heading { align-items: center; display: flex; justify-content: space-between; margin-bottom: 22px; }
 .panel-heading.compact { margin-bottom: 17px; }
 .range { accent-color: var(--accent); cursor: pointer; height: 14px; margin: 0; touch-action: pan-y; user-select: none; width: 100%; }
@@ -167,7 +164,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
   .preview-pane canvas { max-height: 50vh; }
   .control-column { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
   .panel { border-right: 1px solid var(--line); }
-  .intro-panel { grid-column: span 2; }
 }
 
 @media (max-width: 620px) {
@@ -184,7 +180,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
   .file-meta { grid-column: span 2; }
   .button { padding: 11px 12px; }
   .control-column { display: block; }
-  .intro-panel { grid-column: auto; }
   .panel { padding: 22px 18px; }
   .palette-grid, .mode-grid { gap: 7px; }
 }
