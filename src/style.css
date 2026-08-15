@@ -79,9 +79,12 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
 .panel h2 { font-size: 17px; letter-spacing: -.03em; margin: 0; }
 .panel-heading { align-items: center; display: flex; justify-content: space-between; margin-bottom: 22px; }
 .panel-heading.compact { margin-bottom: 17px; }
-.range { accent-color: var(--accent); cursor: pointer; height: 14px; margin: 0; touch-action: pan-y; user-select: none; width: 100%; }
+.range { appearance: none; background: transparent; cursor: pointer; height: 14px; margin: 0; touch-action: pan-y; user-select: none; width: 100%; }
 .range::-webkit-slider-runnable-track { background: #4a4a45; height: 2px; }
-.range::-webkit-slider-thumb { appearance: none; background: var(--paper); border: 2px solid var(--surface); border-radius: 0; height: 14px; margin-top: -6px; width: 8px; }
+.range::-webkit-slider-thumb { appearance: none; background: var(--paper); border: 0; border-radius: 0; height: 14px; margin-top: -6px; width: 8px; }
+.range::-moz-range-track { background: #4a4a45; border: 0; height: 2px; }
+.range::-moz-range-progress { background: #4a4a45; height: 2px; }
+.range::-moz-range-thumb { background: var(--paper); border: 0; border-radius: 0; height: 14px; width: 8px; }
 .range-labels { color: #77776f; display: flex; font: 400 8px 'DM Mono', monospace; justify-content: space-between; margin-top: 5px; }
 .resolution-presets { display: grid; gap: 5px; grid-template-columns: repeat(4,1fr); margin-top: 14px; }
 .resolution-presets button { background: #32322f; border: 1px solid #484843; border-radius: 2px; color: var(--muted); cursor: pointer; font: 500 10px 'DM Mono', monospace; padding: 8px; }
