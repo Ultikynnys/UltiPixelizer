@@ -2,6 +2,7 @@ import './style.css';
 import { createSampleTexture, downloadCanvas, loadImageFile } from './lib/canvas';
 import { processImageData, type DitherMode } from './lib/dither';
 import { palettes, type PaletteCategory } from './lib/palettes';
+import { createRenderScheduler } from './lib/renderScheduler';
 
 type SourceImage = CanvasImageSource & { width: number; height: number };
 
@@ -240,12 +241,15 @@ function renderAdjustments(): void {
   `).join('');
 }
 
-function updateResolution(value: number): void {
+const renderScheduler = createRenderScheduler(render);
+
+function updateResolution(value: number, immediate = false): void {
   state.resolution = value;
   (document.querySelector('#resolution') as HTMLInputElement).value = String(value);
   document.querySelector('#resolutionValue')!.textContent = `${value} px`;
   document.querySelectorAll<HTMLButtonElement>('[data-resolution]').forEach((button) => button.classList.toggle('active', Number(button.dataset.resolution) === value));
-  render();
+  if (immediate) renderScheduler.flush();
+  else renderScheduler.request();
 }
 
 async function setSource(file: File): Promise<void> {
@@ -255,6 +259,7 @@ async function setSource(file: File): Promise<void> {
   }
   try {
     const image = await loadImageFile(file);
+    renderScheduler.cancel();
     state.source = image;
     state.sourceName = file.name;
     document.querySelector('#fileName')!.textContent = file.name;
@@ -268,6 +273,7 @@ async function setSource(file: File): Promise<void> {
 }
 
 function reset(): void {
+  renderScheduler.cancel();
   Object.assign(state, { paletteKey: 'pico8', customColors: [], resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5 });
   (document.querySelector('#strength') as HTMLInputElement).value = '85';
   document.querySelector('#strengthValue')!.textContent = '85%';
@@ -275,7 +281,7 @@ function reset(): void {
   renderAdjustments();
   bindAdjustmentEvents();
   renderPalettes();
-  updateResolution(128);
+  updateResolution(128, true);
   showToast('Settings reset');
 }
 
@@ -284,8 +290,9 @@ function bindAdjustmentEvents(): void {
     document.querySelector<HTMLInputElement>(`#${key}`)?.addEventListener('input', (event) => {
       state[key] = Number((event.target as HTMLInputElement).value);
       document.querySelector(`#${key}Value`)!.textContent = `${state[key] > 0 ? '+' : ''}${state[key]}`;
-      render();
+      renderScheduler.request();
     });
+    document.querySelector<HTMLInputElement>(`#${key}`)?.addEventListener('change', renderScheduler.flush);
   });
 }
 
@@ -295,13 +302,15 @@ bindAdjustmentEvents();
 render();
 
 document.querySelector('#resolution')!.addEventListener('input', (event) => updateResolution(Number((event.target as HTMLInputElement).value)));
-document.querySelectorAll<HTMLButtonElement>('[data-resolution]').forEach((button) => button.addEventListener('click', () => updateResolution(Number(button.dataset.resolution))));
+document.querySelector('#resolution')!.addEventListener('change', renderScheduler.flush);
+document.querySelectorAll<HTMLButtonElement>('[data-resolution]').forEach((button) => button.addEventListener('click', () => updateResolution(Number(button.dataset.resolution), true)));
 document.querySelector('#strength')!.addEventListener('input', (event) => {
   const value = Number((event.target as HTMLInputElement).value);
   state.strength = value / 100;
   document.querySelector('#strengthValue')!.textContent = `${value}%`;
-  render();
+  renderScheduler.request();
 });
+document.querySelector('#strength')!.addEventListener('change', renderScheduler.flush);
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.addEventListener('click', () => {
   state.mode = button.dataset.mode as DitherMode;
   document.querySelectorAll('[data-mode]').forEach((item) => item.classList.toggle('active', item === button));

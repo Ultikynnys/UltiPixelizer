@@ -84,7 +84,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
 .intro-panel > p:last-child { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 8px 0 0; max-width: 310px; }
 .panel-heading { align-items: center; display: flex; justify-content: space-between; margin-bottom: 22px; }
 .panel-heading.compact { margin-bottom: 17px; }
-.range { accent-color: var(--accent); cursor: pointer; height: 14px; margin: 0; width: 100%; }
+.range { accent-color: var(--accent); cursor: pointer; height: 14px; margin: 0; touch-action: pan-y; user-select: none; width: 100%; }
 .range::-webkit-slider-runnable-track { background: #4a4a45; height: 2px; }
 .range::-webkit-slider-thumb { appearance: none; background: var(--paper); border: 2px solid var(--surface); border-radius: 0; height: 14px; margin-top: -6px; width: 8px; }
 .range-labels { color: #77776f; display: flex; font: 400 8px 'DM Mono', monospace; justify-content: space-between; margin-top: 5px; }
