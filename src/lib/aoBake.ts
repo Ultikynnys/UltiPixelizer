@@ -26,28 +26,23 @@ type BakeTriangle = { uv: [UvPair, UvPair, UvPair]; verts: [number, number, numb
 const _ray = new Ray();
 const _direction = new Vector3();
 
+function stratifiedHemisphereKernel(samples: number, random: () => number): Vector3[] {
+  const side = Math.ceil(Math.sqrt(samples));
+  return Array.from({ length: samples }, (_, index) => {
+    const u = ((index % side) + random()) / side;
+    const v = (Math.floor(index / side) + random()) / side;
+    const cosTheta = Math.sqrt(Math.max(u, 1e-6));
+    const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
+    const phi = 2 * Math.PI * v;
+    return new Vector3(sinTheta * Math.cos(phi), sinTheta * Math.sin(phi), cosTheta);
+  });
+}
+
 function orthonormalBasis(normal: Vector3): [Vector3, Vector3] {
   const reference = Math.abs(normal.z) < 0.999 ? new Vector3(0, 0, 1) : new Vector3(1, 0, 0);
   const tangent = new Vector3().crossVectors(normal, reference).normalize();
   const bitangent = new Vector3().crossVectors(normal, tangent).normalize();
   return [tangent, bitangent];
-}
-
-function sampleHemisphere(
-  out: Vector3,
-  tangent: Vector3,
-  bitangent: Vector3,
-  normal: Vector3,
-  random: () => number,
-): Vector3 {
-  const cosTheta = Math.sqrt(Math.max(random(), 1e-6));
-  const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
-  const phi = 2 * Math.PI * random();
-  return out.set(0, 0, 0)
-    .addScaledVector(tangent, sinTheta * Math.cos(phi))
-    .addScaledVector(bitangent, sinTheta * Math.sin(phi))
-    .addScaledVector(normal, cosTheta)
-    .normalize();
 }
 
 /**
@@ -61,8 +56,9 @@ function sampleHemisphere(
  * original untouched.
  */
 export function bakeMeshAO(scene: Object3D, width: number, height: number, options: BakeAOMLOptions = {}): Uint8ClampedArray {
-  const samples = options.samples ?? 24;
+  const samples = Math.max(1, Math.floor(options.samples ?? 24));
   const random = options.random ?? Math.random;
+  const sampleKernel = stratifiedHemisphereKernel(samples, random);
 
   scene.updateMatrixWorld(true);
 
@@ -108,7 +104,7 @@ export function bakeMeshAO(scene: Object3D, width: number, height: number, optio
         const verts: [number, number, number] = [ia, ib, ic].map((vi) => {
           v.fromBufferAttribute(position, vi).applyMatrix4(world);
           n.fromBufferAttribute(normal, vi).applyMatrix3(normalMatrix).normalize();
-          const key = `${v.x.toFixed(4)},${v.y.toFixed(4)},${v.z.toFixed(4)}`;
+          const key = [v.x, v.y, v.z, n.x, n.y, n.z].map((value) => value.toFixed(6)).join(',');
           let resolved = vertexIndexByKey.get(key);
           if (resolved === undefined) {
             resolved = uniqueVertices.length;
@@ -138,8 +134,12 @@ export function bakeMeshAO(scene: Object3D, width: number, height: number, optio
     if (!bvh) break;
     const [tangent, bitangent] = orthonormalBasis(vertex.normal);
     let occluded = 0;
-    for (let sample = 0; sample < samples; sample += 1) {
-      sampleHemisphere(_direction, tangent, bitangent, vertex.normal, random);
+    for (const sample of sampleKernel) {
+      _direction.set(0, 0, 0)
+        .addScaledVector(tangent, sample.x)
+        .addScaledVector(bitangent, sample.y)
+        .addScaledVector(vertex.normal, sample.z)
+        .normalize();
       _ray.origin.copy(vertex.position).addScaledVector(vertex.normal, epsilon);
       _ray.direction.copy(_direction);
       if (bvh.raycastFirst(_ray, DoubleSide, 0, maxDistance)) occluded += 1;
