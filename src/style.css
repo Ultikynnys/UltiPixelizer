@@ -42,22 +42,17 @@ button { color: inherit; }
 .brand-group .build-version { flex: none; }
 .circle-link {
   align-items: center; background: #30302e; border: 1px solid #464642; border-radius: 999px;
-  color: var(--muted); display: inline-flex; flex: none; height: 32px; justify-content: center;
-  overflow: hidden; text-decoration: none; white-space: nowrap; width: 32px;
-  transition: background-color .22s ease, border-color .22s ease, color .22s ease, width .3s cubic-bezier(.4, 0, .2, 1);
+  color: var(--muted); display: inline-flex; flex: none; gap: 8px; height: 32px; justify-content: center;
+  padding: 0 12px; text-decoration: none; white-space: nowrap;
+  transition: background-color .22s ease, border-color .22s ease, color .22s ease;
 }
 .circle-link svg { flex: none; }
-.circle-link .circle-label {
-  font-size: 11px; font-weight: 700; letter-spacing: .02em; margin-left: 0;
-  max-width: 0; opacity: 0; overflow: hidden;
-  transition: margin-left .3s cubic-bezier(.4, 0, .2, 1), max-width .3s cubic-bezier(.4, 0, .2, 1), opacity .18s ease;
-}
+.circle-link .circle-label { font-size: 11px; font-weight: 700; letter-spacing: .02em; }
 .circle-link:hover, .circle-link:focus-visible { background: #3a3a37; color: var(--paper); }
-.circle-link:hover .circle-label, .circle-link:focus-visible .circle-label { margin-left: 8px; max-width: 170px; opacity: 1; }
-.circle-github:hover, .circle-github:focus-visible { width: 108px; }
-.circle-kofi:hover, .circle-kofi:focus-visible { width: 200px; }
+.circle-link:active { background: #1f1f1e; border-color: #5a5a54; }
 .circle-kofi { color: #ff6433; }
 .circle-kofi:hover, .circle-kofi:focus-visible { color: #ff8566; }
+.circle-kofi:active { color: #ffa88c; }
 .button-primary { background: var(--accent); color: #fff; }
 .button-primary:hover { background: #ff704f; }
 .button-secondary { background: #373734; border: 1px solid #50504b; color: var(--paper); }
