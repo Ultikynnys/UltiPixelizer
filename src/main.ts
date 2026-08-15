@@ -846,13 +846,15 @@ function applyModelLod(level: number): void {
 
 function applySun(): void {
   renderSunControl();
+  const lightmapActive = textures.lightmap.image !== null;
+  const ambientNeutral = lightmapActive || !state.ambient.enabled;
   forEachViewport((viewport) => {
     viewport.setSunDirection(state.sun.direction);
-    viewport.setSunEnabled(false);
+    viewport.setSunEnabled(state.sun.enabled && !lightmapActive);
     viewport.setSunColor(state.sun.color);
     viewport.setSunIntensity(state.sun.intensity);
-    viewport.setAmbientColor('#ffffff');
-    viewport.setAmbientIntensity(Math.PI);
+    viewport.setAmbientColor(ambientNeutral ? '#ffffff' : state.ambient.color);
+    viewport.setAmbientIntensity(ambientNeutral ? Math.PI : state.ambient.intensity);
   });
   scheduleImplicitLightmapBake();
 }
