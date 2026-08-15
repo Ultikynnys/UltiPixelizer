@@ -107,7 +107,7 @@ const sunOverlayMarkup = (): string => `
 
 function defaultState(): State {
   return {
-    paletteKey: 'pico8',
+    paletteKey: 'desert',
     customColors: [],
     resolution: 128,
     mode: 'floyd',
@@ -1320,7 +1320,7 @@ function removeCustomPalette(key: string): void {
     savedCustomPalettes = deleteCustomPalette(localStorage, key);
     if (editingCustomKey === key) editingCustomKey = null;
     if (state.paletteKey === key) {
-      state.paletteKey = 'pico8';
+      state.paletteKey = 'desert';
       state.customColors = [];
       state.paletteSnapshot = undefined;
       customPaletteName.value = '';
