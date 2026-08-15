@@ -6,6 +6,7 @@ import {
   LoadingManager,
   Object3D,
   PerspectiveCamera,
+  Quaternion,
   Scene,
   Timer,
   Vector3,
@@ -20,7 +21,7 @@ import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
 import { applyTextureToModel, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject, materialsOf } from './modelScene';
-import { normalizeDirection, type DirectionVector } from './sunDirection';
+import { cameraForwardFromQuaternion, normalizeDirection, type DirectionVector } from './sunDirection';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
 
@@ -145,16 +146,16 @@ export class ModelViewport {
   }
 
   getCameraForward(): DirectionVector {
-    const forward = this.camera.getWorldDirection(new Vector3());
-    return normalizeDirection({ x: forward.x, y: forward.y, z: forward.z });
+    const worldQuaternion = this.camera.getWorldQuaternion(new Quaternion());
+    return cameraForwardFromQuaternion(worldQuaternion);
   }
 
   setSunDirection(direction: DirectionVector): void {
-    const worldDirection = normalizeDirection(direction);
-    this.sun.position.copy(this.sun.target.position).add(new Vector3(
-      worldDirection.x,
-      worldDirection.y,
-      worldDirection.z,
+    const rayDirection = normalizeDirection(direction);
+    this.sun.position.copy(this.sun.target.position).sub(new Vector3(
+      rayDirection.x,
+      rayDirection.y,
+      rayDirection.z,
     ));
   }
 

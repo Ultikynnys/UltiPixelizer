@@ -1,8 +1,10 @@
+import type { Quaternion } from 'three';
+
 export type DirectionVector = { x: number; y: number; z: number };
 
 export const DEFAULT_SUN_DIRECTION: Readonly<DirectionVector> = Object.freeze({
   x: 0.5,
-  y: Math.SQRT1_2,
+  y: -Math.SQRT1_2,
   z: 0.5,
 });
 
@@ -15,4 +17,14 @@ export function normalizeDirection(direction: DirectionVector): DirectionVector 
     y: direction.y / length,
     z: direction.z / length,
   };
+}
+
+/** Transforms camera-local forward (-Z) by a normalized world quaternion. */
+export function cameraForwardFromQuaternion(quaternion: Pick<Quaternion, 'x' | 'y' | 'z' | 'w'>): DirectionVector {
+  const { x, y, z, w } = quaternion;
+  return normalizeDirection({
+    x: -2 * (x * z + w * y),
+    y: -2 * (y * z - w * x),
+    z: -(1 - 2 * (x * x + y * y)),
+  });
 }

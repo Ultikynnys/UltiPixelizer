@@ -3,8 +3,8 @@ import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, PlaneG
 import { bakeMeshLightmap, type BakeLightmapOptions } from '../src/lib/lightmapBake';
 
 const defaults: BakeLightmapOptions = {
-  // Three.js light direction points from the surface toward the light.
-  sunDirection: { x: 0, y: 0, z: 1 },
+  // Orthographic rays travel down camera-local forward (-Z) onto the default +Z plane face.
+  sunDirection: { x: 0, y: 0, z: -1 },
   sunColor: '#ffffff',
   sunIntensity: Math.PI,
   ambientColor: '#000000',
@@ -29,14 +29,14 @@ describe('bakeMeshLightmap', () => {
     expect(centerRGB(pixels)).toEqual([128, 64, 32]);
   });
 
-  it('bakes directional sun color when the light direction matches the surface normal', () => {
+  it('lights a camera-facing surface when orthographic rays travel toward it', () => {
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
     const pixels = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ff8040' });
     expect(centerRGB(pixels)).toEqual([255, 128, 64]);
   });
 
-  it('leaves a surface facing away from the light direction with ambient only', () => {
+  it('leaves the reverse side of the orthographic source with ambient only', () => {
     const scene = new Scene();
     const plane = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial());
     plane.rotation.y = Math.PI;

@@ -80,8 +80,8 @@ function computeTangentBasis(
  * Output contains irradiance only (no albedo), with white representing neutral light.
  */
 export function bakeMeshLightmap(scene: Object3D, width: number, height: number, options: BakeLightmapOptions): Uint8ClampedArray {
-  const worldDirection = normalizeDirection(options.sunDirection);
-  const directionToSun = new Vector3(worldDirection.x, worldDirection.y, worldDirection.z);
+  const rayDirection = normalizeDirection(options.sunDirection);
+  const directionToSun = new Vector3(-rayDirection.x, -rayDirection.y, -rayDirection.z);
   const sunColor = parseColor(options.sunColor);
   const ambientColor = options.ambientEnabled === false ? [1, 1, 1] : parseColor(options.ambientColor);
   const ambientScale = options.ambientEnabled === false ? 1 : Math.max(0, options.ambientIntensity) / Math.PI;
