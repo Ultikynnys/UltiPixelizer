@@ -1,5 +1,5 @@
 import './style.css';
-import { cloneImageData, createSampleTexture, downloadCanvas, downloadText, loadImageFile } from './lib/canvas';
+import { createSampleTexture, downloadCanvas, downloadText, loadImageFile, processLitImageData } from './lib/canvas';
 import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomPalettes, parseCustomPalette, selectOrCreatePalette, serializeCustomPalette, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
 import { processImageData, type DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
@@ -528,9 +528,12 @@ function renderLightmapControls(): void {
 
 function renderNormalControls(): void {
   const strength = Math.round(state.normalStrength * 100);
+  const lightmapActive = textures.lightmap.image !== null;
   normalStrengthInput.value = String(strength);
+  normalStrengthInput.disabled = lightmapActive;
   normalStrengthValue.textContent = formatPercent(strength);
   normalFormatSelect.value = state.normalFormat;
+  normalFormatSelect.disabled = lightmapActive;
   const image = textures.normal.image;
   normalStatus.textContent = image
     ? `${textures.normal.name} · ${image.width} × ${image.height}`
@@ -563,10 +566,7 @@ function normalMapOptions() {
   };
 }
 
-function applyNormalMap(): void {
-  const image = textures.normal.image;
-  const flipY = state.normalFormat === 'directx';
-  forEachViewport((viewport) => viewport.setNormalMap(image, state.normalStrength, flipY));
+function scheduleNormalAdjustedLighting(): void {
   scheduleImplicitLightmapBake();
 }
 
@@ -596,6 +596,7 @@ function bakeLighting(): void {
       textures.lightmap.image = pixelsToCanvas(pixels, baseColor.width, baseColor.height);
       textures.lightmap.name = 'Baked lighting';
       renderLightmapControls();
+      renderNormalControls();
       renderTextureRibbon();
       applySun();
       render();
@@ -610,6 +611,7 @@ function clearLightmap(): void {
   textures.lightmap.image = null;
   textures.lightmap.name = '';
   renderLightmapControls();
+  renderNormalControls();
   renderTextureRibbon();
   applySun();
   render();
@@ -703,23 +705,19 @@ function render(): void {
   const renderContext = renderedCanvas.getContext('2d', { willReadFrequently: true });
   if (!renderContext) return;
   renderContext.drawImage(source, 0, 0, width, height);
-  const unlitSourceData = renderContext.getImageData(0, 0, width, height);
-  const litSourceData = cloneImageData(unlitSourceData);
-  applyLighting(litSourceData.data, width, height);
+  const sourceData = renderContext.getImageData(0, 0, width, height);
 
   const processedOptions = {
     palette: currentColors(), mode: state.mode, strength: state.strength,
     brightness: state.brightness, contrast: state.contrast, saturation: state.saturation,
     stripeAngle: state.stripeAngle, noiseScale: state.noiseScale, seed: state.seed,
   };
-  renderContext.putImageData(processImageData(litSourceData, processedOptions), 0, 0);
-
-  const unlitProcessedCanvas = document.createElement('canvas');
-  unlitProcessedCanvas.width = width;
-  unlitProcessedCanvas.height = height;
-  const unlitProcessedContext = unlitProcessedCanvas.getContext('2d');
-  if (!unlitProcessedContext) return;
-  unlitProcessedContext.putImageData(processImageData(unlitSourceData, processedOptions), 0, 0);
+  const { processed: processedData } = processLitImageData(
+    sourceData,
+    applyLighting,
+    (lit) => processImageData(lit, processedOptions),
+  );
+  renderContext.putImageData(processedData, 0, 0);
 
   previewCanvas.width = width;
   previewCanvas.height = height;
@@ -733,8 +731,8 @@ function render(): void {
 
   updatePreviewBadge(width, height);
   if (originalViewport && processedViewport) {
-    originalViewport.applyImage(source);
-    processedViewport.applyImage(unlitProcessedCanvas);
+    originalViewport.applyImage(litSourceNative);
+    processedViewport.applyImage(renderedCanvas);
   }
 }
 
@@ -848,15 +846,13 @@ function applyModelLod(level: number): void {
 
 function applySun(): void {
   renderSunControl();
-  const lightmapActive = textures.lightmap.image !== null;
-  const ambientNeutral = lightmapActive || !state.ambient.enabled;
   forEachViewport((viewport) => {
     viewport.setSunDirection(state.sun.direction);
-    viewport.setSunEnabled(state.sun.enabled && !lightmapActive);
+    viewport.setSunEnabled(false);
     viewport.setSunColor(state.sun.color);
     viewport.setSunIntensity(state.sun.intensity);
-    viewport.setAmbientColor(ambientNeutral ? '#ffffff' : state.ambient.color);
-    viewport.setAmbientIntensity(ambientNeutral ? Math.PI : state.ambient.intensity);
+    viewport.setAmbientColor('#ffffff');
+    viewport.setAmbientIntensity(Math.PI);
   });
   scheduleImplicitLightmapBake();
 }
@@ -928,7 +924,6 @@ async function setModel(files: File[]): Promise<void> {
     processedViewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
     originalViewport.applyLOD(state.lodLevel);
     processedViewport.applyLOD(state.lodLevel);
-    applyNormalMap();
     disposeModel(loaded.scene);
     originalPreviewMode = '3d';
     processedPreviewMode = '3d';
@@ -1345,7 +1340,7 @@ function clearTexture(channel: TextureChannelId): void {
     textures[channel].name = '';
     if (channel === 'normal') {
       renderNormalControls();
-      applyNormalMap();
+      scheduleNormalAdjustedLighting();
     }
   }
   renderTextureRibbon();
@@ -1382,11 +1377,12 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
     if (channel === 'base') updateFileMeta(file.name, image.width, image.height, !modelBundle);
     if (channel === 'lightmap') {
       renderLightmapControls();
+      renderNormalControls();
       applySun();
     }
     if (channel === 'normal') {
       renderNormalControls();
-      applyNormalMap();
+      scheduleNormalAdjustedLighting();
     }
     renderTextureRibbon();
     render();
@@ -1406,7 +1402,7 @@ function reset(): void {
   customPaletteName.value = '';
   customPaletteDescription.value = '';
   syncControlsFromState();
-  applyNormalMap();
+  scheduleNormalAdjustedLighting();
   applySun();
   updateResolution(128, true);
   showToast('Settings reset');
@@ -1488,12 +1484,12 @@ bindRange({
   format: formatPercent,
   apply: (value) => {
     state.normalStrength = value / 100;
-    applyNormalMap();
+    scheduleNormalAdjustedLighting();
   },
 });
 normalFormatSelect.addEventListener('change', () => {
   state.normalFormat = normalFormatSelect.value as NormalFormat;
-  applyNormalMap();
+  scheduleNormalAdjustedLighting();
 });
 generateAoButton.addEventListener('click', generateAo);
 bakeLightmapButton.addEventListener('click', bakeLighting);

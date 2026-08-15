@@ -2,6 +2,16 @@ export function cloneImageData(source: ImageData): ImageData {
   return new ImageData(new Uint8ClampedArray(source.data), source.width, source.height, { colorSpace: source.colorSpace });
 }
 
+export function processLitImageData(
+  source: ImageData,
+  applyLighting: (pixels: Uint8ClampedArray, width: number, height: number) => void,
+  process: (lit: ImageData) => ImageData,
+): { lit: ImageData; processed: ImageData } {
+  const lit = cloneImageData(source);
+  applyLighting(lit.data, lit.width, lit.height);
+  return { lit, processed: process(lit) };
+}
+
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
