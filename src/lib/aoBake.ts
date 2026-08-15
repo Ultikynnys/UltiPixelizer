@@ -11,12 +11,10 @@ import {
 import { MeshBVH } from 'three-mesh-bvh';
 
 export type BakeAOMLOptions = {
-  /** Hemisphere samples per vertex. Higher = smoother, slower. */
+  /** Hemisphere samples per vertex. Odd counts round up for paired symmetry. Default 128. */
   samples?: number;
   /** Occlusion reach as a multiple of the mesh bounding-sphere radius. Default 2. */
   distance?: number;
-  /** Random source for sample directions (inject a seeded PRNG for tests). */
-  random?: () => number;
 };
 
 type UvPair = [number, number];
@@ -26,16 +24,24 @@ type BakeTriangle = { uv: [UvPair, UvPair, UvPair]; verts: [number, number, numb
 const _ray = new Ray();
 const _direction = new Vector3();
 
-function stratifiedHemisphereKernel(samples: number, random: () => number): Vector3[] {
-  const side = Math.ceil(Math.sqrt(samples));
-  return Array.from({ length: samples }, (_, index) => {
-    const u = ((index % side) + random()) / side;
-    const v = (Math.floor(index / side) + random()) / side;
-    const cosTheta = Math.sqrt(Math.max(u, 1e-6));
-    const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
-    const phi = 2 * Math.PI * v;
-    return new Vector3(sinTheta * Math.cos(phi), sinTheta * Math.sin(phi), cosTheta);
-  });
+function symmetricHemisphereKernel(samples: number): Vector3[] {
+  const pairCount = Math.ceil(samples / 2);
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  const kernel: Vector3[] = [];
+
+  for (let pair = 0; pair < pairCount; pair += 1) {
+    // One cosine-weighted radial stratum per opposite-azimuth pair. Pairing
+    // removes directional bias from the finite kernel without random jitter.
+    const radius = Math.sqrt((pair + 0.5) / pairCount);
+    const height = Math.sqrt(1 - radius * radius);
+    const phi = pair * goldenAngle;
+    const x = radius * Math.cos(phi);
+    const y = radius * Math.sin(phi);
+    kernel.push(new Vector3(x, y, height));
+    if (kernel.length < samples) kernel.push(new Vector3(-x, -y, height));
+  }
+
+  return kernel;
 }
 
 function orthonormalBasis(normal: Vector3): [Vector3, Vector3] {
@@ -56,9 +62,9 @@ function orthonormalBasis(normal: Vector3): [Vector3, Vector3] {
  * original untouched.
  */
 export function bakeMeshAO(scene: Object3D, width: number, height: number, options: BakeAOMLOptions = {}): Uint8ClampedArray {
-  const samples = Math.max(1, Math.floor(options.samples ?? 24));
-  const random = options.random ?? Math.random;
-  const sampleKernel = stratifiedHemisphereKernel(samples, random);
+  const requestedSamples = Math.max(2, Math.floor(options.samples ?? 128));
+  const samples = requestedSamples + (requestedSamples % 2);
+  const sampleKernel = symmetricHemisphereKernel(samples);
 
   scene.updateMatrixWorld(true);
 
