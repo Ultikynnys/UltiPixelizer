@@ -1,6 +1,6 @@
 import './style.css';
 import { createSampleTexture, downloadCanvas, downloadText, loadImageFile } from './lib/canvas';
-import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomPalettes, parseCustomPalette, serializeCustomPalette, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
+import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomPalettes, parseCustomPalette, selectOrCreatePalette, serializeCustomPalette, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
 import { processImageData, type DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
@@ -12,6 +12,7 @@ import { createPreset, parsePreset, serializePreset, type ConversionPreset } fro
 import { applyAO, imageAOFactors } from './lib/ao';
 import { bakeMeshAO } from './lib/aoBake';
 import { safeFileName } from './lib/strings';
+import { hemisphereToSunDirection, sunDirectionToHemisphere } from './lib/sunGizmo';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
 
 type SourceImage = CanvasImageSource & { width: number; height: number };
@@ -21,6 +22,9 @@ type TextureChannelId = 'base' | 'ao' | 'normal';
 type PreviewMode = '2d' | '3d';
 
 type TextureSlot = { image: SourceImage | null; name: string };
+
+type SunState = { azimuth: number; elevation: number; enabled: boolean };
+type PreviewId = 'original' | 'processed';
 
 const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string }> = [
   { id: 'base', label: 'BaseColor' },
@@ -41,9 +45,8 @@ type State = {
   paletteFilter: PaletteCategory | 'all';
   uvMap: string;
   lodLevel: number;
-  sunAzimuth: number;
-  sunElevation: number;
-  sunEnabled: boolean;
+  originalSun: SunState;
+  processedSun: SunState;
   worldAxis: WorldAxis;
   stripeAngle: number;
   noiseScale: number;
@@ -66,6 +69,26 @@ const textures: Record<TextureChannelId, TextureSlot> = {
   ao: { image: null, name: '' },
   normal: { image: null, name: '' },
 };
+const sunOverlayMarkup = (id: PreviewId, label: string): string => `
+  <div class="sun-overlay" id="${id}SunControl" hidden>
+    <div class="sun-overlay-heading">
+      <span>Sun</span>
+      <label class="sun-toggle" title="Toggle ${label} sun lighting"><input id="${id}SunEnabled" type="checkbox" checked aria-label="Toggle ${label} sun lighting" /><span aria-hidden="true"></span></label>
+    </div>
+    <button class="sun-gizmo" id="${id}SunGizmo" type="button" aria-label="${label} sun direction: azimuth 45 degrees, elevation 45 degrees" title="Drag to aim · Arrow keys adjust 1° · Shift + arrow adjusts 10°">
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <defs><radialGradient id="${id}SunSphereShade" cx="35%" cy="28%" r="72%"><stop offset="0" style="stop-color:var(--line-bright)"/><stop offset=".72" style="stop-color:var(--panel)"/><stop offset="1" style="stop-color:var(--ink)"/></radialGradient></defs>
+        <circle class="sun-gizmo-sphere" cx="32" cy="32" r="27" style="fill:url(#${id}SunSphereShade)"/>
+        <ellipse class="sun-gizmo-grid" cx="32" cy="32" rx="27" ry="9"/>
+        <path class="sun-gizmo-grid" d="M32 5c9 7 13 16 13 27S41 52 32 59M32 5c-9 7-13 16-13 27s4 20 13 27"/>
+        <line class="sun-gizmo-ray" id="${id}SunGizmoRay" x1="32" y1="32" x2="42" y2="42"/>
+        <circle class="sun-gizmo-handle" id="${id}SunGizmoHandle" cx="42" cy="42" r="4"/>
+      </svg>
+    </button>
+    <output class="sun-gizmo-value" id="${id}SunGizmoValue">A 45° · E 45°</output>
+  </div>
+`;
+
 const state: State = {
   paletteKey: 'pico8',
   customColors: [],
@@ -78,9 +101,8 @@ const state: State = {
   paletteFilter: 'all',
   uvMap: 'uv',
   lodLevel: 0,
-  sunAzimuth: 45,
-  sunElevation: 45,
-  sunEnabled: true,
+  originalSun: { azimuth: 45, elevation: 45, enabled: true },
+  processedSun: { azimuth: 45, elevation: 45, enabled: true },
   worldAxis: 'blender',
   stripeAngle: 45,
   noiseScale: 1,
@@ -130,11 +152,7 @@ app.innerHTML = `
               <option value="blender">Blender · Z-up</option>
               <option value="maya">Maya · Y-up</option>
             </select></label>
-            <div class="sun-control" id="sunControl" hidden>
-              <label class="sun-toggle" title="Toggle sun lighting"><input id="sunEnabled" type="checkbox" checked aria-label="Toggle sun lighting" /><span>Sun</span></label>
-              <label class="sun-axis"><span>Azimuth</span><input id="sunAzimuth" class="range sun-range" type="range" min="0" max="360" value="45" aria-label="Sun azimuth" /></label>
-              <label class="sun-axis"><span>Elevation</span><input id="sunElevation" class="range sun-range" type="range" min="0" max="90" value="45" aria-label="Sun elevation" /></label>
-            </div>
+
           </div>
         </div>
 
@@ -162,6 +180,7 @@ app.innerHTML = `
               <div class="canvas-frame">
                 <canvas id="originalCanvas" aria-label="Original texture preview"></canvas>
                 <div class="model-host" id="originalModelHost" hidden></div>
+                ${sunOverlayMarkup('original', 'Original')}
                 <div class="preview-mode-toggle" id="originalPreviewToggle" hidden role="group" aria-label="Preview mode">
                   <button type="button" data-preview-mode="2d" class="active">2D</button>
                   <button type="button" data-preview-mode="3d">3D</button>
@@ -173,6 +192,7 @@ app.innerHTML = `
               <div class="canvas-frame">
                 <canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas>
                 <div class="model-host" id="processedModelHost" hidden></div>
+                ${sunOverlayMarkup('processed', 'Dithered')}
                 <div class="preview-mode-toggle" id="processedPreviewToggle" hidden role="group" aria-label="Preview mode">
                   <button type="button" data-preview-mode="2d" class="active">2D</button>
                   <button type="button" data-preview-mode="3d">3D</button>
@@ -297,10 +317,25 @@ const lodControl = document.querySelector<HTMLLabelElement>('#lodControl')!;
 const lodMapSelect = document.querySelector<HTMLSelectElement>('#lodMap')!;
 const worldAxisControl = document.querySelector<HTMLLabelElement>('#worldAxisControl')!;
 const worldAxisSelect = document.querySelector<HTMLSelectElement>('#worldAxis')!;
-const sunControl = document.querySelector<HTMLDivElement>('#sunControl')!;
-const sunEnabledInput = document.querySelector<HTMLInputElement>('#sunEnabled')!;
-const sunAzimuthInput = document.querySelector<HTMLInputElement>('#sunAzimuth')!;
-const sunElevationInput = document.querySelector<HTMLInputElement>('#sunElevation')!;
+type SunElements = {
+  control: HTMLDivElement;
+  enabled: HTMLInputElement;
+  gizmo: HTMLButtonElement;
+  ray: SVGLineElement;
+  handle: SVGCircleElement;
+  value: HTMLOutputElement;
+};
+
+const sunElements = (id: PreviewId): SunElements => ({
+  control: document.querySelector<HTMLDivElement>(`#${id}SunControl`)!,
+  enabled: document.querySelector<HTMLInputElement>(`#${id}SunEnabled`)!,
+  gizmo: document.querySelector<HTMLButtonElement>(`#${id}SunGizmo`)!,
+  ray: document.querySelector<SVGLineElement>(`#${id}SunGizmoRay`)!,
+  handle: document.querySelector<SVGCircleElement>(`#${id}SunGizmoHandle`)!,
+  value: document.querySelector<HTMLOutputElement>(`#${id}SunGizmoValue`)!,
+});
+const originalSunElements = sunElements('original');
+const processedSunElements = sunElements('processed');
 const stripeAngleControl = document.querySelector<HTMLDivElement>('#stripeAngleControl')!;
 const stripeAngleInput = document.querySelector<HTMLInputElement>('#stripeAngle')!;
 const stripeAngleValue = document.querySelector<HTMLOutputElement>('#stripeAngleValue')!;
@@ -519,12 +554,31 @@ function renderWorldAxisControl(): void {
   worldAxisSelect.value = state.worldAxis;
 }
 
-function renderSunControl(): void {
-  sunControl.hidden = !modelBundle;
-  sunEnabledInput.checked = state.sunEnabled;
-  sunControl.classList.toggle('off', !state.sunEnabled);
-  sunAzimuthInput.disabled = !state.sunEnabled;
-  sunElevationInput.disabled = !state.sunEnabled;
+function renderSunControl(id: PreviewId): void {
+  const elements = id === 'original' ? originalSunElements : processedSunElements;
+  const sun = id === 'original' ? state.originalSun : state.processedSun;
+  const mode = id === 'original' ? originalPreviewMode : processedPreviewMode;
+  const label = id === 'original' ? 'Original' : 'Dithered';
+  elements.control.hidden = modelBundle === null || mode !== '3d';
+  elements.enabled.checked = sun.enabled;
+  elements.control.classList.toggle('off', !sun.enabled);
+  elements.gizmo.disabled = !sun.enabled;
+  const point = sunDirectionToHemisphere(sun.azimuth, sun.elevation);
+  const x = 32 + point.x * 27;
+  const y = 32 + point.y * 27;
+  elements.ray.setAttribute('x2', String(x));
+  elements.ray.setAttribute('y2', String(y));
+  elements.handle.setAttribute('cx', String(x));
+  elements.handle.setAttribute('cy', String(y));
+  const azimuth = Math.round(sun.azimuth) % 360;
+  const elevation = Math.round(sun.elevation);
+  elements.value.textContent = `A ${azimuth}° · E ${elevation}°`;
+  elements.gizmo.setAttribute('aria-label', `${label} sun direction: azimuth ${azimuth} degrees, elevation ${elevation} degrees`);
+}
+
+function renderSunControls(): void {
+  renderSunControl('original');
+  renderSunControl('processed');
 }
 
 function updatePatternControls(): void {
@@ -591,14 +645,17 @@ function applyModelLod(level: number): void {
   processedViewport?.applyLOD(level);
 }
 
-function applySunDirection(): void {
-  originalViewport?.setSunDirection(state.sunAzimuth, state.sunElevation);
-  processedViewport?.setSunDirection(state.sunAzimuth, state.sunElevation);
+function applySun(id: PreviewId): void {
+  const sun = id === 'original' ? state.originalSun : state.processedSun;
+  const viewport = id === 'original' ? originalViewport : processedViewport;
+  renderSunControl(id);
+  viewport?.setSunDirection(sun.azimuth, sun.elevation);
+  viewport?.setSunEnabled(sun.enabled);
 }
 
-function applySunEnabled(): void {
-  originalViewport?.setSunEnabled(state.sunEnabled);
-  processedViewport?.setSunEnabled(state.sunEnabled);
+function applySuns(): void {
+  applySun('original');
+  applySun('processed');
 }
 
 function applyWorldAxis(): void {
@@ -619,6 +676,7 @@ function applyPreviewMode(): void {
   };
   applyPane(originalPreviewMode, originalCanvas, originalModelHost, originalPreviewToggle);
   applyPane(processedPreviewMode, previewCanvas, processedModelHost, processedPreviewToggle);
+  renderSunControls();
 }
 
 function closeModelPreview(): void {
@@ -637,7 +695,7 @@ function closeModelPreview(): void {
   applyPreviewMode();
   renderUVControl();
   renderLodControl();
-  renderSunControl();
+  renderSunControls();
   renderWorldAxisControl();
 }
 
@@ -667,10 +725,9 @@ async function setModel(files: File[]): Promise<void> {
     applyPreviewMode();
     renderUVControl();
     renderLodControl();
-    renderSunControl();
+    renderSunControls();
     renderWorldAxisControl();
-    applySunDirection();
-    applySunEnabled();
+    applySuns();
     if (modelUVChannels.length) applyModelUV(state.uvMap);
     renderTextureRibbon();
     render();
@@ -892,6 +949,7 @@ function syncControlsFromState(): void {
   setActiveMode(state.mode);
   updatePatternControls();
   updateAOControls();
+  renderSunControls();
   renderAdjustments();
   bindAdjustmentEvents();
   renderPalettes();
@@ -964,8 +1022,9 @@ async function loadConfig(): Promise<void> {
 
 function applyPreset(preset: ConversionPreset): void {
   renderScheduler.cancel();
-  const catalogPalette = paletteCatalog()[preset.paletteKey];
-  const matchesCatalog = catalogPalette && JSON.stringify(catalogPalette.colors) === JSON.stringify(preset.palette.colors);
+  const paletteSelection = selectOrCreatePalette(localStorage, paletteCatalog(), preset.palette, preset.paletteKey);
+  const paletteKey = paletteSelection.key;
+  savedCustomPalettes = paletteSelection.customPalettes;
   Object.assign(state, {
     resolution: preset.resolution,
     mode: preset.mode,
@@ -973,7 +1032,7 @@ function applyPreset(preset: ConversionPreset): void {
     brightness: preset.brightness,
     contrast: preset.contrast,
     saturation: preset.saturation,
-    paletteKey: preset.paletteKey,
+    paletteKey,
     uvMap: preset.uvMap,
     stripeAngle: preset.stripeAngle,
     noiseScale: preset.noiseScale,
@@ -981,13 +1040,14 @@ function applyPreset(preset: ConversionPreset): void {
     aoBias: preset.aoBias,
     aoScale: preset.aoScale,
     aoDistance: preset.aoDistance,
-    paletteSnapshot: matchesCatalog ? undefined : { ...preset.palette, colors: [...preset.palette.colors] },
-    customColors: matchesCatalog ? [] : [...preset.palette.colors],
+    paletteSnapshot: undefined,
+    customColors: [],
   });
-  const selectedCustom = savedCustomPalettes.find((palette) => palette.key === preset.paletteKey);
+  const selectedCustom = savedCustomPalettes.find((palette) => palette.key === paletteKey);
+  const selectedPalette = paletteCatalog()[paletteKey];
   editingCustomKey = selectedCustom?.key ?? null;
-  customPaletteName.value = selectedCustom?.name ?? preset.palette.name;
-  customPaletteDescription.value = selectedCustom?.description ?? preset.palette.description;
+  customPaletteName.value = selectedCustom?.name ?? selectedPalette.name;
+  customPaletteDescription.value = selectedCustom?.description ?? selectedPalette.description;
   syncControlsFromState();
   updateResolution(preset.resolution, true);
   if (modelUVChannels.includes(preset.uvMap)) {
@@ -1333,19 +1393,50 @@ worldAxisSelect.addEventListener('change', () => {
   state.worldAxis = worldAxisSelect.value as WorldAxis;
   applyWorldAxis();
 });
-sunAzimuthInput.addEventListener('input', () => {
-  state.sunAzimuth = Number(sunAzimuthInput.value);
-  applySunDirection();
-});
-sunElevationInput.addEventListener('input', () => {
-  state.sunElevation = Number(sunElevationInput.value);
-  applySunDirection();
-});
-sunEnabledInput.addEventListener('change', () => {
-  state.sunEnabled = sunEnabledInput.checked;
-  renderSunControl();
-  applySunEnabled();
-});
+function bindSunControl(id: PreviewId, elements: SunElements): void {
+  const sun = id === 'original' ? state.originalSun : state.processedSun;
+  const aimFromPointer = (event: PointerEvent): void => {
+    const bounds = elements.gizmo.getBoundingClientRect();
+    const radius = Math.min(bounds.width, bounds.height) * (27 / 64);
+    if (radius <= 0) return;
+    const direction = hemisphereToSunDirection(
+      (event.clientX - (bounds.left + bounds.width / 2)) / radius,
+      (event.clientY - (bounds.top + bounds.height / 2)) / radius,
+      sun.azimuth,
+    );
+    sun.azimuth = direction.azimuth;
+    sun.elevation = direction.elevation;
+    applySun(id);
+  };
+
+  elements.gizmo.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    elements.gizmo.setPointerCapture(event.pointerId);
+    elements.gizmo.classList.add('dragging');
+    aimFromPointer(event);
+  });
+  elements.gizmo.addEventListener('pointermove', (event) => {
+    if (elements.gizmo.hasPointerCapture(event.pointerId)) aimFromPointer(event);
+  });
+  elements.gizmo.addEventListener('lostpointercapture', () => elements.gizmo.classList.remove('dragging'));
+  elements.gizmo.addEventListener('keydown', (event) => {
+    const step = event.shiftKey ? 10 : 1;
+    if (event.key === 'ArrowLeft') sun.azimuth = (sun.azimuth - step + 360) % 360;
+    else if (event.key === 'ArrowRight') sun.azimuth = (sun.azimuth + step) % 360;
+    else if (event.key === 'ArrowUp') sun.elevation = Math.min(sun.elevation + step, 90);
+    else if (event.key === 'ArrowDown') sun.elevation = Math.max(sun.elevation - step, 0);
+    else return;
+    event.preventDefault();
+    applySun(id);
+  });
+  elements.enabled.addEventListener('change', () => {
+    sun.enabled = elements.enabled.checked;
+    applySun(id);
+  });
+}
+
+bindSunControl('original', originalSunElements);
+bindSunControl('processed', processedSunElements);
 const dropZone = document.querySelector<HTMLDivElement>('#dropZone')!;
 bindSlotDragState(dropZone);
 dropZone.addEventListener('drop', (event) => {

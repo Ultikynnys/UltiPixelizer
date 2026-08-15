@@ -68,6 +68,25 @@ export function serializeCustomPalette(palette: CustomPalette): string {
   return JSON.stringify(palette, null, 2);
 }
 
+export function matchingPaletteKey(catalog: Record<string, Palette>, colors: string[], preferredKey?: string): string | null {
+  const matches = (palette: Palette | undefined): boolean => palette?.colors.length === colors.length
+    && palette.colors.every((color, index) => color.toLowerCase() === colors[index].toLowerCase());
+  if (preferredKey && matches(catalog[preferredKey])) return preferredKey;
+  return Object.entries(catalog).find(([, palette]) => matches(palette))?.[0] ?? null;
+}
+
+export function selectOrCreatePalette(
+  storage: StorageLike,
+  catalog: Record<string, Palette>,
+  embedded: Palette,
+  preferredKey?: string,
+): { key: string; customPalettes: CustomPalette[]; created: boolean } {
+  const match = matchingPaletteKey(catalog, embedded.colors, preferredKey);
+  if (match) return { key: match, customPalettes: loadCustomPalettes(storage), created: false };
+  const imported = createCustomPalette(embedded.name.slice(0, 60), embedded.description.slice(0, 160), embedded.colors);
+  return { key: imported.key, customPalettes: upsertCustomPalette(storage, imported), created: true };
+}
+
 const customPaletteLibrary = createStoredCollection<CustomPalette>({
   storageKey: CUSTOM_PALETTE_STORAGE_KEY,
   validate: isCustomPalette,

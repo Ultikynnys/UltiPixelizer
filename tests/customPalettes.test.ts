@@ -7,8 +7,10 @@ import {
   duplicatePalette,
   isCustomPalette,
   loadCustomPalettes,
+  matchingPaletteKey,
   parseCustomPalette,
   saveCustomPalettes,
+  selectOrCreatePalette,
   serializeCustomPalette,
   updateCustomPalette,
   upsertCustomPalette,
@@ -51,6 +53,38 @@ describe('custom palettes', () => {
     expect(() => parseCustomPalette('{}')).toThrow('invalid or unsupported');
     expect(() => createCustomPalette('x'.repeat(61), '', ['#000000', '#ffffff'])).toThrow('2–256');
     expect(() => serializeCustomPalette({} as never)).toThrow('invalid');
+  });
+
+  it('finds equivalent palettes by ordered colors and prefers the requested key', () => {
+    const catalog = {
+      first: { ...palettes.pico8, colors: ['#AA0000', '#00bb00'] },
+      second: { ...palettes.pico8, colors: ['#aa0000', '#00BB00'] },
+      reordered: { ...palettes.pico8, colors: ['#00bb00', '#aa0000'] },
+    };
+    expect(matchingPaletteKey(catalog, ['#aa0000', '#00bb00'])).toBe('first');
+    expect(matchingPaletteKey(catalog, ['#aa0000', '#00bb00'], 'second')).toBe('second');
+    expect(matchingPaletteKey(catalog, ['#00bb00', '#aa0000'])).toBe('reordered');
+    expect(matchingPaletteKey(catalog, ['#aa0000', '#00bb01'])).toBeNull();
+  });
+
+  it('selects a matching preset or persists an unmatched embedded palette', () => {
+    const existing = createCustomPalette('Existing', '', ['#112233', '#445566'], new Date('2026-01-01'));
+    upsertCustomPalette(storage, existing);
+    const catalog = { pico8: palettes.pico8, [existing.key]: existing };
+    const selected = selectOrCreatePalette(storage, catalog, { ...palettes.pico8, colors: ['#112233', '#445566'] });
+    expect(selected).toEqual({ key: existing.key, customPalettes: [existing], created: false });
+
+    const created = selectOrCreatePalette(storage, catalog, {
+      ...palettes.pico8,
+      name: 'N'.repeat(80),
+      description: 'D'.repeat(200),
+      colors: ['#abcdef', '#123456'],
+    });
+    expect(created.created).toBe(true);
+    expect(created.customPalettes).toHaveLength(2);
+    expect(created.customPalettes[0].key).toBe(created.key);
+    expect(created.customPalettes[0].name).toHaveLength(60);
+    expect(created.customPalettes[0].description).toHaveLength(160);
   });
 
   it('persists, updates, and deletes by stable key', () => {

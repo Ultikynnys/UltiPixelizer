@@ -28,10 +28,10 @@ export function sunDirectionToHemisphere(azimuth: number, elevation: number): He
 }
 
 /** Converts a point on (or beyond) the unit disc back into a sun direction. */
-export function hemisphereToSunDirection(x: number, y: number): SunDirection {
+export function hemisphereToSunDirection(x: number, y: number, zenithAzimuth = 0): SunDirection {
   const radius = Math.min(Math.hypot(x, y), 1);
   return {
-    azimuth: radius === 0 ? 0 : wrapDegrees((Math.atan2(y, x) * 180) / Math.PI),
+    azimuth: radius < 0.05 ? wrapDegrees(zenithAzimuth) : wrapDegrees((Math.atan2(y, x) * 180) / Math.PI),
     elevation: (1 - radius) * 90,
   };
 }

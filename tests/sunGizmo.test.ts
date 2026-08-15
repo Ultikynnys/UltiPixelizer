@@ -23,6 +23,16 @@ describe('sun sphere gizmo projection', () => {
     expect(direction.azimuth).toBeCloseTo(45);
   });
 
+  it('preserves azimuth inside the zenith dead zone', () => {
+    expect(hemisphereToSunDirection(-0.01, 0, 275)).toEqual({ azimuth: 275, elevation: 89.1 });
+  });
+
+  it('wraps negative azimuths and clamps elevations', () => {
+    const point = sunDirectionToHemisphere(-90, 100);
+    expect(point).toEqual({ x: 0, y: 0 });
+    expect(sunDirectionToHemisphere(-90, -10).y).toBeCloseTo(-1);
+  });
+
   it('round-trips directions on the upper hemisphere', () => {
     for (const direction of [
       { azimuth: 45, elevation: 45 },
