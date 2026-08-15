@@ -1,7 +1,7 @@
 import './style.css';
 import { createSampleTexture, downloadCanvas, loadImageFile } from './lib/canvas';
 import { processImageData, type DitherMode } from './lib/dither';
-import { palettes } from './lib/palettes';
+import { palettes, type PaletteCategory } from './lib/palettes';
 
 type SourceImage = CanvasImageSource & { width: number; height: number };
 
@@ -17,6 +17,7 @@ type State = {
   contrast: number;
   saturation: number;
   compare: boolean;
+  paletteFilter: PaletteCategory | 'all';
 };
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -39,6 +40,7 @@ const state: State = {
   contrast: 8,
   saturation: 5,
   compare: false,
+  paletteFilter: 'all',
 };
 
 app.innerHTML = `
@@ -49,7 +51,6 @@ app.innerHTML = `
         <span>DITHER<span>LAB</span></span>
         <span class="build-version" title="Build version and commit">${buildLabel}</span>
       </a>
-      <div class="header-note"><span class="status-dot"></span> PROCESSING LOCALLY</div>
       <button class="button button-quiet" id="resetButton" type="button">Reset settings</button>
     </header>
 
@@ -110,7 +111,15 @@ app.innerHTML = `
         </section>
 
         <section class="panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">COLOR SYSTEM / 02</p><h2>Palette</h2></div></div>
+          <div class="panel-heading compact"><div><p class="eyebrow">COLOR SYSTEM / 02</p><h2>Palette library</h2></div><span class="catalog-count">${Object.keys(palettes).length} PRESETS</span></div>
+          <div class="palette-filters" id="paletteFilters" role="group" aria-label="Filter palette library">
+            <button class="active" type="button" data-filter="all">All</button>
+            <button type="button" data-filter="compact">Compact</button>
+            <button type="button" data-filter="pixel-art">Pixel art</button>
+            <button type="button" data-filter="hardware">Hardware</button>
+            <button type="button" data-filter="themed">Themed</button>
+            <button type="button" data-filter="extended">Extended</button>
+          </div>
           <div class="palette-grid" id="paletteGrid"></div>
           <div class="palette-detail">
             <div><strong id="paletteName">PICO-8</strong><small id="paletteDescription">Punchy fantasy console</small></div>
@@ -151,6 +160,7 @@ const previewCanvas = document.querySelector<HTMLCanvasElement>('#previewCanvas'
 const originalCanvas = document.querySelector<HTMLCanvasElement>('#originalCanvas')!;
 const originalOverlay = document.querySelector<HTMLDivElement>('#originalOverlay')!;
 const paletteGrid = document.querySelector<HTMLDivElement>('#paletteGrid')!;
+const paletteFilters = document.querySelector<HTMLDivElement>('#paletteFilters')!;
 const activeSwatches = document.querySelector<HTMLDivElement>('#activeSwatches')!;
 const customColors = document.querySelector<HTMLDivElement>('#customColors')!;
 const toast = document.querySelector<HTMLDivElement>('#toast')!;
@@ -196,18 +206,26 @@ function render(): void {
   document.querySelector('#dimensionBadge')!.textContent = `${width} × ${height} PX`;
 }
 
+function representativeColors(input: string[], limit = 16): string[] {
+  if (input.length <= limit) return input;
+  return Array.from({ length: limit }, (_, index) => input[Math.round(index * (input.length - 1) / (limit - 1))]);
+}
+
 function renderPalettes(): void {
-  paletteGrid.innerHTML = Object.entries(palettes).map(([key, palette]) => `
-    <button type="button" class="palette-card ${key === state.paletteKey && state.customColors.length === 0 ? 'active' : ''}" data-palette="${key}" aria-label="${palette.name} palette">
-      <span class="mini-swatches">${palette.colors.slice(0, 8).map((color) => `<i style="--swatch:${color}"></i>`).join('')}</span>
-      <span>${palette.name}</span>
+  const visiblePalettes = Object.entries(palettes).filter(([, palette]) => state.paletteFilter === 'all' || palette.category === state.paletteFilter);
+  paletteGrid.innerHTML = visiblePalettes.map(([key, palette]) => `
+    <button type="button" class="palette-card ${key === state.paletteKey && state.customColors.length === 0 ? 'active' : ''}" data-palette="${key}" aria-label="${palette.name}, ${palette.colors.length} colors">
+      <span class="mini-swatches">${representativeColors(palette.colors).map((color) => `<i style="--swatch:${color}"></i>`).join('')}</span>
+      <span class="palette-card-label"><span>${palette.name}</span><b>${palette.colors.length}</b></span>
     </button>
   `).join('');
   const palette = palettes[state.paletteKey];
+  const selectedColors = currentColors();
+  const credit = palette.attribution ? ` · ${palette.attribution}${palette.source ? ` / ${palette.source}` : ''}` : '';
   document.querySelector('#paletteName')!.textContent = state.customColors.length ? 'CUSTOM MIX' : palette.name.toUpperCase();
-  document.querySelector('#paletteDescription')!.textContent = state.customColors.length ? `${state.customColors.length} hand-picked colors` : palette.description;
-  activeSwatches.innerHTML = currentColors().map((color) => `<span style="--swatch:${color}" title="${color}"></span>`).join('');
-  customColors.innerHTML = currentColors().map((color, index) => `<label title="Edit ${color}"><input type="color" value="${color}" data-color-index="${index}" /><span style="--swatch:${color}"></span></label>`).join('');
+  document.querySelector('#paletteDescription')!.textContent = state.customColors.length ? `${selectedColors.length} hand-picked colors` : `${palette.description} · ${palette.colors.length} colors${credit}`;
+  activeSwatches.innerHTML = representativeColors(selectedColors, 24).map((color) => `<span style="--swatch:${color}" title="${color}"></span>`).join('');
+  customColors.innerHTML = selectedColors.map((color, index) => `<label title="Edit ${color}"><input type="color" value="${color}" data-color-index="${index}" /><span style="--swatch:${color}"></span></label>`).join('');
 }
 
 function renderAdjustments(): void {
@@ -289,6 +307,13 @@ document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => 
   document.querySelectorAll('[data-mode]').forEach((item) => item.classList.toggle('active', item === button));
   render();
 }));
+paletteFilters.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-filter]');
+  if (!button?.dataset.filter) return;
+  state.paletteFilter = button.dataset.filter as PaletteCategory | 'all';
+  paletteFilters.querySelectorAll('button').forEach((item) => item.classList.toggle('active', item === button));
+  renderPalettes();
+});
 paletteGrid.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-palette]');
   if (!button?.dataset.palette) return;
@@ -307,7 +332,7 @@ customColors.addEventListener('input', (event) => {
 });
 document.querySelector('#addColor')!.addEventListener('click', () => {
   if (state.customColors.length === 0) state.customColors = [...palettes[state.paletteKey].colors];
-  if (state.customColors.length >= 24) return showToast('Palette limit reached');
+  if (state.customColors.length >= 256) return showToast('Palette limit reached');
   state.customColors.push('#ffffff');
   renderPalettes();
   render();

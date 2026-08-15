@@ -36,13 +36,26 @@ describe('palette helpers', () => {
     expect(hexToRgb('#ff8040')).toEqual([255, 128, 64]);
   });
 
-  it('ships valid, named palettes with at least two colors', () => {
-    expect(Object.keys(palettes).length).toBeGreaterThanOrEqual(8);
-    for (const palette of Object.values(palettes)) {
+  it('ships a large, valid catalog with unique colors and metadata', () => {
+    expect(Object.keys(palettes).length).toBeGreaterThanOrEqual(28);
+    for (const [key, palette] of Object.entries(palettes)) {
+      expect(key).toMatch(/^[a-z0-9]+$/);
       expect(palette.name.length).toBeGreaterThan(0);
+      expect(palette.description.length).toBeGreaterThan(0);
+      expect(['compact', 'pixel-art', 'hardware', 'themed', 'extended']).toContain(palette.category);
       expect(palette.colors.length).toBeGreaterThanOrEqual(2);
+      expect(new Set(palette.colors).size, `${palette.name} has duplicate colors`).toBe(palette.colors.length);
       expect(palette.colors.every((color) => /^#[0-9a-f]{6}$/i.test(color))).toBe(true);
     }
+  });
+
+  it('preserves complete flagship and extended palettes', () => {
+    expect(palettes.aap64.colors).toHaveLength(64);
+    expect(palettes.endesga32.colors).toHaveLength(32);
+    expect(palettes.dawnbringer32.colors).toHaveLength(32);
+    expect(palettes.na16.colors).toHaveLength(16);
+    expect(palettes.pastel24.colors).toHaveLength(24);
+    expect(palettes.rgb332.colors).toHaveLength(256);
   });
 });
 
