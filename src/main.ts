@@ -6,7 +6,7 @@ import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
 import { createModelFileBundle, modelFormat, type ModelFileBundle, type WorldAxis } from './lib/modelFiles';
 import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels } from './lib/modelScene';
-import { computeUVOverlap } from './lib/uvOverlap';
+import { collectUVTriangles, computeUVOverlap, type UVTriangle } from './lib/uvOverlap';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
 import { createPreset, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
@@ -67,6 +67,7 @@ type State = {
   normalStrength: number;
   normalFormat: NormalFormat;
   showUVOverlap: boolean;
+  showUVWireframe: boolean;
 };
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -131,6 +132,7 @@ function defaultState(): State {
     normalStrength: 1,
     normalFormat: 'opengl',
     showUVOverlap: false,
+    showUVWireframe: true,
   };
 }
 
@@ -179,6 +181,10 @@ app.innerHTML = `
             <label class="uv-overlap-control" id="uvOverlapControl" hidden title="Highlight regions where UV shells overlap">
               <span>UV overlap</span>
               <span class="sun-toggle"><input id="uvOverlap" type="checkbox" aria-label="Show overlapping UVs" /><span aria-hidden="true"></span></span>
+            </label>
+            <label class="uv-overlap-control" id="uvWireframeControl" hidden title="Overlay UV island wireframes on the 2D view">
+              <span>UV islands</span>
+              <span class="sun-toggle"><input id="uvWireframe" type="checkbox" checked aria-label="Show UV island wireframes" /><span aria-hidden="true"></span></span>
             </label>
 
           </div>
@@ -365,6 +371,8 @@ const worldAxisControl = document.querySelector<HTMLLabelElement>('#worldAxisCon
 const worldAxisSelect = document.querySelector<HTMLSelectElement>('#worldAxis')!;
 const uvOverlapControl = document.querySelector<HTMLLabelElement>('#uvOverlapControl')!;
 const uvOverlapInput = document.querySelector<HTMLInputElement>('#uvOverlap')!;
+const uvWireframeControl = document.querySelector<HTMLLabelElement>('#uvWireframeControl')!;
+const uvWireframeInput = document.querySelector<HTMLInputElement>('#uvWireframe')!;
 type SunElements = {
   control: HTMLDivElement;
   enabled: HTMLInputElement;
@@ -441,6 +449,7 @@ let modelUVChannels: string[] = [];
 let modelLodLevels: number[] = [];
 let aoBakeScene: Object3D | null = null;
 let uvOverlapMaskCanvas: HTMLCanvasElement | null = null;
+let uvWireframeTriangles: UVTriangle[] | null = null;
 let uvWaveCanvas: HTMLCanvasElement | null = null;
 let uvOverlayComposite: HTMLCanvasElement | null = null;
 let uvOverlayFrame = 0;
@@ -753,6 +762,13 @@ function render(): void {
   originalCanvas.height = source.height;
   originalCanvas.getContext('2d')?.drawImage(litSourceNative, 0, 0);
 
+  if (state.showUVWireframe && uvWireframeTriangles?.length) {
+    const originalContext = originalCanvas.getContext('2d');
+    if (originalContext) drawUVWireframe(originalContext, source.width, source.height);
+    const previewContext = previewCanvas.getContext('2d');
+    if (previewContext) drawUVWireframe(previewContext, width, height);
+  }
+
   updatePreviewBadge(width, height);
   if (originalViewport && processedViewport) {
     originalViewport.applyImage(litSourceNative);
@@ -768,6 +784,11 @@ function renderUVControl(): void {
 function renderUVOverlapControl(): void {
   uvOverlapControl.hidden = modelUVChannels.length === 0;
   uvOverlapInput.checked = state.showUVOverlap;
+}
+
+function renderUVWireframeControl(): void {
+  uvWireframeControl.hidden = modelUVChannels.length === 0;
+  uvWireframeInput.checked = state.showUVWireframe;
 }
 
 function renderLodControl(): void {
@@ -887,9 +908,14 @@ function uvOverlapMask(counts: Uint8Array, width: number, height: number): HTMLC
   return pixelsToCanvas(pixels, width, height);
 }
 
+function refreshUVWireframe(): void {
+  uvWireframeTriangles = aoBakeScene ? collectUVTriangles(aoBakeScene) : null;
+}
+
 function refreshUVOverlap(): void {
   uvOverlapMaskCanvas = null;
   forEachViewport((viewport) => viewport.setUVOverlap(null));
+  refreshUVWireframe();
   if (!state.showUVOverlap || !aoBakeScene) {
     stopUVOverlayAnimation();
     return;
@@ -957,12 +983,36 @@ function drawOverlapLabels(context: CanvasRenderingContext2D, width: number, hei
   context.restore();
 }
 
+function drawUVWireframe(context: CanvasRenderingContext2D, width: number, height: number): void {
+  const triangles = uvWireframeTriangles;
+  if (!triangles || triangles.length === 0) return;
+  context.save();
+  context.beginPath();
+  for (const triangle of triangles) {
+    const [a, b, c] = triangle.uv;
+    context.moveTo(a[0] * width, (1 - a[1]) * height);
+    context.lineTo(b[0] * width, (1 - b[1]) * height);
+    context.lineTo(c[0] * width, (1 - c[1]) * height);
+    context.closePath();
+  }
+  context.lineJoin = 'round';
+  context.lineCap = 'round';
+  context.strokeStyle = 'rgba(10, 12, 16, 0.6)';
+  context.lineWidth = 2;
+  context.stroke();
+  context.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+  context.lineWidth = 1;
+  context.stroke();
+  context.restore();
+}
+
 function drawAnimatedOverlay(canvas: HTMLCanvasElement, base: HTMLCanvasElement | null, time: number): void {
   if (!base || !uvOverlapMaskCanvas) return;
   const context = canvas.getContext('2d');
   if (!context) return;
   const { width, height } = canvas;
   context.drawImage(base, 0, 0, width, height);
+  if (state.showUVWireframe) drawUVWireframe(context, width, height);
 
   const composite = overlayCompositeCanvas(width, height);
   const compContext = composite.getContext('2d');
@@ -1071,6 +1121,7 @@ function closeModelPreview(): void {
   disposeAOScene(aoBakeScene);
   aoBakeScene = null;
   uvOverlapMaskCanvas = null;
+  uvWireframeTriangles = null;
   stopUVOverlayAnimation();
   textures.lightmap.image = null;
   textures.lightmap.name = '';
@@ -1083,6 +1134,7 @@ function closeModelPreview(): void {
   applyPreviewMode();
   renderUVControl();
   renderUVOverlapControl();
+  renderUVWireframeControl();
   renderLodControl();
   renderSunControl();
   renderOrientationReadout();
@@ -1103,6 +1155,7 @@ async function setModel(files: File[]): Promise<void> {
     state.uvMap = modelUVChannels[0] ?? 'uv';
     aoBakeScene = buildAOScene(loaded.scene);
     applyLodLevel(aoBakeScene, state.lodLevel);
+    refreshUVWireframe();
     renderLightmapControls();
     originalViewport = new ModelViewport(originalModelHost);
     processedViewport = new ModelViewport(processedModelHost);
@@ -1117,6 +1170,7 @@ async function setModel(files: File[]): Promise<void> {
     applyPreviewMode();
     renderUVControl();
     renderUVOverlapControl();
+    renderUVWireframeControl();
     renderLodControl();
     renderSunControl();
     renderWorldAxisControl();
@@ -1598,6 +1652,7 @@ function reset(): void {
   applySun();
   refreshUVOverlap();
   renderUVOverlapControl();
+  renderUVWireframeControl();
   updateResolution(128, true);
   showToast('Settings reset');
 }
@@ -1908,6 +1963,11 @@ uvOverlapInput.addEventListener('change', () => {
   state.showUVOverlap = uvOverlapInput.checked;
   renderUVOverlapControl();
   refreshUVOverlap();
+  render();
+});
+uvWireframeInput.addEventListener('change', () => {
+  state.showUVWireframe = uvWireframeInput.checked;
+  renderUVWireframeControl();
   render();
 });
 function bindSunControl(): void {
