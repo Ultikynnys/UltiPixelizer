@@ -139,10 +139,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
 .control-row output, .adjustment-row output { color: var(--lime); font: 500 9px 'DM Mono', monospace; }
 .adjustment-row + .adjustment-row { margin-top: 15px; }
 .adjustment-row label { display: flex; font-size: 10px; justify-content: space-between; margin-bottom: 3px; }
-.privacy-note { align-items: center; color: var(--muted); display: flex; font-size: 9px; gap: 12px; line-height: 1.5; padding: 22px 25px 32px; }
-.privacy-note span { color: var(--lime); }
-.privacy-note p { margin: 0; }
-.privacy-note strong { color: #c1c1b8; }
 .toast { background: var(--paper); bottom: 26px; color: var(--ink); font: 500 10px 'DM Mono', monospace; left: 50%; opacity: 0; padding: 11px 16px; pointer-events: none; position: fixed; transform: translate(-50%,12px); transition: .2s; z-index: 50; }
 .toast.visible { opacity: 1; transform: translate(-50%,0); }
 
@@ -152,7 +148,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
   .canvas-stage { min-height: 58vh; }
   .preview-pane canvas { max-height: 50vh; }
   .control-column { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .panel, .privacy-note { border-right: 1px solid var(--line); }
+  .panel { border-right: 1px solid var(--line); }
   .intro-panel { grid-column: span 2; }
 }
 

@@ -157,8 +157,6 @@ app.innerHTML = `
           <div class="panel-heading compact"><div><p class="eyebrow">TONE CONTROL / 04</p><h2>Adjustments</h2></div></div>
           <div id="adjustmentControls"></div>
         </section>
-
-        <div class="privacy-note"><span>◆</span><p><strong>Your image stays yours.</strong><br />Everything is processed inside this browser.</p></div>
       </aside>
     </main>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
