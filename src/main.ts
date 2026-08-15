@@ -935,6 +935,25 @@ function overlayCompositeCanvas(width: number, height: number): HTMLCanvasElemen
   return uvOverlayComposite;
 }
 
+function drawOverlapLabels(context: CanvasRenderingContext2D, width: number, height: number, time: number): void {
+  const fontSize = Math.max(14, Math.round(Math.min(width, height) / 14));
+  const spacing = Math.max(fontSize * 8, 120);
+  const offset = (time * 0.05) % spacing;
+  context.save();
+  context.font = `700 ${fontSize}px "DM Mono", monospace`;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillStyle = 'rgba(255, 240, 230, 0.95)';
+  const columns = Math.ceil((width + spacing) / spacing) + 1;
+  const rows = Math.ceil((height + spacing) / spacing) + 1;
+  for (let row = -1; row <= rows; row += 1) {
+    for (let col = -1; col <= columns; col += 1) {
+      context.fillText('UV OVERLAP', col * spacing + offset, row * spacing + offset);
+    }
+  }
+  context.restore();
+}
+
 function drawAnimatedOverlay(canvas: HTMLCanvasElement, base: HTMLCanvasElement | null, time: number): void {
   if (!base || !uvOverlapMaskCanvas) return;
   const context = canvas.getContext('2d');
@@ -947,6 +966,7 @@ function drawAnimatedOverlay(canvas: HTMLCanvasElement, base: HTMLCanvasElement 
   if (!compContext) return;
   compContext.clearRect(0, 0, width, height);
   compContext.drawImage(renderWaveTile(time), 0, 0, width, height);
+  drawOverlapLabels(compContext, width, height, time);
   compContext.globalCompositeOperation = 'destination-in';
   compContext.drawImage(uvOverlapMaskCanvas, 0, 0, width, height);
   compContext.globalCompositeOperation = 'source-over';

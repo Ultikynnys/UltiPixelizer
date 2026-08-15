@@ -6,9 +6,11 @@ import {
   AnimationMixer,
   Box3,
   BufferGeometry,
+  CanvasTexture,
   DirectionalLight,
   DoubleSide,
   Float32BufferAttribute,
+  LinearFilter,
   LoadingManager,
   Mesh,
   Object3D,
@@ -32,6 +34,26 @@ import { applyTextureToModel, applyUVChannel, createPixelTexture, disposeModel, 
 import { cameraForwardFromQuaternion, normalizeDirection, type DirectionVector } from './sunDirection';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
+
+function overlapLabelTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 64;
+  const context = canvas.getContext('2d');
+  if (context) {
+    context.font = '700 30px "DM Mono", monospace';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = '#ffffff';
+    context.fillText('UV OVERLAP', 128, 32);
+  }
+  const texture = new CanvasTexture(canvas);
+  texture.minFilter = LinearFilter;
+  texture.magFilter = LinearFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  return texture;
+}
 
 function configureManager(bundle: ModelFileBundle): LoadingManager {
   const manager = new LoadingManager();
@@ -212,7 +234,7 @@ export class ModelViewport {
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
-      uniforms: { uTime: { value: 0 } },
+      uniforms: { uTime: { value: 0 }, uText: { value: overlapLabelTexture() } },
       vertexShader: `
         void main() {
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -220,11 +242,16 @@ export class ModelViewport {
       `,
       fragmentShader: `
         uniform float uTime;
+        uniform sampler2D uText;
         void main() {
           vec2 p = gl_FragCoord.xy;
           float a = 0.5 + 0.5 * sin((p.x + p.y) * 0.06 + uTime * 5.0);
           float b = 0.5 + 0.5 * sin((p.x - p.y) * 0.08 - uTime * 3.5);
-          float i = clamp(a * 0.7 + b * 0.3, 0.0, 1.0);
+          float wave = clamp(a * 0.7 + b * 0.3, 0.0, 1.0);
+          vec2 cell = vec2(256.0, 64.0);
+          vec2 t = mod(p - vec2(uTime * 60.0, uTime * 30.0), cell) / cell;
+          float label = texture2D(uText, t).a;
+          float i = clamp(max(wave, label * 0.9), 0.0, 1.0);
           vec3 color = mix(vec3(1.0, 0.12, 0.28), vec3(1.0, 0.68, 0.14), i);
           gl_FragColor = vec4(color * (0.5 + i * 1.5), 0.35 + i * 0.5);
         }
@@ -239,7 +266,9 @@ export class ModelViewport {
     if (!this.overlapOverlay) return;
     this.scene.remove(this.overlapOverlay);
     this.overlapOverlay.geometry.dispose();
-    (this.overlapOverlay.material as ShaderMaterial).dispose();
+    const material = this.overlapOverlay.material as ShaderMaterial;
+    (material.uniforms.uText.value as CanvasTexture | undefined)?.dispose();
+    material.dispose();
     this.overlapOverlay = null;
   }
 
