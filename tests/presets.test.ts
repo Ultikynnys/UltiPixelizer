@@ -29,6 +29,7 @@ const config: ConversionConfig = {
   saturation: 25,
   paletteKey: 'pico8',
   palette: palettes.pico8,
+  uvMap: 'uv2',
 };
 
 let storage: MemoryStorage;
@@ -42,7 +43,14 @@ describe('conversion presets', () => {
     expect(parsed.palette.colors).toEqual(palettes.pico8.colors);
     expect(parsed.palette.name).toBe('PICO-8');
     expect(parsed.palette.description).toBe('Punchy fantasy console');
+    expect(parsed.uvMap).toBe('uv2');
     expect(parsed.id).toBe('1767323045000-my-texture');
+  });
+
+  it('migrates presets saved before UV-map selection existed', () => {
+    const oldPreset = createPreset('Legacy', '', config);
+    const { uvMap: _removed, ...legacy } = oldPreset;
+    expect(parsePreset(JSON.stringify(legacy)).uvMap).toBe('uv');
   });
 
   it('rejects empty names, malformed JSON, invalid exports, and unsupported settings', () => {

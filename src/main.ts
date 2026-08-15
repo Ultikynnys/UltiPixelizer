@@ -3,6 +3,9 @@ import { createSampleTexture, downloadCanvas, downloadText, loadImageFile } from
 import { processImageData, type DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
+import { createModelFileBundle, modelFormat, type ModelFileBundle } from './lib/modelFiles';
+import { cloneModelScene, disposeModel, geometryUVChannels } from './lib/modelScene';
+import { loadModel, ModelViewport } from './lib/modelPreview';
 import { createPreset, deletePreset, loadPresetLibrary, parsePreset, serializePreset, upsertPreset, type ConversionPreset } from './lib/presets';
 
 type SourceImage = CanvasImageSource & { width: number; height: number };
@@ -20,6 +23,7 @@ type State = {
   contrast: number;
   saturation: number;
   paletteFilter: PaletteCategory | 'all';
+  uvMap: string;
 };
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -42,6 +46,7 @@ const state: State = {
   contrast: 8,
   saturation: 5,
   paletteFilter: 'all',
+  uvMap: 'uv',
 };
 
 app.innerHTML = `
@@ -63,6 +68,7 @@ app.innerHTML = `
             <h1 id="fileName">${state.sourceName}</h1>
           </div>
           <div class="toolbar-actions">
+            <label class="uv-control" id="uvControl" hidden><span>UV map</span><select id="uvMap" aria-label="Model UV map"></select></label>
             <span class="dimension-badge" id="dimensionBadge">128 × 92 PX</span>
           </div>
         </div>
@@ -71,14 +77,14 @@ app.innerHTML = `
           <div class="comparison-grid" aria-label="Original and dithered texture comparison">
             <figure class="preview-pane original-pane">
               <figcaption><span>01</span> Original</figcaption>
-              <div class="canvas-frame"><canvas id="originalCanvas" aria-label="Original texture preview"></canvas></div>
+              <div class="canvas-frame"><canvas id="originalCanvas" aria-label="Original texture preview"></canvas><div class="model-host" id="originalModelHost" hidden></div></div>
             </figure>
             <figure class="preview-pane processed-pane">
               <figcaption><span>02</span> Dithered</figcaption>
-              <div class="canvas-frame"><canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas></div>
+              <div class="canvas-frame"><canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas><div class="model-host" id="processedModelHost" hidden></div></div>
             </figure>
           </div>
-          <div class="drop-hint" id="dropHint">Drop an image anywhere</div>
+          <div class="drop-hint" id="dropHint">Drop an image or model bundle anywhere</div>
         </div>
 
         <footer class="preview-footer">
@@ -89,6 +95,10 @@ app.innerHTML = `
           <label class="button button-secondary file-button">
             <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
             Replace image
+          </label>
+          <label class="button button-secondary file-button">
+            <input id="modelInput" type="file" multiple accept=".fbx,.obj,.mtl,.gltf,.glb,.bin,image/*" />
+            Load model
           </label>
           <button class="button button-primary" id="exportButton" type="button">Export PNG <span>↓</span></button>
         </footer>
@@ -179,6 +189,10 @@ const paletteGrid = document.querySelector<HTMLDivElement>('#paletteGrid')!;
 const paletteFilters = document.querySelector<HTMLDivElement>('#paletteFilters')!;
 const activeSwatches = document.querySelector<HTMLDivElement>('#activeSwatches')!;
 const customColors = document.querySelector<HTMLDivElement>('#customColors')!;
+const originalModelHost = document.querySelector<HTMLDivElement>('#originalModelHost')!;
+const processedModelHost = document.querySelector<HTMLDivElement>('#processedModelHost')!;
+const uvControl = document.querySelector<HTMLLabelElement>('#uvControl')!;
+const uvMapSelect = document.querySelector<HTMLSelectElement>('#uvMap')!;
 const presetList = document.querySelector<HTMLDivElement>('#presetList')!;
 const presetName = document.querySelector<HTMLInputElement>('#presetName')!;
 const presetDescription = document.querySelector<HTMLInputElement>('#presetDescription')!;
@@ -186,6 +200,10 @@ const toast = document.querySelector<HTMLDivElement>('#toast')!;
 let savedPresets = loadPresetLibrary(localStorage);
 let toastTimer = 0;
 let renderedCanvas = document.createElement('canvas');
+let modelBundle: ModelFileBundle | null = null;
+let originalViewport: ModelViewport | null = null;
+let processedViewport: ModelViewport | null = null;
+let modelUVChannels: string[] = [];
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
@@ -211,6 +229,15 @@ function dimensions(): { width: number; height: number } {
   return { width, height: Math.max(1, Math.round(width * state.source.height / state.source.width)) };
 }
 
+function updatePreviewBadge(width?: number, height?: number): void {
+  if (modelBundle) {
+    const format = modelFormat(modelBundle.primary.name)?.toUpperCase();
+    document.querySelector('#dimensionBadge')!.textContent = `${format} · ${modelUVChannels.length} UV MAP${modelUVChannels.length === 1 ? '' : 'S'}`;
+  } else if (width && height) {
+    document.querySelector('#dimensionBadge')!.textContent = `${width} × ${height} PX`;
+  }
+}
+
 function render(): void {
   const { width, height } = dimensions();
   renderedCanvas = document.createElement('canvas');
@@ -231,7 +258,74 @@ function render(): void {
   originalCanvas.width = width;
   originalCanvas.height = height;
   originalCanvas.getContext('2d')?.drawImage(state.source, 0, 0, width, height);
-  document.querySelector('#dimensionBadge')!.textContent = `${width} × ${height} PX`;
+  updatePreviewBadge(width, height);
+  if (originalViewport && processedViewport) {
+    originalViewport.applyImage(state.source);
+    processedViewport.applyImage(renderedCanvas);
+  }
+}
+
+function renderUVControl(): void {
+  uvControl.hidden = modelUVChannels.length === 0;
+  uvMapSelect.innerHTML = modelUVChannels.map((channel, index) => `<option value="${channel}" ${channel === state.uvMap ? 'selected' : ''}>UV ${index + 1} · ${channel}</option>`).join('');
+}
+
+function applyModelUV(channel: string): void {
+  state.uvMap = channel;
+  const originalStatus = originalViewport?.applyUV(channel);
+  processedViewport?.applyUV(channel);
+  if (originalStatus) {
+    const notes = [originalStatus.fallbackMeshes ? `${originalStatus.fallbackMeshes} fallback` : '', originalStatus.missingMeshes ? `${originalStatus.missingMeshes} without UVs` : ''].filter(Boolean);
+    showToast(notes.length ? `UV ${channel} applied · ${notes.join(', ')}` : `UV ${channel} applied`);
+  }
+}
+
+function closeModelPreview(): void {
+  originalViewport?.dispose();
+  processedViewport?.dispose();
+  modelBundle?.revoke();
+  originalViewport = null;
+  processedViewport = null;
+  modelBundle = null;
+  modelUVChannels = [];
+  originalModelHost.hidden = true;
+  processedModelHost.hidden = true;
+  originalCanvas.hidden = false;
+  previewCanvas.hidden = false;
+  renderUVControl();
+}
+
+async function setModel(files: File[]): Promise<void> {
+  let bundle: ModelFileBundle | null = null;
+  try {
+    bundle = createModelFileBundle(files);
+    const loaded = await loadModel(bundle, files);
+    closeModelPreview();
+    modelBundle = bundle;
+    modelUVChannels = geometryUVChannels(loaded.scene);
+    state.uvMap = modelUVChannels[0] ?? 'uv';
+    originalViewport = new ModelViewport(originalModelHost);
+    processedViewport = new ModelViewport(processedModelHost);
+    originalViewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
+    processedViewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
+    disposeModel(loaded.scene);
+    originalModelHost.hidden = false;
+    processedModelHost.hidden = false;
+    originalCanvas.hidden = true;
+    previewCanvas.hidden = true;
+    renderUVControl();
+    if (modelUVChannels.length) applyModelUV(state.uvMap);
+    originalViewport.applyImage(state.source);
+    processedViewport.applyImage(renderedCanvas);
+    updatePreviewBadge();
+    document.querySelector('#fileName')!.textContent = modelBundle.primary.name;
+    showToast(`Loaded ${modelBundle.primary.name}`);
+    bundle = null;
+  } catch (error) {
+    if (modelBundle === bundle) closeModelPreview();
+    bundle?.revoke();
+    showToast(error instanceof Error ? error.message : 'Could not load model.');
+  }
 }
 
 function representativeColors(input: string[], limit = 16): string[] {
@@ -288,6 +382,7 @@ function currentPreset(name = presetName.value, description = presetDescription.
     saturation: state.saturation,
     paletteKey: state.paletteKey,
     palette: activePaletteSnapshot(),
+    uvMap: state.uvMap,
   });
 }
 
@@ -318,6 +413,7 @@ function applyPreset(preset: ConversionPreset): void {
     contrast: preset.contrast,
     saturation: preset.saturation,
     paletteKey: preset.paletteKey,
+    uvMap: preset.uvMap,
     paletteSnapshot: { ...preset.palette, colors: [...preset.palette.colors] },
     customColors: matchesCatalog ? [] : [...preset.palette.colors],
   });
@@ -330,6 +426,10 @@ function applyPreset(preset: ConversionPreset): void {
   bindAdjustmentEvents();
   renderPalettes();
   updateResolution(preset.resolution, true);
+  if (modelUVChannels.includes(preset.uvMap)) {
+    uvMapSelect.value = preset.uvMap;
+    applyModelUV(preset.uvMap);
+  }
 }
 
 function exportPreset(preset: ConversionPreset): void {
@@ -358,7 +458,7 @@ async function setSource(file: File): Promise<void> {
     renderScheduler.cancel();
     state.source = image;
     state.sourceName = file.name;
-    document.querySelector('#fileName')!.textContent = file.name;
+    if (!modelBundle) document.querySelector('#fileName')!.textContent = file.name;
     document.querySelector('#footerFileName')!.textContent = file.name;
     document.querySelector('#sourceDimensions')!.textContent = `${image.width} × ${image.height} source`;
     render();
@@ -448,10 +548,21 @@ document.querySelector('#addColor')!.addEventListener('click', () => {
 });
 const fileInput = document.querySelector<HTMLInputElement>('#fileInput')!;
 fileInput.addEventListener('change', () => { const file = fileInput.files?.[0]; if (file) void setSource(file); });
+const modelInput = document.querySelector<HTMLInputElement>('#modelInput')!;
+modelInput.addEventListener('change', () => {
+  const files = Array.from(modelInput.files ?? []);
+  if (files.length) void setModel(files);
+  modelInput.value = '';
+});
+uvMapSelect.addEventListener('change', () => applyModelUV(uvMapSelect.value));
 const dropZone = document.querySelector<HTMLDivElement>('#dropZone')!;
 ['dragenter', 'dragover'].forEach((type) => dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.add('dragging'); }));
 ['dragleave', 'drop'].forEach((type) => dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.remove('dragging'); }));
-dropZone.addEventListener('drop', (event) => { const file = event.dataTransfer?.files[0]; if (file) void setSource(file); });
+dropZone.addEventListener('drop', (event) => {
+  const files = Array.from(event.dataTransfer?.files ?? []);
+  if (files.some((file) => modelFormat(file.name))) void setModel(files);
+  else if (files[0]) void setSource(files[0]);
+});
 document.querySelector('#savePreset')!.addEventListener('click', () => {
   try {
     const preset = currentPreset();

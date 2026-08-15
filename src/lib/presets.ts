@@ -15,6 +15,7 @@ export type ConversionConfig = {
   saturation: number;
   paletteKey: string;
   palette: Palette;
+  uvMap: string;
 };
 
 export type ConversionPreset = ConversionConfig & {
@@ -45,6 +46,7 @@ export function isConversionPreset(value: unknown): value is ConversionPreset {
     && finiteInRange(preset.contrast, -100, 100)
     && finiteInRange(preset.saturation, -100, 100)
     && typeof preset.paletteKey === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/i.test(preset.paletteKey)
+    && typeof preset.uvMap === 'string' && /^uv\d*$/.test(preset.uvMap)
     && isPalette(preset.palette);
 }
 
@@ -67,10 +69,16 @@ export function serializePreset(preset: ConversionPreset): string {
   return JSON.stringify(preset, null, 2);
 }
 
+function migratePreset(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value;
+  const preset = value as Record<string, unknown>;
+  return preset.version === PRESET_VERSION && preset.uvMap === undefined ? { ...preset, uvMap: 'uv' } : value;
+}
+
 export function parsePreset(json: string): ConversionPreset {
   let value: unknown;
   try {
-    value = JSON.parse(json);
+    value = migratePreset(JSON.parse(json));
   } catch {
     throw new Error('Preset file is not valid JSON.');
   }
@@ -83,7 +91,7 @@ export function loadPresetLibrary(storage: StorageLike): ConversionPreset[] {
   if (!raw) return [];
   try {
     const value: unknown = JSON.parse(raw);
-    return Array.isArray(value) ? value.filter(isConversionPreset) : [];
+    return Array.isArray(value) ? value.map(migratePreset).filter(isConversionPreset) : [];
   } catch {
     return [];
   }
