@@ -859,12 +859,26 @@ function createNewPalette(): void {
   persistCustomDraft();
 }
 
+function revealPalette(key: string): void {
+  state.paletteFilter = 'custom';
+  paletteFilters.querySelectorAll<HTMLButtonElement>('[data-filter]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.filter === state.paletteFilter);
+  });
+  renderPalettes();
+  requestAnimationFrame(() => {
+    const card = paletteGrid.querySelector<HTMLElement>(`[data-palette="${key}"]`);
+    card?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    card?.focus({ preventScroll: true });
+  });
+}
+
 function duplicatePaletteByKey(key: string): void {
   const source = paletteCatalog()[key];
   if (!source) return;
   const duplicate = duplicatePalette(source);
   beginCustomDraft(duplicate.name, duplicate.description, duplicate.colors, duplicate.key);
   persistCustomDraft();
+  if (state.paletteKey === duplicate.key) revealPalette(duplicate.key);
 }
 
 function exportPaletteByKey(key: string): void {

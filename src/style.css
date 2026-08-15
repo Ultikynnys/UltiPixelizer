@@ -29,10 +29,6 @@
   --pattern-dot-soft: #bbb;
   --pattern-dot-mid: #aaa;
   --pattern-dot-dim: #888;
-  /* ── Ko-fi brand (kept per request) ── */
-  --kofi: #ff6433;
-  --kofi-hover: #ff8566;
-  --kofi-active: #ffa88c;
   /* ── elevation ── */
   --shadow: rgba(0,0,0,.32);
   font-family: 'Manrope', system-ui, sans-serif;
@@ -75,9 +71,9 @@ button { color: inherit; }
 .circle-link .circle-label { font-size: 11px; font-weight: 700; letter-spacing: .02em; }
 .circle-link:hover, .circle-link:focus-visible { background: var(--raised); color: var(--paper); }
 .circle-link:active { background: var(--chip); border-color: var(--line-bright); }
-.circle-kofi { color: var(--kofi); }
-.circle-kofi:hover, .circle-kofi:focus-visible { color: var(--kofi-hover); }
-.circle-kofi:active { color: var(--kofi-active); }
+.circle-kofi { color: var(--accent); }
+.circle-kofi:hover, .circle-kofi:focus-visible { color: var(--accent-hover); }
+.circle-kofi:active { color: var(--paper); }
 .button-primary { background: var(--accent); color: var(--on-accent); }
 .button-primary:hover { background: var(--accent-hover); }
 .button-secondary { background: var(--raised); border: 1px solid var(--line-bright); color: var(--paper); }
@@ -108,18 +104,18 @@ button { color: inherit; }
 .sun-gizmo svg { display: block; height: 100%; overflow: visible; width: 100%; }
 .sun-gizmo-sphere { stroke: var(--line-bright); stroke-width: 1; }
 .sun-gizmo-grid { fill: none; opacity: .52; stroke: var(--faint); stroke-width: .7; }
-.sun-gizmo-ray { stroke: var(--lime); stroke-linecap: round; stroke-width: 1.5; }
-.sun-gizmo-handle { fill: var(--lime); stroke: var(--ink); stroke-width: 1.5; }
+.sun-gizmo-ray { stroke: var(--accent); stroke-linecap: round; stroke-width: 1.5; }
+.sun-gizmo-handle { fill: var(--accent); stroke: var(--ink); stroke-width: 1.5; }
 .sun-gizmo:hover:not(:disabled), .sun-gizmo.dragging { filter: brightness(1.2); }
-.sun-gizmo:focus-visible { outline: 2px solid var(--lime); outline-offset: 1px; }
+.sun-gizmo:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .sun-gizmo:disabled { cursor: not-allowed; opacity: .35; }
-.sun-gizmo-value { color: var(--muted); font: 500 8px 'DM Mono', monospace; white-space: nowrap; }
+.sun-gizmo-value { color: var(--muted); font: 500 8px 'DM Mono', monospace; text-align: center; white-space: nowrap; width: 14ch; }
 .sun-toggle { align-items: center; cursor: pointer; display: flex; gap: 6px; }
 .sun-toggle input { appearance: none; background: var(--raised); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; height: 14px; margin: 0; position: relative; transition: background .15s ease, border-color .15s ease; width: 26px; }
 .sun-toggle input::after { background: var(--paper-dim); border-radius: 50%; content: ''; height: 8px; left: 2px; position: absolute; top: 2px; transition: left .15s ease, background .15s ease; width: 8px; }
-.sun-toggle input:checked { background: var(--lime); border-color: var(--lime); }
+.sun-toggle input:checked { background: var(--accent); border-color: var(--accent); }
 .sun-toggle input:checked::after { background: var(--ink); left: 14px; }
-.sun-toggle input:focus-visible { outline: 1px solid var(--lime); outline-offset: 1px; }
+.sun-toggle input:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .sun-overlay.off .sun-gizmo, .sun-overlay.off .sun-gizmo-value { opacity: .35; }
 
 .canvas-stage {
@@ -158,7 +154,7 @@ button { color: inherit; }
 
 .texture-ribbon { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 10px; padding: 12px 28px; }
 .texture-slot { align-items: center; background: var(--stage); border: 1px dashed var(--line-bright); border-radius: 3px; cursor: pointer; display: flex; flex-direction: column; gap: 5px; height: 66px; justify-content: center; min-width: 82px; padding: 6px 8px; position: relative; }
-.texture-slot:hover { border-color: var(--lime); }
+.texture-slot:hover { border-color: var(--paper); }
 .texture-slot:focus-visible { outline: 1px solid var(--paper); outline-offset: 2px; }
 .texture-slot.dragging { border-color: var(--lime); box-shadow: inset 0 0 0 1px var(--lime); }
 .texture-slot.disabled { cursor: not-allowed; opacity: .45; }
@@ -198,7 +194,7 @@ button { color: inherit; }
 .palette-grid { display: grid; gap: 6px; grid-template-columns: repeat(2,1fr); max-height: 340px; overflow-y: auto; padding-right: 3px; scrollbar-color: var(--line-bright) var(--panel); }
 .palette-card { background: var(--card); border: 1px solid var(--line); border-radius: 2px; color: var(--paper-dim); cursor: pointer; display: flex; flex-direction: column; font-size: 10px; gap: 7px; min-width: 0; padding: 9px; position: relative; text-align: left; }
 .palette-card:hover { border-color: var(--faint); }
-.palette-card.active { border-color: var(--lime); box-shadow: inset 0 0 0 1px var(--lime); color: var(--paper); }
+.palette-card.active { border-color: var(--paper); box-shadow: inset 0 0 0 1px var(--paper); color: var(--paper); }
 .palette-card-new { align-items: center; background: transparent; border: 1px dashed var(--line-bright); color: var(--muted); gap: 5px; justify-content: center; min-height: 58px; text-align: center; }
 .palette-card-new:hover { border-color: var(--lime); color: var(--paper); }
 .palette-card-new-icon { font: 500 20px 'DM Mono', monospace; line-height: 1; }
