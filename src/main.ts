@@ -1,8 +1,9 @@
 import './style.css';
-import { createSampleTexture, downloadCanvas, loadImageFile } from './lib/canvas';
+import { createSampleTexture, downloadCanvas, downloadText, loadImageFile } from './lib/canvas';
 import { processImageData, type DitherMode } from './lib/dither';
-import { palettes, type PaletteCategory } from './lib/palettes';
+import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
+import { createPreset, deletePreset, loadPresetLibrary, parsePreset, serializePreset, upsertPreset, type ConversionPreset } from './lib/presets';
 
 type SourceImage = CanvasImageSource & { width: number; height: number };
 
@@ -11,6 +12,7 @@ type State = {
   sourceName: string;
   paletteKey: string;
   customColors: string[];
+  paletteSnapshot?: Palette;
   resolution: number;
   mode: DitherMode;
   strength: number;
@@ -157,6 +159,20 @@ app.innerHTML = `
           <div class="panel-heading compact"><div><p class="eyebrow">TONE CONTROL / 04</p><h2>Adjustments</h2></div></div>
           <div id="adjustmentControls"></div>
         </section>
+
+        <section class="panel preset-panel">
+          <div class="panel-heading compact"><div><p class="eyebrow">CONFIG LIBRARY / 05</p><h2>Conversion presets</h2></div><span class="catalog-count" id="presetCount">0 SAVED</span></div>
+          <div class="preset-fields">
+            <label><span>Name</span><input id="presetName" type="text" maxlength="60" placeholder="e.g. Stone wall" /></label>
+            <label><span>Description</span><input id="presetDescription" type="text" maxlength="160" placeholder="Optional note" /></label>
+          </div>
+          <div class="preset-actions">
+            <button class="button button-primary" id="savePreset" type="button">Save preset</button>
+            <button class="button button-secondary" id="exportCurrentPreset" type="button">Export current</button>
+            <label class="button button-secondary file-button"><input id="importPreset" type="file" accept="application/json,.json" />Import JSON</label>
+          </div>
+          <div class="preset-list" id="presetList"></div>
+        </section>
       </aside>
     </main>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -169,9 +185,17 @@ const paletteGrid = document.querySelector<HTMLDivElement>('#paletteGrid')!;
 const paletteFilters = document.querySelector<HTMLDivElement>('#paletteFilters')!;
 const activeSwatches = document.querySelector<HTMLDivElement>('#activeSwatches')!;
 const customColors = document.querySelector<HTMLDivElement>('#customColors')!;
+const presetList = document.querySelector<HTMLDivElement>('#presetList')!;
+const presetName = document.querySelector<HTMLInputElement>('#presetName')!;
+const presetDescription = document.querySelector<HTMLInputElement>('#presetDescription')!;
 const toast = document.querySelector<HTMLDivElement>('#toast')!;
+let savedPresets = loadPresetLibrary(localStorage);
 let toastTimer = 0;
 let renderedCanvas = document.createElement('canvas');
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
+}
 
 function showToast(message: string): void {
   toast.textContent = message;
@@ -180,8 +204,12 @@ function showToast(message: string): void {
   toastTimer = window.setTimeout(() => toast.classList.remove('visible'), 2400);
 }
 
+function currentPalette(): Palette {
+  return state.paletteSnapshot ?? palettes[state.paletteKey];
+}
+
 function currentColors(): string[] {
-  return state.customColors.length > 0 ? state.customColors : palettes[state.paletteKey].colors;
+  return state.customColors.length > 0 ? state.customColors : currentPalette().colors;
 }
 
 function dimensions(): { width: number; height: number } {
@@ -225,7 +253,7 @@ function renderPalettes(): void {
       <span class="palette-card-label"><span>${palette.name}</span><b>${palette.colors.length}</b></span>
     </button>
   `).join('');
-  const palette = palettes[state.paletteKey];
+  const palette = currentPalette();
   const selectedColors = currentColors();
   const credit = palette.attribution ? ` · ${palette.attribution}${palette.source ? ` / ${palette.source}` : ''}` : '';
   document.querySelector('#paletteName')!.textContent = state.customColors.length ? 'CUSTOM MIX' : palette.name.toUpperCase();
@@ -244,6 +272,75 @@ function renderAdjustments(): void {
       <input class="range" id="${key}" type="range" min="-100" max="100" value="${state[key]}" />
     </div>
   `).join('');
+}
+
+function activePaletteSnapshot() {
+  const base = currentPalette();
+  return {
+    ...base,
+    name: state.customColors.length ? `${base.name} Custom` : base.name,
+    description: state.customColors.length ? `Custom colors based on ${base.name}` : base.description,
+    colors: [...currentColors()],
+  };
+}
+
+function currentPreset(name = presetName.value, description = presetDescription.value): ConversionPreset {
+  return createPreset(name, description, {
+    resolution: state.resolution,
+    mode: state.mode,
+    strength: state.strength,
+    brightness: state.brightness,
+    contrast: state.contrast,
+    saturation: state.saturation,
+    paletteKey: state.paletteKey,
+    palette: activePaletteSnapshot(),
+  });
+}
+
+function renderPresetLibrary(): void {
+  document.querySelector('#presetCount')!.textContent = `${savedPresets.length} SAVED`;
+  presetList.innerHTML = savedPresets.length ? savedPresets.map((preset) => `
+    <article class="preset-card" data-preset-id="${escapeHtml(preset.id)}">
+      <div><strong>${escapeHtml(preset.name)}</strong><small>${escapeHtml(preset.description || `${preset.palette.name} · ${preset.palette.colors.length} colors`)}</small></div>
+      <div class="preset-card-actions">
+        <button type="button" data-preset-action="load">Load</button>
+        <button type="button" data-preset-action="export">Export</button>
+        <button type="button" data-preset-action="delete" aria-label="Delete ${escapeHtml(preset.name)}">×</button>
+      </div>
+    </article>
+  `).join('') : '<p class="empty-presets">No saved presets yet.</p>';
+}
+
+function applyPreset(preset: ConversionPreset): void {
+  renderScheduler.cancel();
+  const catalogPalette = palettes[preset.paletteKey];
+  const matchesCatalog = catalogPalette && JSON.stringify(catalogPalette.colors) === JSON.stringify(preset.palette.colors);
+  if (!catalogPalette) palettes[preset.paletteKey] = { ...preset.palette, colors: [...preset.palette.colors] };
+  Object.assign(state, {
+    resolution: preset.resolution,
+    mode: preset.mode,
+    strength: preset.strength,
+    brightness: preset.brightness,
+    contrast: preset.contrast,
+    saturation: preset.saturation,
+    paletteKey: preset.paletteKey,
+    paletteSnapshot: { ...preset.palette, colors: [...preset.palette.colors] },
+    customColors: matchesCatalog ? [] : [...preset.palette.colors],
+  });
+  presetName.value = preset.name;
+  presetDescription.value = preset.description;
+  (document.querySelector('#strength') as HTMLInputElement).value = String(Math.round(preset.strength * 100));
+  document.querySelector('#strengthValue')!.textContent = `${Math.round(preset.strength * 100)}%`;
+  document.querySelectorAll('[data-mode]').forEach((button) => button.classList.toggle('active', (button as HTMLElement).dataset.mode === preset.mode));
+  renderAdjustments();
+  bindAdjustmentEvents();
+  renderPalettes();
+  updateResolution(preset.resolution, true);
+}
+
+function exportPreset(preset: ConversionPreset): void {
+  const safeName = preset.name.replace(/[^a-z0-9-_]+/gi, '-').replace(/^-|-$/g, '') || 'dither-preset';
+  downloadText(serializePreset(preset), `${safeName}.dither.json`);
 }
 
 const renderScheduler = createRenderScheduler(render);
@@ -279,7 +376,7 @@ async function setSource(file: File): Promise<void> {
 
 function reset(): void {
   renderScheduler.cancel();
-  Object.assign(state, { paletteKey: 'pico8', customColors: [], resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5 });
+  Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5 });
   (document.querySelector('#strength') as HTMLInputElement).value = '85';
   document.querySelector('#strengthValue')!.textContent = '85%';
   document.querySelectorAll('[data-mode]').forEach((button) => button.classList.toggle('active', (button as HTMLElement).dataset.mode === 'floyd'));
@@ -303,6 +400,7 @@ function bindAdjustmentEvents(): void {
 
 renderPalettes();
 renderAdjustments();
+renderPresetLibrary();
 bindAdjustmentEvents();
 render();
 
@@ -333,21 +431,24 @@ paletteGrid.addEventListener('click', (event) => {
   if (!button?.dataset.palette) return;
   state.paletteKey = button.dataset.palette;
   state.customColors = [];
+  state.paletteSnapshot = undefined;
   renderPalettes();
   render();
 });
 customColors.addEventListener('input', (event) => {
   const input = (event.target as HTMLElement).closest<HTMLInputElement>('input[type="color"]');
   if (!input) return;
-  if (state.customColors.length === 0) state.customColors = [...palettes[state.paletteKey].colors];
+  if (state.customColors.length === 0) state.customColors = [...currentPalette().colors];
   state.customColors[Number(input.dataset.colorIndex)] = input.value;
+  state.paletteSnapshot = activePaletteSnapshot();
   renderPalettes();
   render();
 });
 document.querySelector('#addColor')!.addEventListener('click', () => {
-  if (state.customColors.length === 0) state.customColors = [...palettes[state.paletteKey].colors];
+  if (state.customColors.length === 0) state.customColors = [...currentPalette().colors];
   if (state.customColors.length >= 256) return showToast('Palette limit reached');
   state.customColors.push('#ffffff');
+  state.paletteSnapshot = activePaletteSnapshot();
   renderPalettes();
   render();
 });
@@ -357,6 +458,62 @@ const dropZone = document.querySelector<HTMLDivElement>('#dropZone')!;
 ['dragenter', 'dragover'].forEach((type) => dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.add('dragging'); }));
 ['dragleave', 'drop'].forEach((type) => dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.remove('dragging'); }));
 dropZone.addEventListener('drop', (event) => { const file = event.dataTransfer?.files[0]; if (file) void setSource(file); });
+document.querySelector('#savePreset')!.addEventListener('click', () => {
+  try {
+    const preset = currentPreset();
+    savedPresets = upsertPreset(localStorage, preset);
+    renderPresetLibrary();
+    showToast(`Saved preset “${preset.name}”`);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not save preset.');
+  }
+});
+document.querySelector('#exportCurrentPreset')!.addEventListener('click', () => {
+  try {
+    exportPreset(currentPreset(presetName.value || 'Untitled preset'));
+    showToast('Preset JSON exported');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not export preset.');
+  }
+});
+const importPresetInput = document.querySelector<HTMLInputElement>('#importPreset')!;
+importPresetInput.addEventListener('change', async () => {
+  const file = importPresetInput.files?.[0];
+  if (!file) return;
+  try {
+    if (file.size > 100_000) throw new Error('Preset file is too large.');
+    const preset = parsePreset(await file.text());
+    applyPreset(preset);
+    savedPresets = upsertPreset(localStorage, preset);
+    renderPresetLibrary();
+    showToast(`Imported preset “${preset.name}”`);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Could not import preset.');
+  } finally {
+    importPresetInput.value = '';
+  }
+});
+presetList.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-preset-action]');
+  const card = button?.closest<HTMLElement>('[data-preset-id]');
+  const preset = savedPresets.find((entry) => entry.id === card?.dataset.presetId);
+  if (!button || !preset) return;
+  const action = button.dataset.presetAction;
+  if (action === 'load') {
+    applyPreset(preset);
+    showToast(`Loaded preset “${preset.name}”`);
+  } else if (action === 'export') {
+    exportPreset(preset);
+  } else if (action === 'delete') {
+    try {
+      savedPresets = deletePreset(localStorage, preset.id);
+      renderPresetLibrary();
+      showToast(`Deleted preset “${preset.name}”`);
+    } catch {
+      showToast('Could not update saved presets.');
+    }
+  }
+});
 document.querySelector('#resetButton')!.addEventListener('click', reset);
 document.querySelector('#exportButton')!.addEventListener('click', () => {
   const safeName = state.sourceName.replace(/\.[^.]+$/, '').replace(/[^a-z0-9-_]+/gi, '-');

@@ -139,6 +139,24 @@ button:focus-visible, input:focus-visible, summary:focus-visible, .file-button:f
 .control-row output, .adjustment-row output { color: var(--lime); font: 500 9px 'DM Mono', monospace; }
 .adjustment-row + .adjustment-row { margin-top: 15px; }
 .adjustment-row label { display: flex; font-size: 10px; justify-content: space-between; margin-bottom: 3px; }
+.preset-fields { display: grid; gap: 9px; }
+.preset-fields label { display: grid; gap: 5px; }
+.preset-fields label > span { color: var(--muted); font: 500 8px 'DM Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
+.preset-fields input { background: #30302e; border: 1px solid #484843; border-radius: 2px; color: var(--paper); font-size: 10px; min-width: 0; padding: 9px 10px; width: 100%; }
+.preset-fields input::placeholder { color: #72726b; }
+.preset-actions { display: grid; gap: 6px; grid-template-columns: 1fr 1fr; margin-top: 12px; }
+.preset-actions .button:first-child { grid-column: span 2; }
+.preset-actions .button { font-size: 10px; padding: 9px 10px; }
+.preset-list { border-top: 1px solid #3c3c38; display: grid; gap: 6px; margin-top: 16px; padding-top: 14px; }
+.preset-card { align-items: center; background: #30302e; border: 1px solid #454541; display: flex; gap: 10px; justify-content: space-between; padding: 9px 10px; }
+.preset-card > div:first-child { min-width: 0; }
+.preset-card strong, .preset-card small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preset-card strong { font-size: 10px; }
+.preset-card small { color: var(--muted); font-size: 8px; margin-top: 3px; }
+.preset-card-actions { display: flex; flex: 0 0 auto; gap: 3px; }
+.preset-card-actions button { background: #20201f; border: 1px solid #4b4b46; color: #bcbcb3; cursor: pointer; font: 500 8px 'DM Mono', monospace; padding: 5px 6px; }
+.preset-card-actions button:hover { border-color: var(--lime); color: var(--paper); }
+.empty-presets { color: var(--muted); font-size: 9px; margin: 4px 0; text-align: center; }
 .toast { background: var(--paper); bottom: 26px; color: var(--ink); font: 500 10px 'DM Mono', monospace; left: 50%; opacity: 0; padding: 11px 16px; pointer-events: none; position: fixed; transform: translate(-50%,12px); transition: .2s; z-index: 50; }
 .toast.visible { opacity: 1; transform: translate(-50%,0); }
 

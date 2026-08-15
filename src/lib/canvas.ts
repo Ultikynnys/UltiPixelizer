@@ -57,6 +57,16 @@ export function loadImageFile(file: File): Promise<HTMLImageElement> {
   });
 }
 
+export function downloadText(content: string, name: string, type = 'application/json'): void {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.download = name;
+  link.href = url;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export function downloadCanvas(canvas: HTMLCanvasElement, name: string): void {
   canvas.toBlob((blob) => {
     if (!blob) return;
