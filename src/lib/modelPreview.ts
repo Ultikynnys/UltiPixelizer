@@ -22,7 +22,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
-import { applyTextureToModel, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject, materialsOf } from './modelScene';
+import { applyTextureToModel, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject, materialsOf, recomputeVertexNormals } from './modelScene';
 import { cameraForwardFromQuaternion, normalizeDirection, type DirectionVector } from './sunDirection';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
@@ -45,11 +45,13 @@ export async function loadModel(bundle: ModelFileBundle, files: File[], worldAxi
   const manager = configureManager(bundle);
   if (bundle.format === 'glb' || bundle.format === 'gltf') {
     const result = await new GLTFLoader(manager).loadAsync(bundle.primaryUrl);
+    recomputeVertexNormals(result.scene);
     return { scene: result.scene, animations: result.animations };
   }
   if (bundle.format === 'fbx') {
     const scene = await new FBXLoader(manager).loadAsync(bundle.primaryUrl);
     orientToWorldAxis(scene, worldAxis);
+    recomputeVertexNormals(scene);
     return { scene, animations: scene.animations };
   }
   const objLoader = new OBJLoader(manager);
@@ -66,6 +68,7 @@ export async function loadModel(bundle: ModelFileBundle, files: File[], worldAxi
   }
   const scene = await objLoader.loadAsync(bundle.primaryUrl);
   orientToWorldAxis(scene, worldAxis);
+  recomputeVertexNormals(scene);
   return { scene, animations: [] };
 }
 

@@ -65,6 +65,18 @@ export function materialsOf(mesh: Mesh): Material[] {
   return Array.isArray(mesh.material) ? mesh.material : [mesh.material];
 }
 
+/** Rebuilds vertex normals from triangle winding for every mesh, replacing
+ * potentially-broken exporter normals (e.g. FBX). Returns the mesh count. */
+export function recomputeVertexNormals(object: Object3D): number {
+  let meshCount = 0;
+  object.traverse((child) => {
+    if (!(child instanceof Mesh)) return;
+    child.geometry.computeVertexNormals();
+    meshCount += 1;
+  });
+  return meshCount;
+}
+
 export function cloneModelScene(source: Object3D): Object3D {
   const clone = cloneSkeleton(source);
   const textures = new Map<Texture, Texture>();

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture } from 'three';
-import { applyTextureToModel, applyUVChannel, cloneModelScene, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, uvChannelIndex } from '../src/lib/modelScene';
+import { applyTextureToModel, applyUVChannel, cloneModelScene, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, recomputeVertexNormals, uvChannelIndex } from '../src/lib/modelScene';
 
 function mesh(channels: string[], materials = 1): Mesh {
   const geometry = new BufferGeometry();
@@ -81,6 +81,23 @@ describe('model scene processing', () => {
     expect(camera.aspect).toBe(2);
     expect(fitCameraToObject(camera, new Object3D(), 0).toArray()).toEqual([0, 0, 0]);
     expect(camera.aspect).toBe(1);
+  });
+
+  it('rebuilds vertex normals from winding, replacing stale normals', () => {
+    const root = new Object3D();
+    const geometry = new BufferGeometry();
+    // Triangle winding +Z: (0,0,0) -> (1,0,0) -> (0,1,0)
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    // Deliberately wrong normals pointing -Z.
+    geometry.setAttribute('normal', new Float32BufferAttribute([0, 0, -1, 0, 0, -1, 0, 0, -1], 3));
+    root.add(new Mesh(geometry, new MeshBasicMaterial()));
+    expect(recomputeVertexNormals(root)).toBe(1);
+    const normal = geometry.getAttribute('normal');
+    for (let i = 0; i < 3; i += 1) {
+      expect(normal.getZ(i)).toBeCloseTo(1);
+      expect(normal.getX(i)).toBeCloseTo(0);
+      expect(normal.getY(i)).toBeCloseTo(0);
+    }
   });
 
   it('disposes geometry, materials, and textures without closing shared image sources', () => {
