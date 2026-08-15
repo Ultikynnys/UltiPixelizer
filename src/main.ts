@@ -25,8 +25,8 @@ type PreviewMode = '2d' | '3d';
 
 type TextureSlot = { image: SourceImage | null; name: string };
 
-type LightState = { color: string; intensity: number };
-type SunState = LightState & { azimuth: number; elevation: number; enabled: boolean };
+type LightState = { color: string; intensity: number; enabled: boolean };
+type SunState = LightState & { azimuth: number; elevation: number };
 
 const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string }> = [
   { id: 'base', label: 'BaseColor' },
@@ -94,7 +94,7 @@ const sunOverlayMarkup = (): string => `
     <div class="light-controls">
       <label class="light-color-control"><span>Sun color</span>${colorControl('#ffffff', 'Sun color', 'id="sunColor"')}</label>
       ${rangeControl('sunIntensity', 'Sun intensity', 0, 10, 0.1, 2.8)}
-      <div class="light-section-title">Ambient</div>
+      <div class="light-section-title ambient-heading"><span>Ambient</span><label class="sun-toggle" title="Toggle ambient lighting"><input id="ambientEnabled" type="checkbox" checked aria-label="Toggle ambient lighting" /><span aria-hidden="true"></span></label></div>
       <label class="light-color-control"><span>Color</span>${colorControl('#ffffff', 'Ambient light color', 'id="ambientColor"')}</label>
       ${rangeControl('ambientIntensity', 'Intensity', 0, 5, 0.1, 2.2)}
     </div>
@@ -114,7 +114,7 @@ const state: State = {
   uvMap: 'uv',
   lodLevel: 0,
   sun: { azimuth: 45, elevation: 45, enabled: true, color: '#ffffff', intensity: 2.8 },
-  ambient: { color: '#ffffff', intensity: 2.2 },
+  ambient: { color: '#ffffff', intensity: 2.2, enabled: true },
   worldAxis: 'blender',
   stripeAngle: 45,
   noiseScale: 1,
@@ -351,6 +351,7 @@ type SunElements = {
   color: HTMLInputElement;
   intensity: HTMLInputElement;
   intensityValue: HTMLOutputElement;
+  ambientEnabled: HTMLInputElement;
   ambientColor: HTMLInputElement;
   ambientIntensity: HTMLInputElement;
   ambientIntensityValue: HTMLOutputElement;
@@ -366,6 +367,7 @@ const sunControlElements: SunElements = {
   color: document.querySelector<HTMLInputElement>('#sunColor')!,
   intensity: document.querySelector<HTMLInputElement>('#sunIntensity')!,
   intensityValue: document.querySelector<HTMLOutputElement>('#sunIntensityValue')!,
+  ambientEnabled: document.querySelector<HTMLInputElement>('#ambientEnabled')!,
   ambientColor: document.querySelector<HTMLInputElement>('#ambientColor')!,
   ambientIntensity: document.querySelector<HTMLInputElement>('#ambientIntensity')!,
   ambientIntensityValue: document.querySelector<HTMLOutputElement>('#ambientIntensityValue')!,
@@ -410,6 +412,8 @@ let processedViewport: ModelViewport | null = null;
 let modelUVChannels: string[] = [];
 let modelLodLevels: number[] = [];
 let aoBakeScene: Object3D | null = null;
+let implicitLightmapCanvas: HTMLCanvasElement | null = null;
+let implicitLightmapTimer = 0;
 let pendingTextureChannel: TextureChannelId | null = null;
 
 function escapeHtml(value: string): string {
@@ -455,15 +459,15 @@ function updatePreviewBadge(width?: number, height?: number): void {
   }
 }
 
-const AO_BAKE_SIZE = 512;
+const AO_BAKE_SAMPLES = 128;
 
-function factorsToCanvas(factors: Uint8ClampedArray, size: number): HTMLCanvasElement {
+function factorsToCanvas(factors: Uint8ClampedArray, width: number, height: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
+  canvas.width = width;
+  canvas.height = height;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Canvas is unavailable.');
-  const imageData = context.createImageData(size, size);
+  const imageData = context.createImageData(width, height);
   for (let i = 0; i < factors.length; i += 1) {
     const value = factors[i];
     const offset = i * 4;
@@ -483,7 +487,8 @@ function currentAOFactors(width: number, height: number): Uint8ClampedArray | nu
 }
 
 function currentLightmapPixels(width: number, height: number): Uint8ClampedArray | null {
-  return textures.lightmap.image ? imageLightmapPixels(textures.lightmap.image, width, height) : null;
+  const image = textures.lightmap.image ?? implicitLightmapCanvas;
+  return image ? imageLightmapPixels(image, width, height) : null;
 }
 
 function pixelsToCanvas(pixels: Uint8ClampedArray, width: number, height: number): HTMLCanvasElement {
@@ -516,7 +521,12 @@ function computeAO(): void {
     textures.ao.name = '';
     return;
   }
-  textures.ao.image = factorsToCanvas(bakeMeshAO(scene, AO_BAKE_SIZE, AO_BAKE_SIZE, { samples: 64, distance: state.aoDistance }), AO_BAKE_SIZE);
+  const baseColor = textures.base.image!;
+  textures.ao.image = factorsToCanvas(
+    bakeMeshAO(scene, baseColor.width, baseColor.height, { samples: AO_BAKE_SAMPLES, distance: state.aoDistance }),
+    baseColor.width,
+    baseColor.height,
+  );
   textures.ao.name = 'Generated AO';
 }
 
@@ -537,6 +547,7 @@ function bakeLighting(): void {
         sunEnabled: state.sun.enabled,
         ambientColor: state.ambient.color,
         ambientIntensity: state.ambient.intensity,
+        ambientEnabled: state.ambient.enabled,
       });
       textures.lightmap.image = pixelsToCanvas(pixels, baseColor.width, baseColor.height);
       textures.lightmap.name = 'Baked lighting';
@@ -558,6 +569,40 @@ function clearLightmap(): void {
   renderTextureRibbon();
   applySun();
   render();
+}
+
+function bakeImplicitLightmap(): void {
+  if (!aoBakeScene || !textures.base.image || textures.lightmap.image) {
+    implicitLightmapCanvas = null;
+    return;
+  }
+  try {
+    const baseColor = textures.base.image;
+    const pixels = bakeMeshLightmap(aoBakeScene, baseColor.width, baseColor.height, {
+      sunAzimuth: state.sun.azimuth,
+      sunElevation: state.sun.elevation,
+      sunColor: state.sun.color,
+      sunIntensity: state.sun.intensity,
+      sunEnabled: state.sun.enabled,
+      ambientColor: state.ambient.color,
+      ambientIntensity: state.ambient.intensity,
+      ambientEnabled: state.ambient.enabled,
+    });
+    implicitLightmapCanvas = pixelsToCanvas(pixels, baseColor.width, baseColor.height);
+    render();
+  } catch {
+    implicitLightmapCanvas = null;
+  }
+}
+
+function scheduleImplicitLightmapBake(): void {
+  if (implicitLightmapTimer) window.clearTimeout(implicitLightmapTimer);
+  implicitLightmapTimer = 0;
+  if (textures.lightmap.image !== null || aoBakeScene === null) return;
+  implicitLightmapTimer = window.setTimeout(() => {
+    implicitLightmapTimer = 0;
+    bakeImplicitLightmap();
+  }, 200);
 }
 
 function generateAo(): void {
@@ -674,8 +719,10 @@ function renderSunControl(): void {
   sunControlElements.gizmo.disabled = !state.sun.enabled || lightmapActive;
   sunControlElements.color.disabled = !state.sun.enabled || lightmapActive;
   sunControlElements.intensity.disabled = !state.sun.enabled || lightmapActive;
-  sunControlElements.ambientColor.disabled = lightmapActive;
-  sunControlElements.ambientIntensity.disabled = lightmapActive;
+  sunControlElements.ambientEnabled.checked = state.ambient.enabled;
+  sunControlElements.ambientEnabled.disabled = lightmapActive;
+  sunControlElements.ambientColor.disabled = !state.ambient.enabled || lightmapActive;
+  sunControlElements.ambientIntensity.disabled = !state.ambient.enabled || lightmapActive;
   sunControlElements.color.value = state.sun.color;
   syncColorChip(sunControlElements.color);
   sunControlElements.intensity.value = String(state.sun.intensity);
@@ -777,14 +824,16 @@ function applySun(): void {
   originalViewport?.setSunEnabled(state.sun.enabled && !lightmapActive);
   originalViewport?.setSunColor(state.sun.color);
   originalViewport?.setSunIntensity(state.sun.intensity);
-  originalViewport?.setAmbientColor(lightmapActive ? '#ffffff' : state.ambient.color);
-  originalViewport?.setAmbientIntensity(lightmapActive ? Math.PI : state.ambient.intensity);
+  const ambientNeutral = lightmapActive || !state.ambient.enabled;
+  originalViewport?.setAmbientColor(ambientNeutral ? '#ffffff' : state.ambient.color);
+  originalViewport?.setAmbientIntensity(ambientNeutral ? Math.PI : state.ambient.intensity);
   processedViewport?.setSunDirection(state.sun.azimuth, state.sun.elevation);
   processedViewport?.setSunEnabled(state.sun.enabled && !lightmapActive);
   processedViewport?.setSunColor(state.sun.color);
   processedViewport?.setSunIntensity(state.sun.intensity);
-  processedViewport?.setAmbientColor(lightmapActive ? '#ffffff' : state.ambient.color);
-  processedViewport?.setAmbientIntensity(lightmapActive ? Math.PI : state.ambient.intensity);
+  processedViewport?.setAmbientColor(ambientNeutral ? '#ffffff' : state.ambient.color);
+  processedViewport?.setAmbientIntensity(ambientNeutral ? Math.PI : state.ambient.intensity);
+  scheduleImplicitLightmapBake();
 }
 
 function applyWorldAxis(): void {
@@ -821,6 +870,9 @@ function closeModelPreview(): void {
   aoBakeScene = null;
   textures.lightmap.image = null;
   textures.lightmap.name = '';
+  implicitLightmapCanvas = null;
+  if (implicitLightmapTimer) window.clearTimeout(implicitLightmapTimer);
+  implicitLightmapTimer = 0;
   renderLightmapControls();
   originalPreviewMode = '2d';
   processedPreviewMode = '2d';
@@ -1210,7 +1262,7 @@ function applyPreset(preset: ConversionPreset): void {
     aoScale: preset.aoScale,
     aoDistance: preset.aoDistance,
     sun: { ...state.sun, color: preset.sunColor, intensity: preset.sunIntensity },
-    ambient: { color: preset.ambientColor, intensity: preset.ambientIntensity },
+    ambient: { ...state.ambient, color: preset.ambientColor, intensity: preset.ambientIntensity },
     lightmapContribution: preset.lightmapContribution,
     paletteSnapshot: undefined,
     customColors: [],
@@ -1308,7 +1360,7 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
 
 function reset(): void {
   renderScheduler.cancel();
-  Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5, stripeAngle: 45, noiseScale: 1, seed: 1, aoBias: 0, aoScale: 1, aoDistance: 2, lightmapContribution: 1, sun: { azimuth: 45, elevation: 45, enabled: true, color: '#ffffff', intensity: 2.8 }, ambient: { color: '#ffffff', intensity: 2.2 } });
+  Object.assign(state, { paletteKey: 'pico8', customColors: [], paletteSnapshot: undefined, resolution: 128, mode: 'floyd', strength: 0.85, brightness: 0, contrast: 8, saturation: 5, stripeAngle: 45, noiseScale: 1, seed: 1, aoBias: 0, aoScale: 1, aoDistance: 2, lightmapContribution: 1, sun: { azimuth: 45, elevation: 45, enabled: true, color: '#ffffff', intensity: 2.8 }, ambient: { color: '#ffffff', intensity: 2.2, enabled: true } });
   textures.lightmap.image = null;
   textures.lightmap.name = '';
   renderTextureRibbon();
@@ -1636,6 +1688,10 @@ function bindSunControl(): void {
   });
   sunControlElements.intensity.addEventListener('input', () => {
     state.sun.intensity = Number(sunControlElements.intensity.value);
+    applySun();
+  });
+  sunControlElements.ambientEnabled.addEventListener('change', () => {
+    state.ambient.enabled = sunControlElements.ambientEnabled.checked;
     applySun();
   });
   sunControlElements.ambientColor.addEventListener('input', () => {

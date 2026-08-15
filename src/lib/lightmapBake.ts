@@ -19,6 +19,7 @@ export type BakeLightmapOptions = {
   sunEnabled?: boolean;
   ambientColor: string;
   ambientIntensity: number;
+  ambientEnabled?: boolean;
 };
 
 type RGB = [number, number, number];
@@ -44,8 +45,8 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
   const sunVector = sunDirectionVector(options.sunAzimuth, options.sunElevation);
   const sunDirection = new Vector3(sunVector.x, sunVector.y, sunVector.z).normalize();
   const sunColor = parseColor(options.sunColor);
-  const ambientColor = parseColor(options.ambientColor);
-  const ambientScale = Math.max(0, options.ambientIntensity) / Math.PI;
+  const ambientColor = options.ambientEnabled === false ? [1, 1, 1] : parseColor(options.ambientColor);
+  const ambientScale = options.ambientEnabled === false ? 1 : Math.max(0, options.ambientIntensity) / Math.PI;
   const sunScale = options.sunEnabled === false ? 0 : Math.max(0, options.sunIntensity) / Math.PI;
 
   const worldPositions: number[] = [];
