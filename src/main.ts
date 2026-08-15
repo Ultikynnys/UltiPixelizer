@@ -91,10 +91,10 @@ const sunOverlayMarkup = (): string => `
     <output class="sun-gizmo-value" id="sunGizmoValue">A 45° · E 45°</output>
     <div class="light-controls">
       <label class="light-color-control"><span>Sun color</span><input id="sunColor" type="color" value="#ffffff" aria-label="Sun color" /></label>
-      <label class="light-range-control"><span>Sun intensity</span><input id="sunIntensity" type="range" min="0" max="10" step="0.1" value="2.8" /><output id="sunIntensityValue">2.8</output></label>
+      ${rangeControl('sunIntensity', 'Sun intensity', 0, 10, 0.1, 2.8)}
       <div class="light-section-title">Ambient</div>
       <label class="light-color-control"><span>Color</span><input id="ambientColor" type="color" value="#ffffff" aria-label="Ambient light color" /></label>
-      <label class="light-range-control"><span>Intensity</span><input id="ambientIntensity" type="range" min="0" max="5" step="0.1" value="2.2" /><output id="ambientIntensityValue">2.2</output></label>
+      ${rangeControl('ambientIntensity', 'Intensity', 0, 5, 0.1, 2.2)}
     </div>
   </div>
 `;
@@ -924,16 +924,24 @@ function renderPalettes(): void {
   paletteEditor.disabled = !activePaletteIsCustom();
 }
 
+// Single slider generator — every range control in the app must go through this.
+// Markup matches the Adjustments panel rows: label (span + output) above a .range input.
+function rangeControl(key: string, label: string, min: number, max: number, step: number | 'any', value: number, display: string = String(value)): string {
+  return `
+    <div class="adjustment-row">
+      <label for="${key}"><span>${label}</span><output id="${key}Value">${display}</output></label>
+      <input class="range" id="${key}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label}" />
+    </div>
+  `;
+}
+
 function renderAdjustments(): void {
   const controls: Array<[keyof Pick<State, 'brightness' | 'contrast' | 'saturation'>, string]> = [
     ['brightness', 'Brightness'], ['contrast', 'Contrast'], ['saturation', 'Saturation'],
   ];
-  document.querySelector('#adjustmentControls')!.innerHTML = controls.map(([key, label]) => `
-    <div class="adjustment-row">
-      <label for="${key}"><span>${label}</span><output id="${key}Value">${state[key] > 0 ? '+' : ''}${state[key]}</output></label>
-      <input class="range" id="${key}" type="range" min="-100" max="100" value="${state[key]}" />
-    </div>
-  `).join('');
+  document.querySelector('#adjustmentControls')!.innerHTML = controls.map(([key, label]) =>
+    rangeControl(key, label, -100, 100, 1, state[key], `${state[key] > 0 ? '+' : ''}${state[key]}`),
+  ).join('');
 }
 
 function hydrateCustomDraft(name: string, description: string, colors: string[], key: string | null = null): void {

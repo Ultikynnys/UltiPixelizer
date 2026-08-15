@@ -117,12 +117,8 @@ button { color: inherit; }
 .sun-toggle input:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .sun-overlay.off .sun-gizmo, .sun-overlay.off .sun-gizmo-value { opacity: .35; }
 .light-controls { border-top: 1px solid var(--line); display: grid; gap: 6px; margin-top: 3px; padding-top: 7px; width: 136px; }
-.light-color-control, .light-range-control { align-items: center; color: var(--muted); display: grid; font: 500 8px 'DM Mono', monospace; gap: 5px; }
-.light-color-control { grid-template-columns: 1fr 28px; }
+.light-color-control { align-items: center; color: var(--muted); display: grid; font: 500 8px 'DM Mono', monospace; gap: 5px; grid-template-columns: 1fr 28px; }
 .light-color-control input { background: var(--raised); border: 1px solid var(--line); cursor: pointer; height: 18px; padding: 1px; width: 28px; }
-.light-range-control { grid-template-columns: 1fr 28px; }
-.light-range-control input { grid-column: 1 / -1; margin: 0; width: 100%; }
-.light-range-control output { color: var(--paper-dim); grid-column: 2; grid-row: 1; text-align: right; }
 .light-section-title { border-top: 1px solid var(--line); color: var(--paper); font: 600 8px 'DM Mono', monospace; letter-spacing: .1em; margin-top: 2px; padding-top: 6px; text-transform: uppercase; }
 .light-controls input:disabled { cursor: not-allowed; opacity: .35; }
 
