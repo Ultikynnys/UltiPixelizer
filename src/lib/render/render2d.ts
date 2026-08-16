@@ -1,4 +1,4 @@
-import { applyAO, imageAOFactors } from '../ao';
+import { applyAO, aoMultiplier, imageAOFactors } from '../ao';
 import { drawImageToCanvas, imagePixels, pixelsToCanvas, processLitImageData, resizeNearest } from '../canvas';
 import { processImageData } from '../dither';
 import { applyLightmap } from '../lightmap';
@@ -57,9 +57,9 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
 
   function render(): void {
     const { width, height } = dimensions();
-    // Lightmap+AO inspection shows the raw combined map — AO visibility
-    // multiplied into the lightmap on white, staged at the target resolution
-    // (same math the lighting pass applies: visibility × lightmap).
+    // Lightmap+AO inspection shows the combined map — AO visibility (remapped
+    // by bias/scale exactly as the lighting pass applies it) multiplied into
+    // the lightmap on white, staged at the target resolution.
     const lightmapCanvas = textures.lightmap.image ?? shared.implicitLightmapCanvas;
     const lightmapAoSelected = state.viewModeOriginal === 'lightmap-ao' || state.viewModeProcessed === 'lightmap-ao';
     let lightmapAoSource: SourceImage | null = null;
@@ -69,7 +69,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
       const combined = new Uint8ClampedArray(width * height * 4);
       for (let i = 0; i < width * height; i += 1) {
         const offset = i * 4;
-        const visibility = aoFactors[i] / 255;
+        const visibility = aoMultiplier(aoFactors[i], state.aoBias, state.aoScale);
         combined[offset] = lightmapPixels[offset] * visibility;
         combined[offset + 1] = lightmapPixels[offset + 1] * visibility;
         combined[offset + 2] = lightmapPixels[offset + 2] * visibility;
@@ -77,17 +77,40 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
       }
       lightmapAoSource = pixelsToCanvas(combined, width, height);
     }
+    // AO inspection shows the bias/scale-remapped occlusion — the exact
+    // multiplier the lighting pass applies — so tuning Bias/Scale updates the
+    // AO preview (at defaults the remap is the identity, matching the raw
+    // bake). Staged at the map's native resolution.
+    const aoImage = textures.ao.image;
+    const aoSelected = state.viewModeOriginal === 'ao' || state.viewModeProcessed === 'ao';
+    let aoInspectionSource: SourceImage | null = null;
+    if (aoSelected && aoImage) {
+      const aoPixels = imagePixels(aoImage, aoImage.width, aoImage.height);
+      const aoWidth = aoImage.width;
+      const aoHeight = aoImage.height;
+      const remapped = new Uint8ClampedArray(aoPixels.length);
+      for (let i = 0; i < aoWidth * aoHeight; i += 1) {
+        const gray = Math.round(aoMultiplier(aoPixels[i * 4], state.aoBias, state.aoScale) * 255);
+        const offset = i * 4;
+        remapped[offset] = gray;
+        remapped[offset + 1] = gray;
+        remapped[offset + 2] = gray;
+        remapped[offset + 3] = 255;
+      }
+      aoInspectionSource = pixelsToCanvas(remapped, aoWidth, aoHeight);
+    }
+
     // Per-pane inspection enum: each preview pane picks its own source, so the
-    // original can show the raw AO while the dithered pane quantizes the base.
-    // BaseColor shows the base texture with no lighting; AO/lightmap show the
-    // raw map; Normals shows the raw normal map; Lightmap+AO shows the raw
-    // combined AO×lightmap. Lighting (AO + lightmap multiply) is skipped for
-    // whichever pane inspects a raw map, since lighting the map being
-    // inspected would alter it.
+    // original can show the AO while the dithered pane quantizes the base.
+    // BaseColor shows the base texture with no lighting; AO shows the
+    // bias/scale-remapped occlusion; Lightmap shows the raw map; Normals shows
+    // the raw normal map; Lightmap+AO shows the remapped AO×lightmap. Lighting
+    // (AO + lightmap multiply) is skipped for whichever pane inspects a raw
+    // map, since lighting the map being inspected would alter it.
     const inspectionSource = (viewMode: PreviewViewMode): SourceImage | null =>
       viewMode === 'basecolor' ? textures.base.image
       : viewMode === 'normals' ? textures.normal.image
-      : viewMode === 'ao' ? textures.ao.image
+      : viewMode === 'ao' ? aoInspectionSource
       : viewMode === 'lightmap' ? lightmapCanvas
       : viewMode === 'lightmap-ao' ? lightmapAoSource
       : null;

@@ -60,17 +60,17 @@ jobs:
       # The build version badge (topbar) is stamped at build time by Vite. The
       # installer version is generated from the SAME git build count via
       # scripts/build-version.mjs (v124 -> 1.2.4: hundreds split into three)
-      # and injected into the Tauri bundle with a --config merge, so the
-      # offline installers always carry the same build as the in-app badge.
+      # and written to src-tauri/tauri.version.json, which tauri-action merges
+      # into the bundle config with --config — no version is hardcoded here,
+      # in tauri.conf.json, or in any env file; local `npm run tauri:build`
+      # derives it the exact same way.
       - name: Set build version
         shell: bash
         run: |
           BUILD_NUMBER=$(git rev-list --count HEAD)
-          VERSION=$(node scripts/build-version.mjs "$BUILD_NUMBER")
           echo "VITE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "VITE_COMMIT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
-          echo "ULTIPIXELIZER_VERSION=$VERSION" >> "$GITHUB_ENV"
-          printf '{"version":"%s"}' "$VERSION" > "${{ runner.temp }}/bundle-version.json"
+          node scripts/write-tauri-version.mjs
 
       # Installs the Rust toolchain and packages the installers. No release is
       # created here — the matrix jobs would race; the release job below
@@ -78,7 +78,7 @@ jobs:
       - name: Build and package (Tauri)
         uses: tauri-apps/tauri-action@v0
         with:
-          args: --config ${{ runner.temp }}/bundle-version.json
+          args: --config src-tauri/tauri.version.json
         env:
           GITHUB_TOKEN: ${{ github.token }}
 

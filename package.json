@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:build": "node scripts/write-tauri-version.mjs && tauri build --config src-tauri/tauri.version.json"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

@@ -7,5 +7,4 @@ coverage/
 Thumbs.db
 src-tauri/target/
 src-tauri/gen/
-.env
-.env.*.local
+src-tauri/tauri.version.json

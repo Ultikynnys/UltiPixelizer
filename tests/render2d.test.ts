@@ -105,7 +105,7 @@ describe('createRender2D render pipeline', () => {
     ]);
   });
 
-  it('shows the raw combined AO×lightmap map in both panes when Lightmap+AO mode is on', () => {
+  it('shows the AO-remapped combined map in both panes when Lightmap+AO mode is on', () => {
     const ao = solidTexture([128, 128, 128, 255]); // 50% visibility
     const lightmap = solidTexture([200, 200, 200, 255]);
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: lightmap, name: '' } } });
@@ -115,7 +115,7 @@ describe('createRender2D render pipeline', () => {
     createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
 
     // Combined = lightmap × AO visibility: 200 × (128/255) ≈ 100.
-    // Original pane shows the raw combined map at the target resolution.
+    // Original pane shows the combined map (identity remap at defaults) at the target resolution.
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([
       100, 100, 100, 255, 100, 100, 100, 255,
       100, 100, 100, 255, 100, 100, 100, 255,
@@ -124,7 +124,24 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 
-  it('shows the raw AO map in both panes when AO-only mode is on', () => {
+  it('applies AO scale in the Lightmap+AO view mode', () => {
+    const ao = solidTexture([128, 128, 128, 255]); // 50% visibility
+    const lightmap = solidTexture([200, 200, 200, 255]);
+    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: lightmap, name: '' } } });
+    deps.state.viewModeOriginal = 'lightmap-ao';
+    deps.state.viewModeProcessed = 'lightmap-ao';
+    deps.state.aoScale = 0.5;
+    const shared = sharedState();
+    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+
+    // 50% visibility at scale 0.5 → visibility 1 − 0.5×(127/255) ≈ 0.751 → 200 × 0.751 ≈ 150 (truncated).
+    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([
+      150, 150, 150, 255, 150, 150, 150, 255,
+      150, 150, 150, 255, 150, 150, 150, 255,
+    ]);
+  });
+
+  it('shows the remapped AO map in both panes when AO-only mode is on', () => {
     const ao = solidTexture([200, 200, 200, 255]);
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
     deps.state.viewModeOriginal = 'ao';
@@ -132,10 +149,36 @@ describe('createRender2D render pipeline', () => {
     const shared = sharedState();
     createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
 
-    // Original pane shows the raw AO factors (not base × AO) at native resolution.
+    // Original pane shows the AO factors — the bias/scale remap is the
+    // identity at defaults, so the raw map passes through — at native resolution.
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([200, 200, 200, 255]);
     // Dithered pane quantizes the AO map (200 → white).
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
+  });
+
+  it('applies AO scale in the AO-only view mode', () => {
+    const ao = solidTexture([200, 200, 200, 255]);
+    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.viewModeOriginal = 'ao';
+    deps.state.viewModeProcessed = 'ao';
+    deps.state.aoScale = 2;
+    const shared = sharedState();
+    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+
+    // 200/255 visibility at scale 2 → multiplier 1 − 2×(55/255) = 145/255 → 145 gray.
+    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([145, 145, 145, 255]);
+  });
+
+  it('applies AO bias in the AO-only view mode', () => {
+    const ao = solidTexture([255, 255, 255, 255]); // fully unoccluded
+    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.viewModeOriginal = 'ao';
+    deps.state.aoBias = 0.5;
+    const shared = sharedState();
+    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+
+    // Bias 0.5 on unoccluded pixels → multiplier 0.5 → 128 gray (Math.round).
+    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([128, 128, 128, 255]);
   });
 
   it('renders each pane from its own view mode', () => {
@@ -146,7 +189,7 @@ describe('createRender2D render pipeline', () => {
     const shared = sharedState();
     createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
 
-    // Original pane shows the raw AO factors at native resolution.
+    // Original pane shows the AO factors (identity remap at defaults) at native resolution.
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([200, 200, 200, 255]);
     // Dithered pane quantizes the lit base texture, not the AO map — all dark → black.
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));

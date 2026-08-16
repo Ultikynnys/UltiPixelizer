@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { applyAO, imageAOFactors, redChannelFactors } from '../src/lib/ao';
+import { aoMultiplier, applyAO, imageAOFactors, redChannelFactors } from '../src/lib/ao';
 import { FakeCanvas, installDomStubs } from './helpers/domStubs';
 
 beforeAll(() => {
@@ -56,6 +56,29 @@ describe('ambient occlusion factors', () => {
     applyAO(data, new Uint8ClampedArray([0, 255]), -1, 4);
     expect(Array.from(data.slice(0, 3))).toEqual([0, 0, 0]);
     expect(Array.from(data.slice(4, 7))).toEqual([100, 100, 100]);
+  });
+});
+
+describe('AO multiplier remap', () => {
+  it('is the raw visibility at default bias and scale', () => {
+    expect(aoMultiplier(200, 0, 1)).toBeCloseTo(200 / 255);
+    expect(aoMultiplier(0, 0, 1)).toBe(0);
+    expect(aoMultiplier(255, 0, 1)).toBe(1);
+  });
+
+  it('returns 1 (no AO) when scale is zero', () => {
+    expect(aoMultiplier(0, 0, 0)).toBe(1);
+    expect(aoMultiplier(128, 0, 0)).toBe(1);
+  });
+
+  it('raises the baseline with positive bias', () => {
+    // Unoccluded factor 255 → occlusion 0 → adjusted 0.5 → multiplier 0.5.
+    expect(aoMultiplier(255, 0.5, 1)).toBe(0.5);
+  });
+
+  it('clamps the remap to [0, 1]', () => {
+    expect(aoMultiplier(0, -1, 4)).toBe(0); // occlusion 1, adjusted 3 → clamped 1
+    expect(aoMultiplier(255, -1, 4)).toBe(1); // occlusion 0, adjusted −1 → clamped 0
   });
 });
 
