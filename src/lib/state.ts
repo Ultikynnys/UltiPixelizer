@@ -39,6 +39,7 @@ export type State = {
   aoBias: number;
   aoScale: number;
   aoDistance: number;
+  bakeResolution: number;
   lightmapContribution: number;
   normalStrength: number;
   normalFormat: NormalFormat;

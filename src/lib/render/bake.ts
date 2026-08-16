@@ -1,6 +1,5 @@
 import { bakeMeshAO } from '../aoBake';
 import { factorsToCanvas, pixelsToCanvas } from '../canvas';
-import { LIGHTMAP_MAX_RESOLUTION } from '../defaults';
 import { errorMessage } from '../strings';
 import { bakeMeshLightmap, type BakeLightmapOptions } from '../lightmapBake';
 import { imageNormalMapPixels } from '../normal';
@@ -55,12 +54,14 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     };
   }
 
-  // The lightmap bakes at a coarse resolution: lighting is a smooth signal, so a
-  // low-res bake (bilinearly upscaled at apply time) is visually identical and
-  // keeps the per-pixel pass cheap regardless of the source texture size.
-  function lightmapBakeSize(source: { width: number; height: number }): { width: number; height: number } {
+  // Baked maps (AO and lightmap) render at the user-controlled bake resolution:
+  // lighting and occlusion are smooth signals, so a low-res bake (bilinearly
+  // upscaled at apply time) is visually identical and keeps the per-pixel passes
+  // cheap regardless of the source texture size.
+  function bakeSize(source: { width: number; height: number }): { width: number; height: number } {
     const maxDimension = Math.max(source.width, source.height);
-    const scale = maxDimension > LIGHTMAP_MAX_RESOLUTION ? LIGHTMAP_MAX_RESOLUTION / maxDimension : 1;
+    const cap = state.bakeResolution;
+    const scale = maxDimension > cap ? cap / maxDimension : 1;
     return {
       width: Math.max(1, Math.round(source.width * scale)),
       height: Math.max(1, Math.round(source.height * scale)),
@@ -71,7 +72,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     const scene = getAOScene();
     if (!scene || !textures.base.image) return null;
     const baseColor = textures.base.image;
-    const { width, height } = lightmapBakeSize(baseColor);
+    const { width, height } = bakeSize(baseColor);
     const pixels = bakeMeshLightmap(scene, width, height, currentLightmapBakeOptions());
     return pixelsToCanvas(pixels, width, height);
   }
@@ -84,10 +85,11 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
       return;
     }
     const baseColor = textures.base.image!;
+    const { width, height } = bakeSize(baseColor);
     textures.ao.image = factorsToCanvas(
-      bakeMeshAO(scene, baseColor.width, baseColor.height, { samples: AO_BAKE_SAMPLES, distance: state.aoDistance }),
-      baseColor.width,
-      baseColor.height,
+      bakeMeshAO(scene, width, height, { samples: AO_BAKE_SAMPLES, distance: state.aoDistance }),
+      width,
+      height,
     );
     textures.ao.name = 'Generated AO';
   }

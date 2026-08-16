@@ -28,6 +28,7 @@ const config: ConversionConfig = {
   aoBias: 0,
   aoScale: 1,
   aoDistance: 2,
+  bakeResolution: 64,
   sunColor: '#ffd8a8',
   sunIntensity: 0.9,
   ambientColor: '#8fb4ff',
@@ -120,6 +121,16 @@ describe('conversion presets', () => {
     expect(parsed.normalFormat).toBe('opengl');
   });
 
+  it('migrates and validates bake resolution', () => {
+    const current = createPreset('Legacy bake res', '', config);
+    const { bakeResolution: _removed, ...legacy } = current;
+    expect(parsePreset(JSON.stringify(legacy)).bakeResolution).toBe(64);
+    expect(isConversionPreset({ ...current, bakeResolution: 16 })).toBe(true);
+    expect(isConversionPreset({ ...current, bakeResolution: 512 })).toBe(true);
+    expect(isConversionPreset({ ...current, bakeResolution: 8 })).toBe(false);
+    expect(isConversionPreset({ ...current, bakeResolution: 513 })).toBe(false);
+  });
+
   it('renames legacy diagonal and vertical dither modes to stripes', () => {
     const current = createPreset('Legacy modes', '', config);
     const { mode: _removed, ...legacy } = current;
@@ -155,6 +166,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       aoBias: 0,
       aoScale: 1,
       aoDistance: 2,
+      bakeResolution: 64,
       sun: { color: '#ffd8a8', intensity: 0.9, direction: { x: -0.5, y: -0.7071067811865476, z: -0.5 }, enabled: true },
       ambient: { color: '#8fb4ff', intensity: 0.6, enabled: true },
       lightmapContribution: 0.75,
@@ -165,7 +177,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(19);
+    expect(Object.keys(defaults)).toHaveLength(20);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -179,6 +191,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       aoBias: 0,
       aoScale: 1,
       aoDistance: 2,
+      bakeResolution: 64,
       sunColor: '#ffffff',
       sunIntensity: 1,
       ambientColor: '#ffffff',
@@ -207,6 +220,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       aoBias: 0,
       aoScale: 1,
       aoDistance: 2,
+      bakeResolution: 64,
       sunColor: '#ffd8a8',
       sunIntensity: 0.9,
       ambientColor: '#8fb4ff',

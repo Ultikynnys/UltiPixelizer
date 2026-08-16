@@ -12,9 +12,9 @@ export const DEFAULT_SMOOTH_ANGLE = 30;
 export const AMBIENT_FLOOR = 0.06;
 
 /**
- * Maximum dimension (in texels) the lightmap bakes at. Lighting is a smooth,
- * low-frequency signal, so it is computed per pixel at this coarse resolution and
- * bilinearly upscaled to the base color at apply time — keeping the per-pixel bake
- * cheap regardless of how large the source texture is.
+ * Default resolution (longest side in texels) for generated AO and lightmap maps.
+ * Lighting and occlusion are smooth, low-frequency signals, so a coarse default
+ * bakes fast and is bilinearly upscaled to the base color at apply time. The user
+ * can raise it for finer maps via the bake resolution control.
  */
-export const LIGHTMAP_MAX_RESOLUTION = 64;
+export const DEFAULT_BAKE_RESOLUTION = 64;

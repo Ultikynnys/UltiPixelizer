@@ -72,6 +72,21 @@ describe('generateAo', () => {
     expect(deps.showToast).toHaveBeenLastCalledWith('Ambient occlusion generated');
   });
 
+  it('bakes AO at a low resolution independent of the source size', () => {
+    const scene = new Scene();
+    mocks.bakeMeshAO.mockReturnValue(new Uint8ClampedArray(64 * 32).fill(255));
+    const { deps, bake } = setup({ getAOScene: () => scene });
+    const large = new FakeCanvas();
+    large.width = 512;
+    large.height = 256;
+    deps.textures.base.image = asSourceImage(large);
+
+    bake.generateAo();
+    vi.advanceTimersByTime(30);
+
+    expect(mocks.bakeMeshAO).toHaveBeenCalledWith(scene, 64, 32, { samples: 128, distance: 2 });
+  });
+
   it('reports bake failures through the toast', () => {
     mocks.bakeMeshAO.mockImplementation(() => {
       throw new Error('gpu exploded');
@@ -155,7 +170,7 @@ describe('bakeLighting', () => {
     bake.bakeLighting();
     vi.advanceTimersByTime(30);
 
-    // 512 × 256 caps to the LIGHTMAP_MAX_RESOLUTION of 64 on the longest side,
+    // 512 × 256 caps to the default bake resolution of 64 on the longest side,
     // preserving aspect ratio (64 × 32).
     expect(mocks.bakeMeshLightmap).toHaveBeenCalledWith(scene, 64, 32, expect.anything());
   });

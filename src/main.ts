@@ -11,7 +11,7 @@ import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
 import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
 import { lightmapMatchesBaseColor } from './lib/lightmap';
 import type { NormalFormat } from './lib/normal';
-import { AMBIENT_FLOOR, DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY } from './lib/defaults';
+import { AMBIENT_FLOOR, DEFAULT_AMBIENT_INTENSITY, DEFAULT_BAKE_RESOLUTION, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY } from './lib/defaults';
 import { createRenderer } from './lib/render';
 import { lightmapIsActive, type LightState, type PreviewMode, type State, type TextureChannelId, type TextureSlot } from './lib/state';
 import { errorMessage, safeFileName } from './lib/strings';
@@ -286,6 +286,8 @@ app.innerHTML = `
           <input class="range" id="aoScale" type="range" min="0" max="2" step="0.01" value="1" aria-label="Ambient occlusion scale" />
           <label class="control-row"><span><strong>Distance</strong><small>Ray reach for generated AO</small></span><output id="aoDistanceValue">2.00×</output></label>
           <input class="range" id="aoDistance" type="range" min="0.05" max="3" step="0.05" value="2" aria-label="Ambient occlusion distance" />
+          <label class="control-row"><span><strong>Resolution</strong><small>Bake size for AO & lighting</small></span><output id="bakeResolutionValue">${DEFAULT_BAKE_RESOLUTION} px</output></label>
+          <input class="range" id="bakeResolution" type="range" min="16" max="512" step="16" value="${DEFAULT_BAKE_RESOLUTION}" aria-label="Bake resolution" />
           <button class="button button-secondary button-full" id="generateAoButton" type="button">Generate AO</button>
         </section>
 
@@ -390,6 +392,8 @@ const aoScaleInput = document.querySelector<HTMLInputElement>('#aoScale')!;
 const aoScaleValue = document.querySelector<HTMLOutputElement>('#aoScaleValue')!;
 const aoDistanceInput = document.querySelector<HTMLInputElement>('#aoDistance')!;
 const aoDistanceValue = document.querySelector<HTMLOutputElement>('#aoDistanceValue')!;
+const bakeResolutionInput = document.querySelector<HTMLInputElement>('#bakeResolution')!;
+const bakeResolutionValue = document.querySelector<HTMLOutputElement>('#bakeResolutionValue')!;
 const strengthInput = document.querySelector<HTMLInputElement>('#strength')!;
 const strengthValue = document.querySelector<HTMLOutputElement>('#strengthValue')!;
 const generateAoButton = document.querySelector<HTMLButtonElement>('#generateAoButton')!;
@@ -653,6 +657,7 @@ function updateAOControls(): void {
   syncRangeValue(aoBiasInput, aoBiasValue, Math.round(state.aoBias * 100) / 100, formatSignedFixed2);
   syncRangeValue(aoScaleInput, aoScaleValue, Math.round(state.aoScale * 100) / 100, formatTimes2);
   syncRangeValue(aoDistanceInput, aoDistanceValue, state.aoDistance, formatTimes2);
+  syncRangeValue(bakeResolutionInput, bakeResolutionValue, state.bakeResolution, formatPixels);
   renderLightmapControls();
 }
 
@@ -1383,6 +1388,15 @@ bindRange({
   output: aoDistanceValue,
   format: formatTimes2,
   apply: (value) => { state.aoDistance = value; },
+});
+bindRange({
+  input: bakeResolutionInput,
+  output: bakeResolutionValue,
+  format: formatPixels,
+  apply: (value) => {
+    state.bakeResolution = value;
+    scheduleImplicitLightmapBake();
+  },
 });
 bindRange({
   input: lightmapContributionInput,

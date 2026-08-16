@@ -3,7 +3,7 @@ import type { DitherMode } from './dither';
 import { clamp01 } from './math';
 import { parseJsonFile, serializeJsonFile } from './storage';
 import { slugify } from './strings';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_BAKE_RESOLUTION, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { NormalFormat } from './normal';
 import type { State } from './state';
 
@@ -27,6 +27,7 @@ export type ConversionConfig = {
   aoBias: number;
   aoScale: number;
   aoDistance: number;
+  bakeResolution: number;
   sunColor: string;
   sunIntensity: number;
   ambientColor: string;
@@ -86,6 +87,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'aoBias', path: ['aoBias'], default: 0, migrateDefault: 0, validate: inRange(-1, 1) },
   { key: 'aoScale', path: ['aoScale'], default: 1, migrateDefault: 1, validate: inRange(0, 2) },
   { key: 'aoDistance', path: ['aoDistance'], default: 2, migrateDefault: 2, validate: inRange(0.05, 3) },
+  { key: 'bakeResolution', path: ['bakeResolution'], default: DEFAULT_BAKE_RESOLUTION, migrateDefault: DEFAULT_BAKE_RESOLUTION, validate: inRange(16, 512) },
   { key: 'sunColor', path: ['sun', 'color'], default: '#ffffff', migrateDefault: '#ffffff', validate: isHex },
   { key: 'sunIntensity', path: ['sun', 'intensity'], default: DEFAULT_SUN_INTENSITY, migrateDefault: DEFAULT_SUN_INTENSITY, validate: inRange(0, 1) },
   { key: 'ambientColor', path: ['ambient', 'color'], default: '#ffffff', migrateDefault: '#ffffff', validate: isHex },
