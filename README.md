@@ -11,7 +11,7 @@ On the surface, UltiPixelizer is an easy-to-use dithering tool for textures. But
 - **Dithering**: Floyd-Steinberg, Atkinson, Ordered 4×4, Cross, Stripes, Noise, Checker, and Hard map (no diffusion).
 - **Palettes**: 30 built-in presets plus a custom palette editor with import/export.
 - **Adjustments**: brightness, contrast, and saturation.
-- **3D preview**: orbit the model with live sun/ambient lighting; select UV channel, LOD level, and world axis (Blender Z-up / Maya Y-up).
+- **3D preview**: orbit the model with baked lighting applied; select UV channel, LOD level, and world axis (Blender Z-up / Maya Y-up).
 - **Baking**: generate ambient occlusion, bake lighting into UV space, and apply normal maps.
 - **UV overlap visualization**: an animated screen-space glow wave highlights overlapping UV shells.
 - **Export**: save the dithered result as a PNG, and save/load settings as JSON.

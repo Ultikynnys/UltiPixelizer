@@ -385,14 +385,10 @@ describe('ModelViewport', () => {
     viewport2.dispose();
   });
 
-  it('routes sun and ambient setters through the lights', () => {
+  it('exposes the camera forward direction for sun orientation', () => {
+    // Lighting is baked only — the viewport carries no realtime sun/ambient
+    // setters. The camera forward vector is what feeds the bake direction.
     const viewport = new ModelViewport(host());
-    viewport.setSunDirection({ x: 1, y: 0, z: 0 });
-    viewport.setSunEnabled(false);
-    viewport.setSunColor('#ff0000');
-    viewport.setSunIntensity(0.5);
-    viewport.setAmbientColor('#00ff00');
-    viewport.setAmbientIntensity(0.25);
     const forward = viewport.getCameraForward();
     expect(Math.hypot(forward.x, forward.y, forward.z)).toBeCloseTo(1);
     viewport.dispose();

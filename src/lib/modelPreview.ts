@@ -7,7 +7,6 @@ import {
   Box3,
   BufferGeometry,
   CanvasTexture,
-  DirectionalLight,
   DoubleSide,
   Float32BufferAttribute,
   LinearFilter,
@@ -15,6 +14,7 @@ import {
   Material,
   Mesh,
   MeshNormalMaterial,
+  MOUSE,
   Object3D,
   PerspectiveCamera,
   Quaternion,
@@ -31,11 +31,10 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createCanvas } from './canvas';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
 import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, forEachMeshIndexed, materialsOf, prepareSurfaceNormals, recomputeVertexNormals, triangleIndices } from './modelScene';
-import { cameraForwardFromQuaternion, directionToSun, type DirectionVector } from './sunDirection';
+import { cameraForwardFromQuaternion, type DirectionVector } from './sunDirection';
 import { UV_OVERLAP_LABEL } from './uvOverlap';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
@@ -123,8 +122,10 @@ export class ModelViewport {
   private readonly controls: OrbitControls;
   private readonly timer = new Timer();
   private readonly resizeObserver: ResizeObserver;
-  private readonly sun = new DirectionalLight(0xffffff, DEFAULT_SUN_INTENSITY * Math.PI);
-  private readonly ambient = new AmbientLight(0xffffff, DEFAULT_AMBIENT_INTENSITY * Math.PI);
+  // Lighting is baked only — the model texture already carries the baked (or
+  // implicitly baked) lighting, so the viewport never re-lights it in realtime.
+  // The full-intensity white ambient displays the texture unmodulated.
+  private readonly ambient = new AmbientLight(0xffffff, Math.PI);
   private readonly axes = new AxesHelper(1);
   private model: Object3D | null = null;
   private mixer: AnimationMixer | null = null;
@@ -145,11 +146,10 @@ export class ModelViewport {
     host.append(this.renderer.domElement);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
+    this.controls.mouseButtons = { LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN };
     this.controls.addEventListener('change', () => this.onCameraChange?.());
     this.scene.add(this.ambient);
     this.scene.add(this.axes);
-    this.sun.position.set(3, 5, 4);
-    this.scene.add(this.sun);
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
     this.timer.connect(document);
@@ -333,35 +333,6 @@ export class ModelViewport {
   getCameraForward(): DirectionVector {
     const worldQuaternion = this.camera.getWorldQuaternion(new Quaternion());
     return cameraForwardFromQuaternion(worldQuaternion);
-  }
-
-  setSunDirection(direction: DirectionVector): void {
-    const towardSun = directionToSun(direction);
-    this.sun.position.copy(this.sun.target.position).add(new Vector3(
-      towardSun.x,
-      towardSun.y,
-      towardSun.z,
-    ));
-  }
-
-  setSunEnabled(enabled: boolean): void {
-    this.sun.visible = enabled;
-  }
-
-  setSunColor(color: string): void {
-    this.sun.color.set(color);
-  }
-
-  setSunIntensity(intensity: number): void {
-    this.sun.intensity = intensity * Math.PI;
-  }
-
-  setAmbientColor(color: string): void {
-    this.ambient.color.set(color);
-  }
-
-  setAmbientIntensity(intensity: number): void {
-    this.ambient.intensity = intensity * Math.PI;
   }
 
   /** Recenters the orbit camera on the model and notifies camera-change

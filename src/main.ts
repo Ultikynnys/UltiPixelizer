@@ -11,7 +11,7 @@ import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
 import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
 import { lightmapMatchesBaseColor } from './lib/lightmap';
 import type { NormalFormat } from './lib/normal';
-import { AMBIENT_FLOOR, DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY, DEFAULT_TESSELLATION } from './lib/defaults';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY, DEFAULT_TESSELLATION } from './lib/defaults';
 import { createRenderer } from './lib/render';
 import { lightmapIsActive, type LightState, type PreviewMode, type State, type TextureChannelId, type TextureSlot } from './lib/state';
 import { errorMessage, safeFileName } from './lib/strings';
@@ -619,8 +619,9 @@ function renderOrientationReadout(): void {
 }
 
 // Shared sync for a sun/ambient light group (enabled toggle, color picker + chip,
-// intensity slider + readout). `renderSunControl` drives both lights through this
-// so the twin blocks stay in one place.
+// intensity slider + readout). These controls feed the lighting bake — the
+// viewports carry no realtime lights — so `renderSunControl` syncs both groups
+// through this one place.
 function syncLightControls(
   light: LightState,
   enabled: HTMLInputElement,
@@ -745,19 +746,14 @@ function applyTessellation(value: number): void {
   scheduleNormalAdjustedLighting();
 }
 
+// Sun/ambient state feeds the bake only — the 3D viewports never light the model
+// in realtime. The baked lightmap (explicit or implicit) is multiplied into the
+// texture by the 2D pipeline, and the viewport displays it under a neutral white
+// fill; routing light state to the viewports would re-light an already-lit
+// texture. See ModelViewport.
 function applySun(): void {
   renderSunControl();
   renderOrientationReadout();
-  const lightmapActive = lightmapIsActive(textures);
-  const ambientIntensity = lightmapActive ? 1 : state.ambient.enabled ? Math.max(AMBIENT_FLOOR, state.ambient.intensity) : 0;
-  forEachViewport((viewport) => {
-    viewport.setSunDirection(state.sun.direction);
-    viewport.setSunEnabled(state.sun.enabled && !lightmapActive);
-    viewport.setSunColor(state.sun.color);
-    viewport.setSunIntensity(state.sun.intensity);
-    viewport.setAmbientColor(lightmapActive ? '#ffffff' : state.ambient.color);
-    viewport.setAmbientIntensity(ambientIntensity);
-  });
   scheduleImplicitLightmapBake();
 }
 
