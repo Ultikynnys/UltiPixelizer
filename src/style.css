@@ -28,8 +28,6 @@
   --pattern-dot-soft: #bbb;
   --pattern-dot-mid: #aaa;
   --pattern-dot-dim: #888;
-  /* ── elevation ── */
-  --shadow: rgba(0,0,0,.32);
   font-family: 'Manrope', system-ui, sans-serif;
   font-synthesis: none;
 }
@@ -147,7 +145,6 @@ button { color: inherit; }
 .model-host { height: clamp(280px, 52vh, 560px); min-height: 0; width: 100%; }
 .model-canvas { cursor: grab; display: block; height: 100%; width: 100%; }
 .model-canvas:active { cursor: grabbing; }
-.processed-pane .canvas-frame { box-shadow: 0 22px 70px var(--shadow); }
 .drop-hint { background: color-mix(in srgb, var(--ink) 85%, transparent); bottom: 18px; color: var(--muted); font: 400 9px 'DM Mono', monospace; letter-spacing: .08em; opacity: 0; padding: 8px 10px; position: absolute; text-transform: uppercase; transform: translateY(6px); transition: .2s; }
 .canvas-stage:hover .drop-hint, .canvas-stage.dragging .drop-hint { opacity: 1; transform: none; }
 .preview-mode-toggle {
