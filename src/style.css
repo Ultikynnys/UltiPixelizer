@@ -13,6 +13,8 @@
   /* ── lines ── */
   --line: #41413d;
   --line-bright: #55554f;
+  /* ── control sizing ── */
+  --control-height: 32px;
   /* ── text, dim → bright ── */
   --faint: #77776e;
   --muted: #97978e;
@@ -48,7 +50,7 @@ button { color: inherit; }
 }
 .brand { align-items: center; color: var(--paper); display: flex; font-size: 18px; font-weight: 800; gap: 12px; letter-spacing: -.04em; text-decoration: none; width: fit-content; }
 .brand > span:nth-child(2) > span { color: var(--accent); }
-.build-version { background: var(--card); color: var(--muted); font: 500 8px 'DM Mono', monospace; letter-spacing: .04em; padding: 4px 6px; }
+.build-version { align-items: center; background: var(--card); color: var(--muted); display: inline-flex; font: 500 8px 'DM Mono', monospace; height: var(--control-height); letter-spacing: .04em; padding: 0 6px; }
 .brand-mark { display: grid; grid-template-columns: repeat(2, 7px); gap: 2px; transform: rotate(45deg); }
 .brand-mark i { background: var(--paper); display: block; height: 7px; }
 .brand-mark i:last-child { background: var(--accent); }
@@ -56,11 +58,12 @@ button { color: inherit; }
 .button-quiet { background: transparent; color: var(--muted); justify-self: end; padding-right: 0; }
 .button-quiet:hover { color: var(--paper); }
 .topbar-actions { align-items: center; display: flex; gap: 6px; }
+.topbar-actions .button { height: var(--control-height); padding: 0 17px; }
 .brand-group { align-items: center; display: flex; gap: 14px; min-width: 0; }
 .brand-group .build-version { flex: none; }
 .circle-link {
   align-items: center; background: var(--card);
-  color: var(--muted); display: inline-flex; flex: none; gap: 8px; height: 32px; justify-content: center;
+  color: var(--muted); display: inline-flex; flex: none; gap: 8px; height: var(--control-height); justify-content: center;
   padding: 0 12px; text-decoration: none; white-space: nowrap;
   transition: background-color .22s ease, color .22s ease;
 }
@@ -73,7 +76,7 @@ button { color: inherit; }
 .circle-kofi:active { color: var(--paper); }
 .button-primary { background: var(--accent); color: var(--on-accent); }
 .button-primary:hover { background: var(--accent-hover); }
-.button-secondary { background: var(--raised); color: var(--paper); }
+.button-secondary { background: var(--raised); border: 1px solid var(--line-bright); color: var(--paper); }
 .button-secondary:hover { background: var(--line); }
 .button:disabled { cursor: not-allowed; opacity: .35; }
 
@@ -194,8 +197,8 @@ select option { background: var(--surface); color: var(--paper); }
 .texture-slot-download svg { display: block; }
 .texture-slot-clear { align-items: center; background: var(--chip); bottom: 4px; color: var(--paper-soft); cursor: pointer; display: none; font: 500 10px 'DM Mono', monospace; height: 16px; justify-content: center; line-height: 1; padding: 0; position: absolute; right: 4px; width: 16px; }
 .texture-slot.filled .texture-slot-clear { display: flex; }
-.texture-slot-download:hover, .texture-slot-clear:hover, .palette-card-delete:hover, .custom-color button:hover { background: var(--accent); color: var(--on-accent); }
-.button-full { margin-top: 16px; width: 100%; }
+.texture-slot-bake { align-items: center; background: var(--chip); color: var(--paper-soft); cursor: pointer; display: flex; font: 500 8px 'DM Mono', monospace; height: 16px; justify-content: center; left: 4px; letter-spacing: .04em; padding: 0 4px; position: absolute; top: 4px; }
+.texture-slot-download:hover, .texture-slot-clear:hover, .texture-slot-bake:hover, .palette-card-delete:hover, .custom-color button:hover { background: var(--accent); color: var(--on-accent); }
 
 .control-column { background: var(--surface); min-height: 0; overflow-y: auto; scrollbar-color: var(--line) var(--surface); }
 .panel { padding: 24px 25px; }
@@ -296,7 +299,7 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
 .button-secondary:focus-visible { background: var(--line); }
 .preview-mode-toggle button:focus-visible { color: var(--paper); }
 .preview-view-toggle button:focus-visible { color: var(--paper); }
-.texture-slot-download:focus-visible, .texture-slot-clear:focus-visible,
+.texture-slot-download:focus-visible, .texture-slot-clear:focus-visible, .texture-slot-bake:focus-visible,
 .palette-card-delete:focus-visible, .custom-color button:focus-visible { background: var(--accent); color: var(--on-accent); }
 .palette-card-duplicate:focus-visible, .palette-card-export:focus-visible { color: var(--paper); }
 .palette-card-new:focus-visible, .custom-color-add:focus-visible { color: var(--paper); }

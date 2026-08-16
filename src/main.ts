@@ -22,11 +22,11 @@ import exampleModelUrl from '../Example/Book.fbx?url';
 import exampleBaseColorUrl from '../Example/Book_BaseColor.png?url';
 import exampleNormalUrl from '../Example/Book_NormalMap.png?url';
 
-const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string }> = [
+const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string; bake?: boolean }> = [
   { id: 'base', label: 'BaseColor' },
-  { id: 'ao', label: 'AO' },
+  { id: 'ao', label: 'AO', bake: true },
   { id: 'normal', label: 'Normal' },
-  { id: 'lightmap', label: 'Lightmap' },
+  { id: 'lightmap', label: 'Lightmap', bake: true },
 ];
 
 // Download-arrow icon shared by the palette import card and the texture slot
@@ -142,6 +142,7 @@ app.innerHTML = `
               <span class="texture-slot-label">+${channel.label}</span>
               <button class="texture-slot-download" data-download-texture="${channel.id}" type="button" aria-label="Download ${channel.label}" title="Download ${channel.label}">${DOWNLOAD_ICON_SVG}</button>
               <button class="texture-slot-clear" data-clear-texture="${channel.id}" type="button" aria-label="Clear ${channel.label}">×</button>
+              ${channel.bake ? `<button class="texture-slot-bake" data-bake-texture="${channel.id}" type="button" aria-label="Bake ${channel.label}">Bake</button>` : ''}
             </div>
           `).join('')}
           <div class="texture-slot texture-slot-model" data-model-slot tabindex="0" aria-label="Model bundle slot">
@@ -291,7 +292,6 @@ app.innerHTML = `
           <input class="range" id="aoScale" type="range" min="0" max="2" step="0.01" value="1" aria-label="Ambient occlusion scale" />
           <label class="control-row"><span><strong>Distance</strong><small>Ray reach for generated AO</small></span><output id="aoDistanceValue">2.00×</output></label>
           <input class="range" id="aoDistance" type="range" min="0.05" max="3" step="0.05" value="2" aria-label="Ambient occlusion distance" />
-          <button class="button button-secondary button-full" id="generateAoButton" type="button">Generate AO</button>
         </section>
 
         <section class="panel normals-panel">
@@ -308,7 +308,6 @@ app.innerHTML = `
         <section class="panel lightmap-panel">
           <div class="panel-heading compact"><div><p class="eyebrow">LIGHTMAP BAKE</p><h2>Baked lighting</h2></div></div>
           <div class="lightmap-status" id="lightmapStatus">No lightmap loaded</div>
-          <button class="button button-secondary button-full" id="bakeLightmapButton" type="button">Generate Lighting</button>
         </section>
       </aside>
     </main>
@@ -384,9 +383,8 @@ const aoDistanceInput = document.querySelector<HTMLInputElement>('#aoDistance')!
 const aoDistanceValue = document.querySelector<HTMLOutputElement>('#aoDistanceValue')!;
 const strengthInput = document.querySelector<HTMLInputElement>('#strength')!;
 const strengthValue = document.querySelector<HTMLOutputElement>('#strengthValue')!;
-const generateAoButton = document.querySelector<HTMLButtonElement>('#generateAoButton')!;
 const lightmapStatus = document.querySelector<HTMLDivElement>('#lightmapStatus')!;
-const bakeLightmapButton = document.querySelector<HTMLButtonElement>('#bakeLightmapButton')!;
+const bakeLightmapButton = document.querySelector<HTMLButtonElement>('[data-bake-texture="lightmap"]')!;
 const normalStrengthInput = document.querySelector<HTMLInputElement>('#normalStrength')!;
 const normalStrengthValue = document.querySelector<HTMLOutputElement>('#normalStrengthValue')!;
 const normalFormatSelect = document.querySelector<HTMLSelectElement>('#normalFormat')!;
@@ -1211,6 +1209,13 @@ const {
   resetPreview,
 } = renderer;
 
+// Single source of truth for which texture channels have a one-click bake and
+// the action behind it — used by the slot Bake buttons and the download path.
+const bakeActions: Partial<Record<TextureChannelId, () => Promise<boolean>>> = {
+  ao: generateAo,
+  lightmap: bakeLighting,
+};
+
 const renderScheduler = createRenderScheduler(render);
 
 function updateResolution(value: number, immediate = false): void {
@@ -1426,8 +1431,6 @@ normalFormatSelect.addEventListener('change', () => {
   state.normalFormat = normalFormatSelect.value as NormalFormat;
   scheduleNormalAdjustedLighting();
 });
-generateAoButton.addEventListener('click', generateAo);
-bakeLightmapButton.addEventListener('click', bakeLighting);
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.addEventListener('click', () => {
   state.mode = button.dataset.mode as DitherMode;
   setActiveMode(state.mode);
@@ -1556,7 +1559,7 @@ function downloadSlotImage(channel: TextureChannelId): void {
   }
   // AO and lightmap can be generated in-app — bake on demand, then download.
   // The bake path surfaces its own failure toast, so a false result is a no-op.
-  const baked = channel === 'ao' ? generateAo() : channel === 'lightmap' ? bakeLighting() : null;
+  const baked = bakeActions[channel]?.() ?? null;
   if (!baked) {
     showToast(`No ${textureLabel(channel)} image to download`);
     return;
@@ -1584,6 +1587,11 @@ textureRibbon.addEventListener('click', (event) => {
   const clearButton = target.closest<HTMLButtonElement>('[data-clear-texture]');
   if (clearButton?.dataset.clearTexture) {
     clearTexture(clearButton.dataset.clearTexture as TextureChannelId);
+    return;
+  }
+  const bakeButton = target.closest<HTMLButtonElement>('[data-bake-texture]');
+  if (bakeButton?.dataset.bakeTexture) {
+    bakeActions[bakeButton.dataset.bakeTexture as TextureChannelId]?.();
     return;
   }
   if (target.closest('[data-model-slot]')) {
