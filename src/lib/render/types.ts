@@ -25,8 +25,8 @@ export interface RendererDeps {
 
 export interface RendererApi {
   render: () => void;
-  generateAo: () => void;
-  bakeLighting: () => void;
+  generateAo: () => Promise<boolean>;
+  bakeLighting: () => Promise<boolean>;
   clearLightmap: () => void;
   scheduleImplicitLightmapBake: () => void;
   scheduleNormalAdjustedLighting: () => void;

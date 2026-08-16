@@ -11,6 +11,7 @@ import {
   type ConversionConfig,
 } from '../src/lib/presets';
 import type { State } from '../src/lib/state';
+import { DEFAULT_CAMERA_DIRECTION, DEFAULT_SUN_DIRECTION } from '../src/lib/sunDirection';
 
 const config: ConversionConfig = {
   resolution: 128,
@@ -34,6 +35,12 @@ const config: ConversionConfig = {
   ambientIntensity: 0.6,
   normalStrength: 0.6,
   normalFormat: 'opengl',
+  sunDirection: { x: -0.5, y: -0.7071067811865476, z: -0.5 },
+  sunEnabled: true,
+  ambientEnabled: true,
+  smoothAngle: 30,
+  tessellation: 2,
+  cameraDirection: { x: 0, y: 0, z: -1 },
 };
 
 describe('conversion presets', () => {
@@ -145,6 +152,26 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...base, normalFormat: 'vulkan' })).toBe(false);
   });
 
+  it('migrates presets saved before sun direction, toggles, and camera existed', () => {
+    const current = createPreset('Legacy', '', config);
+    const {
+      sunDirection: _sunDirection,
+      sunEnabled: _sunEnabled,
+      ambientEnabled: _ambientEnabled,
+      smoothAngle: _smoothAngle,
+      tessellation: _tessellation,
+      cameraDirection: _cameraDirection,
+      ...legacy
+    } = current;
+    const parsed = parsePreset(JSON.stringify(legacy));
+    expect(parsed.sunDirection).toEqual(DEFAULT_SUN_DIRECTION);
+    expect(parsed.sunEnabled).toBe(true);
+    expect(parsed.ambientEnabled).toBe(true);
+    expect(parsed.smoothAngle).toBe(30);
+    expect(parsed.tessellation).toBe(1);
+    expect(parsed.cameraDirection).toEqual(DEFAULT_CAMERA_DIRECTION);
+  });
+
 });
 
 describe('shared settings schema (CONFIG_FIELDS)', () => {
@@ -167,12 +194,15 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       ambient: { color: '#8fb4ff', intensity: 0.6, enabled: true },
       normalStrength: 0.6,
       normalFormat: 'opengl',
+      smoothAngle: 30,
+      tessellation: 2,
+      cameraDirection: { x: 0, y: 0, z: -1 },
     } as State;
   }
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(18);
+    expect(Object.keys(defaults)).toHaveLength(24);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -192,6 +222,12 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       ambientIntensity: 0.2,
       normalStrength: 1,
       normalFormat: 'opengl',
+      sunDirection: DEFAULT_SUN_DIRECTION,
+      sunEnabled: true,
+      ambientEnabled: true,
+      smoothAngle: 30,
+      tessellation: 1,
+      cameraDirection: DEFAULT_CAMERA_DIRECTION,
     });
     // Catalog/structural fields are deliberately not part of the table.
     expect('paletteKey' in defaults).toBe(false);
@@ -219,6 +255,12 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       ambientIntensity: 0.6,
       normalStrength: 0.6,
       normalFormat: 'opengl',
+      sunDirection: { x: -0.5, y: -0.7071067811865476, z: -0.5 },
+      sunEnabled: true,
+      ambientEnabled: true,
+      smoothAngle: 30,
+      tessellation: 2,
+      cameraDirection: { x: 0, y: 0, z: -1 },
     });
   });
 

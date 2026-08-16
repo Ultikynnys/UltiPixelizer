@@ -1,5 +1,5 @@
 import './style.css';
-import { createCanvas, createSampleTexture, downloadCanvas, downloadText, loadImageFile } from './lib/canvas';
+import { createCanvas, createSampleTexture, downloadCanvas, downloadText, drawImageToCanvas, loadImageFile } from './lib/canvas';
 import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomPalettes, paletteFromImport, selectOrCreatePalette, serializeCustomPalette, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
 import type { DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
@@ -13,9 +13,9 @@ import { lightmapMatchesBaseColor } from './lib/lightmap';
 import type { NormalFormat } from './lib/normal';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY, DEFAULT_TESSELLATION } from './lib/defaults';
 import { createRenderer } from './lib/render';
-import { lightmapIsActive, type LightState, type PreviewMode, type State, type TextureChannelId, type TextureSlot } from './lib/state';
+import { lightmapIsActive, type LightState, type PreviewMode, type SourceImage, type State, type TextureChannelId, type TextureSlot } from './lib/state';
 import { errorMessage, safeFileName } from './lib/strings';
-import { DEFAULT_SUN_DIRECTION, type DirectionVector } from './lib/sunDirection';
+import { DEFAULT_CAMERA_DIRECTION, DEFAULT_SUN_DIRECTION, type DirectionVector } from './lib/sunDirection';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
 import exampleModelUrl from '../Example/Book.fbx?url';
 import exampleBaseColorUrl from '../Example/Book_BaseColor.png?url';
@@ -27,6 +27,10 @@ const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string }> =
   { id: 'normal', label: 'Normal' },
   { id: 'lightmap', label: 'Lightmap' },
 ];
+
+// Download-arrow icon shared by the palette import card and the texture slot
+// download buttons, so the markup lives in one place.
+const DOWNLOAD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v7M4.5 6.5L7 9l2.5-2.5M2.5 11.5h9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('Application root not found.');
@@ -80,6 +84,7 @@ function defaultState(): State {
   state.useSourceNormals = false;
   state.smoothAngle = DEFAULT_SMOOTH_ANGLE;
   state.tessellation = DEFAULT_TESSELLATION;
+  state.cameraDirection = { ...DEFAULT_CAMERA_DIRECTION };
   state.showUVOverlap = false;
   state.showUVWireframe = true;
   state.showNormals = false;
@@ -164,6 +169,7 @@ app.innerHTML = `
             <div class="texture-slot" data-texture="${channel.id}" tabindex="0" aria-label="${channel.label} texture slot">
               <span class="texture-slot-preview"><span class="texture-slot-empty-mark">+</span></span>
               <span class="texture-slot-label">+${channel.label}</span>
+              <button class="texture-slot-download" data-download-texture="${channel.id}" type="button" aria-label="Download ${channel.label}" title="Download ${channel.label}">${DOWNLOAD_ICON_SVG}</button>
               <button class="texture-slot-clear" data-clear-texture="${channel.id}" type="button" aria-label="Clear ${channel.label}">×</button>
             </div>
           `).join('')}
@@ -893,7 +899,7 @@ function renderPalettes(): void {
       <span class="palette-card-new-label">Create new palette</span>
     </button>
     <button type="button" class="palette-card palette-card-new" data-import-palette aria-label="Import palette">
-      <span class="palette-card-new-icon"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v7M4.5 6.5L7 9l2.5-2.5M2.5 11.5h9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="palette-card-new-icon">${DOWNLOAD_ICON_SVG}</span>
       <span class="palette-card-new-label">Import palette</span>
     </button>
   ` : '');
@@ -1137,6 +1143,7 @@ function currentConfig() {
     paletteKey: state.paletteKey,
     palette: activePaletteSnapshot(),
     uvMap: state.uvMap,
+    cameraDirection: originalViewport ? originalViewport.getCameraForward() : state.cameraDirection,
   };
 }
 
@@ -1184,6 +1191,10 @@ function applyPreset(preset: ConversionPreset): void {
   hydrateEditorForSelection(paletteKey, selectedPalette);
   syncControlsFromState();
   applySun();
+  if (modelBundle) {
+    applyTessellation(state.tessellation);
+    forEachViewport((viewport) => viewport.setCameraForward(state.cameraDirection));
+  }
   updateResolution(preset.resolution, true);
   if (modelUVChannels.includes(preset.uvMap)) {
     uvMapSelect.value = preset.uvMap;
@@ -1549,8 +1560,44 @@ function pickTextureFromSlot(slot: HTMLElement): void {
   textureInput.click();
 }
 
+// Saves the slot's current image to disk. Loaded files are re-drawn onto a
+// canvas so every slot downloads as a PNG through the shared `downloadCanvas`.
+function saveSlotImage(image: SourceImage, name: string): void {
+  const canvas = image instanceof HTMLCanvasElement ? image : drawImageToCanvas(image, image.width, image.height).canvas;
+  downloadCanvas(canvas, name);
+}
+
+function downloadSlotImage(channel: TextureChannelId): void {
+  const data = textures[channel];
+  const name = safeFileName(`${textureLabel(channel)}.png`);
+  if (data.image) {
+    saveSlotImage(data.image, name);
+    showToast(`Downloaded ${textureLabel(channel)}`);
+    return;
+  }
+  // AO and lightmap can be generated in-app — bake on demand, then download.
+  // The bake path surfaces its own failure toast, so a false result is a no-op.
+  const baked = channel === 'ao' ? generateAo() : channel === 'lightmap' ? bakeLighting() : null;
+  if (!baked) {
+    showToast(`No ${textureLabel(channel)} image to download`);
+    return;
+  }
+  void baked.then((ok) => {
+    if (!ok) return;
+    const image = textures[channel].image;
+    if (!image) return;
+    saveSlotImage(image, name);
+    showToast(`Downloaded ${textureLabel(channel)}`);
+  });
+}
+
 textureRibbon.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
+  const downloadButton = target.closest<HTMLButtonElement>('[data-download-texture]');
+  if (downloadButton?.dataset.downloadTexture) {
+    downloadSlotImage(downloadButton.dataset.downloadTexture as TextureChannelId);
+    return;
+  }
   if (target.closest('[data-clear-model]')) {
     clearModel();
     return;

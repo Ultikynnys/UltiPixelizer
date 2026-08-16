@@ -10,8 +10,8 @@ import type { RendererDeps, RenderShared } from './types';
 const AO_BAKE_SAMPLES = 128;
 
 export interface BakeApi {
-  generateAo: () => void;
-  bakeLighting: () => void;
+  generateAo: () => Promise<boolean>;
+  bakeLighting: () => Promise<boolean>;
   clearLightmap: () => void;
   scheduleImplicitLightmapBake: () => void;
   scheduleNormalAdjustedLighting: () => void;
@@ -82,31 +82,37 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   }
 
   // Shared async-bake runner: scene guard, progress toast, deferred try/catch.
-  // `work` returns false to signal a non-fatal early exit (its own toast already
-  // shown) and true to publish the success toast.
+  // Resolves true when the bake completed, false on early exit or failure (the
+  // relevant toast is already shown in both cases) — callers that need the
+  // result, like the texture-slot download button, can await it.
   function runBakeTask(
     noSceneMessage: string,
     progressMessage: string,
     failureMessage: string,
     successMessage: string,
     work: () => boolean,
-  ): void {
+  ): Promise<boolean> {
     if (!getAOScene()) {
       showToast(noSceneMessage);
-      return;
+      return Promise.resolve(false);
     }
     showToast(progressMessage);
-    window.setTimeout(() => {
-      try {
-        if (work()) showToast(successMessage);
-      } catch (error) {
-        showToast(errorMessage(error, failureMessage));
-      }
-    }, 30);
+    return new Promise((resolve) => {
+      window.setTimeout(() => {
+        try {
+          const completed = work();
+          if (completed) showToast(successMessage);
+          resolve(completed);
+        } catch (error) {
+          showToast(errorMessage(error, failureMessage));
+          resolve(false);
+        }
+      }, 30);
+    });
   }
 
-  function generateAo(): void {
-    runBakeTask('Load a model to generate AO', 'Generating AO…', 'Could not generate ambient occlusion.', 'Ambient occlusion generated', () => {
+  function generateAo(): Promise<boolean> {
+    return runBakeTask('Load a model to generate AO', 'Generating AO…', 'Could not generate ambient occlusion.', 'Ambient occlusion generated', () => {
       computeAO();
       renderTextureRibbon();
       render2d.render();
@@ -114,8 +120,8 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     });
   }
 
-  function bakeLighting(): void {
-    runBakeTask('Load a model to bake lighting', 'Baking lighting…', 'Could not bake lighting.', 'Lighting baked', () => {
+  function bakeLighting(): Promise<boolean> {
+    return runBakeTask('Load a model to bake lighting', 'Baking lighting…', 'Could not bake lighting.', 'Lighting baked', () => {
       const canvas = bakeLightmapCanvas();
       if (!canvas) {
         showToast('Load a base texture to bake lighting');

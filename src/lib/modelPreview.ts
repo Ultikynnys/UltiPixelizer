@@ -342,7 +342,7 @@ export class ModelViewport {
    * after loading settings. */
   setCameraForward(direction: DirectionVector): void {
     const forward = normalizeDirection(direction);
-    const target = this.controls.target;
+    const target = new Vector3(this.controls.target.x, this.controls.target.y, this.controls.target.z);
     const distance = this.camera.position.distanceTo(target);
     this.camera.position.copy(target).addScaledVector(new Vector3(forward.x, forward.y, forward.z), -distance);
     this.camera.lookAt(target);

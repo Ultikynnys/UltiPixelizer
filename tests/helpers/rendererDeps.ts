@@ -31,6 +31,7 @@ export function createStateFixture(): State {
     aoDistance: 2,
     normalStrength: 1,
     normalFormat: 'opengl',
+    cameraDirection: { x: 0, y: 0, z: -1 },
     showUVOverlap: false,
     showUVWireframe: false,
     showNormals: false,

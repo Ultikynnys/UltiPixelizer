@@ -421,6 +421,20 @@ describe('ModelViewport', () => {
     viewport.dispose();
   });
 
+  it('setCameraForward reorients the camera along a direction and notifies', () => {
+    const viewport = new ModelViewport(host());
+    viewport.setModel(meshScene(), []);
+    viewport.onCameraChange = vi.fn();
+    viewport.setCameraForward({ x: 0, y: 0, z: -1 });
+    const forward = viewport.getCameraForward();
+    expect(forward.x).toBeCloseTo(0);
+    expect(forward.y).toBeCloseTo(0);
+    expect(forward.z).toBeCloseTo(-1);
+    expect(viewport.onCameraChange).toHaveBeenCalled();
+    expect(mocks.controls[0].update).toHaveBeenCalled();
+    viewport.dispose();
+  });
+
   it('notifies onCameraChange from orbit controls and refits', () => {
     const viewport = new ModelViewport(host());
     viewport.onCameraChange = vi.fn();

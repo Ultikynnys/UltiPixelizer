@@ -3,8 +3,9 @@ import type { DitherMode } from './dither';
 import { clamp01 } from './math';
 import { parseJsonFile, serializeJsonFile } from './storage';
 import { slugify } from './strings';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY, DEFAULT_TESSELLATION } from './defaults';
 import type { NormalFormat } from './normal';
+import { DEFAULT_CAMERA_DIRECTION, DEFAULT_SUN_DIRECTION, type DirectionVector } from './sunDirection';
 import type { State } from './state';
 
 export const PRESET_VERSION = 5;
@@ -33,6 +34,12 @@ export type ConversionConfig = {
   ambientIntensity: number;
   normalStrength: number;
   normalFormat: NormalFormat;
+  sunDirection: DirectionVector;
+  sunEnabled: boolean;
+  ambientEnabled: boolean;
+  smoothAngle: number;
+  tessellation: number;
+  cameraDirection: DirectionVector;
 };
 
 export type ConversionPreset = ConversionConfig & {
@@ -64,6 +71,15 @@ const inRange = (min: number, max: number) => (value: unknown): value is number 
 const isEnum = (options: readonly string[]) => (value: unknown): value is string =>
   typeof value === 'string' && options.includes(value);
 const isHex = (value: unknown): value is string => typeof value === 'string' && isHexColor(value);
+const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
+const isDirectionVector = (value: unknown): value is DirectionVector => {
+  if (typeof value !== 'object' || value === null) return false;
+  const vector = value as DirectionVector;
+  return typeof vector.x === 'number' && Number.isFinite(vector.x)
+    && typeof vector.y === 'number' && Number.isFinite(vector.y)
+    && typeof vector.z === 'number' && Number.isFinite(vector.z)
+    && Math.hypot(vector.x, vector.y, vector.z) > 0;
+};
 
 /**
  * Single source of truth for every serializable conversion setting: validation
@@ -91,6 +107,12 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'ambientIntensity', path: ['ambient', 'intensity'], default: DEFAULT_AMBIENT_INTENSITY, migrateDefault: DEFAULT_AMBIENT_INTENSITY, validate: inRange(0, 1) },
   { key: 'normalStrength', path: ['normalStrength'], default: 1, migrateDefault: 1, validate: inRange(0, 1) },
   { key: 'normalFormat', path: ['normalFormat'], default: 'opengl', migrateDefault: 'opengl', validate: isEnum(['opengl', 'directx']) },
+  { key: 'sunDirection', path: ['sun', 'direction'], default: DEFAULT_SUN_DIRECTION, migrateDefault: DEFAULT_SUN_DIRECTION, validate: isDirectionVector },
+  { key: 'sunEnabled', path: ['sun', 'enabled'], default: true, migrateDefault: true, validate: isBoolean },
+  { key: 'ambientEnabled', path: ['ambient', 'enabled'], default: true, migrateDefault: true, validate: isBoolean },
+  { key: 'smoothAngle', path: ['smoothAngle'], default: DEFAULT_SMOOTH_ANGLE, migrateDefault: DEFAULT_SMOOTH_ANGLE, validate: inRange(0, 180) },
+  { key: 'tessellation', path: ['tessellation'], default: DEFAULT_TESSELLATION, migrateDefault: DEFAULT_TESSELLATION, validate: inRange(1, 4) },
+  { key: 'cameraDirection', path: ['cameraDirection'], default: DEFAULT_CAMERA_DIRECTION, migrateDefault: DEFAULT_CAMERA_DIRECTION, validate: isDirectionVector },
 ];
 
 function readPath(state: State, path: readonly string[]): unknown {
