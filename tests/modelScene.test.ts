@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshPhongMaterial, MeshStandardMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture, Vector3 } from 'three';
-import { applyUVChannel, baseGeometryOf, cloneModelScene, computeSmoothNormals, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, prepareSurfaceNormals, recomputeVertexNormals, tessellateGeometry, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
+import { applyUVChannel, cloneModelScene, computeSmoothNormals, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
 
 function mesh(channels: string[], materials = 1): Mesh {
   const geometry = new BufferGeometry();
@@ -41,7 +41,7 @@ describe('model scene processing', () => {
     const single = mesh(['uv']);
     const multiple = mesh(['uv'], 2);
     const sourceMaterials = multiple.material as MeshBasicMaterial[];
-    const texture = new Texture();
+    const texture = new Texture({ width: 1, height: 1 });
     (single.material as MeshBasicMaterial).map = texture;
     sourceMaterials.forEach((material) => { material.map = texture; });
     root.add(single, multiple);
@@ -58,6 +58,29 @@ describe('model scene processing', () => {
     expect(clonedMaterials[0].map).toBe(clonedMaterials[1].map);
   });
 
+  it('drops image-less placeholder textures from clones instead of cloning them', () => {
+    // Loaders leave `new Texture()` placeholders when a model references a
+    // texture that is missing or has an undefined filename. Cloning such a
+    // texture bumps its version while the image stays null, so the renderer
+    // warns "Texture marked for update but no image data found" on every
+    // frame. The clone must drop the slot instead.
+    const root = new Object3D();
+    const item = mesh(['uv']);
+    const placeholder = new Texture(); // image null — never decoded
+    const valid = new Texture({ width: 1, height: 1 });
+    const material = new MeshLambertMaterial();
+    material.map = placeholder;
+    material.normalMap = valid;
+    item.material = material;
+    root.add(item);
+
+    const clone = cloneModelScene(root);
+    const clonedMaterial = (clone.children[0] as Mesh).material as MeshLambertMaterial;
+    expect(clonedMaterial.map).toBeNull();
+    expect(clonedMaterial.normalMap).not.toBe(valid);
+    expect(clonedMaterial.normalMap?.image).toEqual({ width: 1, height: 1 });
+  });
+
   it('fits cameras for populated and empty objects', () => {
     const camera = new PerspectiveCamera();
     const root = new Object3D();
@@ -68,55 +91,6 @@ describe('model scene processing', () => {
     expect(camera.aspect).toBe(2);
     expect(fitCameraToObject(camera, new Object3D(), 0).toArray()).toEqual([0, 0, 0]);
     expect(camera.aspect).toBe(1);
-  });
-
-  it('rebuilds vertex normals from winding, replacing stale normals', () => {
-    const root = new Object3D();
-    const geometry = new BufferGeometry();
-    // Triangle winding +Z: (0,0,0) -> (1,0,0) -> (0,1,0)
-    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
-    // Deliberately wrong normals pointing -Z.
-    geometry.setAttribute('normal', new Float32BufferAttribute([0, 0, -1, 0, 0, -1, 0, 0, -1], 3));
-    root.add(new Mesh(geometry, new MeshBasicMaterial()));
-    expect(recomputeVertexNormals(root)).toBe(1);
-    const normal = geometry.getAttribute('normal');
-    for (let i = 0; i < 3; i += 1) {
-      expect(normal.getZ(i)).toBeCloseTo(1);
-      expect(normal.getX(i)).toBeCloseTo(0);
-      expect(normal.getY(i)).toBeCloseTo(0);
-    }
-  });
-
-  it('computes flat faceted normals by expanding indexed geometry per face', () => {
-    const root = new Object3D();
-    const geometry = new BufferGeometry();
-    // Two triangles sharing the (0,0,0)–(0,1,0) edge: an XY face (+Z) and a YZ face (+X).
-    geometry.setAttribute('position', new Float32BufferAttribute([
-      0, 0, 0,  1, 0, 0,  0, 1, 0,  0, 0, 1,
-    ], 3));
-    // Stale exporter normals pointing -Y, to be discarded on recompute.
-    geometry.setAttribute('normal', new Float32BufferAttribute([
-      0, -1, 0,  0, -1, 0,  0, -1, 0,  0, -1, 0,
-    ], 3));
-    geometry.setIndex([0, 1, 2, 0, 2, 3]);
-    const mesh = new Mesh(geometry, new MeshBasicMaterial());
-    root.add(mesh);
-    expect(recomputeVertexNormals(root)).toBe(1);
-    const flat = mesh.geometry;
-    expect(flat).not.toBe(geometry);
-    expect(flat.index).toBeNull();
-    expect(flat.getAttribute('position').count).toBe(6);
-    const normal = flat.getAttribute('normal');
-    for (let i = 0; i < 3; i += 1) {
-      expect(normal.getX(i)).toBeCloseTo(0);
-      expect(normal.getY(i)).toBeCloseTo(0);
-      expect(normal.getZ(i)).toBeCloseTo(1);
-    }
-    for (let i = 3; i < 6; i += 1) {
-      expect(normal.getX(i)).toBeCloseTo(1);
-      expect(normal.getY(i)).toBeCloseTo(0);
-      expect(normal.getZ(i)).toBeCloseTo(0);
-    }
   });
 
   it('computeSmoothNormals returns a new de-indexed geometry for indexed input and the same instance for non-indexed', () => {
@@ -257,83 +231,4 @@ describe('model scene processing', () => {
   });
 });
 
-describe('mesh tessellation', () => {
-  const triangle = (): BufferGeometry => {
-    const geometry = new BufferGeometry();
-    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
-    geometry.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
-    geometry.setIndex([0, 1, 2]);
-    return geometry;
-  };
 
-  it('subdivides each triangle into segments² non-indexed subtriangles', () => {
-    const geometry = triangle();
-    const subdivided = tessellateGeometry(geometry, 2);
-    expect(subdivided).not.toBe(geometry);
-    expect(subdivided.index).toBeNull();
-    // 1 triangle × 2² subtriangles × 3 corners = 12 vertices.
-    expect(subdivided.getAttribute('position').count).toBe(12);
-    expect(subdivided.getAttribute('uv').count).toBe(12);
-  });
-
-  it('returns the input unchanged for a segment count of one', () => {
-    const geometry = triangle();
-    expect(tessellateGeometry(geometry, 1)).toBe(geometry);
-    expect(tessellateGeometry(geometry, 0)).toBe(geometry);
-  });
-
-  it('interpolates UVs linearly from the barycentric position', () => {
-    const subdivided = tessellateGeometry(triangle(), 3);
-    const position = subdivided.getAttribute('position');
-    const uv = subdivided.getAttribute('uv');
-    for (let i = 0; i < position.count; i += 1) {
-      // The triangle is A=(0,0) B=(1,0) C=(0,1), so x = weight of B and y = weight of C.
-      expect(uv.getX(i)).toBeCloseTo(position.getX(i));
-      expect(uv.getY(i)).toBeCloseTo(position.getY(i));
-    }
-  });
-
-  it('scales material groups by segments²', () => {
-    const geometry = new BufferGeometry();
-    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], 3));
-    geometry.setIndex([0, 1, 2, 0, 2, 3]);
-    geometry.addGroup(0, 3, 0);
-    geometry.addGroup(3, 3, 1);
-    const subdivided = tessellateGeometry(geometry, 2);
-    expect(subdivided.groups).toEqual([
-      { start: 0, count: 12, materialIndex: 0 },
-      { start: 12, count: 12, materialIndex: 1 },
-    ]);
-  });
-
-  it('caches the pristine base geometry once and returns the same instance', () => {
-    const geometry = triangle();
-    expect(baseGeometryOf(geometry)).toBe(baseGeometryOf(geometry));
-    expect(geometry.userData.ultiPixelizerBase).toBeDefined();
-  });
-
-  it('prepareSurfaceNormals re-tessellates from the pristine base without compounding', () => {
-    const root = new Object3D();
-    const mesh = new Mesh(triangle(), new MeshBasicMaterial());
-    root.add(mesh);
-
-    prepareSurfaceNormals(root, 30, 2);
-    expect(mesh.geometry.getAttribute('position').count).toBe(12);
-
-    prepareSurfaceNormals(root, 30, 3);
-    expect(mesh.geometry.getAttribute('position').count).toBe(27);
-
-    // Back to 2 segments must rebuild from the original (12), not 4² × the 9-segment mesh.
-    prepareSurfaceNormals(root, 30, 2);
-    expect(mesh.geometry.getAttribute('position').count).toBe(12);
-  });
-
-  it('prepareSurfaceNormals always produces a normal attribute', () => {
-    const root = new Object3D();
-    root.add(new Mesh(triangle(), new MeshBasicMaterial()));
-    prepareSurfaceNormals(root, 30, 2);
-    const normal = (root.children[0] as Mesh).geometry.getAttribute('normal');
-    expect(normal).toBeDefined();
-    expect(normal.count).toBe(12);
-  });
-});

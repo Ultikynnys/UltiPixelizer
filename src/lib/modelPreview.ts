@@ -4,7 +4,6 @@ import {
   AnimationClip,
   AxesHelper,
   AnimationMixer,
-  Box3,
   BufferGeometry,
   CanvasTexture,
   DoubleSide,
@@ -13,9 +12,10 @@ import {
   LoadingManager,
   Material,
   Mesh,
-  MeshNormalMaterial,
   MOUSE,
+  NearestFilter,
   Object3D,
+  OrthographicCamera,
   PerspectiveCamera,
   Quaternion,
   Scene,
@@ -30,10 +30,11 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { USDLoader } from 'three/addons/loaders/USDLoader.js';
 import { createCanvas } from './canvas';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
-import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, forEachMeshIndexed, materialsOf, prepareSurfaceNormals, recomputeVertexNormals, triangleIndices } from './modelScene';
+import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, forEachMeshIndexed, materialsOf, triangleIndices } from './modelScene';
 import { cameraForwardFromQuaternion, normalizeDirection, type DirectionVector } from './sunDirection';
 import { UV_OVERLAP_LABEL } from './uvOverlap';
 
@@ -72,13 +73,10 @@ function orientToWorldAxis(object: Object3D, worldAxis: WorldAxis): void {
   object.rotation.set(upAxisRotation(worldAxis), 0, 0);
 }
 
-export type LoadModelOptions = { useSourceNormals?: boolean; smoothAngle?: number; tessellation?: number };
-
 export async function loadModel(
   bundle: ModelFileBundle,
   files: File[],
   worldAxis: WorldAxis,
-  options: LoadModelOptions = {},
 ): Promise<LoadedModel> {
   const manager = configureManager(bundle);
   let scene: Object3D;
@@ -88,9 +86,30 @@ export async function loadModel(
     const result = await new GLTFLoader(manager).loadAsync(bundle.primaryUrl);
     scene = result.scene;
     animations = result.animations;
+  } else if (bundle.format === 'usdz') {
+    // USDLoader parses the USDZ archive in-process (embedded textures included)
+    // and converts Z-up to Y-up itself, so like glTF no world-axis rotation applies.
+    const loaded = await new USDLoader(manager).loadAsync(bundle.primaryUrl);
+    scene = loaded;
+    animations = loaded.animations ?? [];
   } else if (bundle.format === 'fbx') {
+    // FBXLoader parses synchronously and starts texture loads (embedded or
+    // companion files) asynchronously through the shared LoadingManager, so
+    // loadAsync resolves before the texture images decode. Wait until the
+    // manager reports all items complete (textures included) so callers like
+    // collectModelTextures see decoded images, not placeholders.
+    let textureLoadsStarted = false;
+    let resolveIdle: (() => void) | undefined;
+    const idle = new Promise<void>((resolve) => {
+      resolveIdle = resolve;
+    });
+    manager.onStart = () => {
+      textureLoadsStarted = true;
+    };
+    manager.onLoad = () => resolveIdle?.();
     const loaded = await new FBXLoader(manager).loadAsync(bundle.primaryUrl);
     orientToWorldAxis(loaded, worldAxis);
+    if (textureLoadsStarted) await idle;
     scene = loaded;
     animations = loaded.animations;
   } else {
@@ -112,7 +131,6 @@ export async function loadModel(
     animations = [];
   }
 
-  if (!options.useSourceNormals) prepareSurfaceNormals(scene, options.smoothAngle, options.tessellation);
   convertToLambertShading(scene);
   return { scene, animations };
 }
@@ -129,10 +147,52 @@ export class ModelViewport {
   // The full-intensity white ambient displays the texture unmodulated.
   private readonly ambient = new AmbientLight(0xffffff, Math.PI);
   private readonly axes = new AxesHelper(1);
+  private readonly gizmoScene = new Scene();
+  private readonly gizmoCamera = new OrthographicCamera(-1.3, 1.3, 1.3, -1.3, 0.1, 10);
   private model: Object3D | null = null;
   private mixer: AnimationMixer | null = null;
   private overlapOverlay: Mesh | null = null;
-  private readonly normalMaterial = new MeshNormalMaterial({ side: DoubleSide });
+  private normalMapTexture: Texture | null = null;
+  // Normals view material — samples the model's normal-map texture at UV and
+  // outputs the decoded tangent-space normal as color, using the same decode
+  // the lightmap bake applies (rgb*2-1, DirectX green flip, strength, tz
+  // reconstruction). Without a map every fragment is the neutral flat normal
+  // (0, 0, 1), shown as (0.5, 0.5, 1.0) blue.
+  private readonly normalMapMaterial = new ShaderMaterial({
+    side: DoubleSide,
+    uniforms: {
+      uNormalMap: { value: null },
+      uHasNormalMap: { value: 0 },
+      uStrength: { value: 1 },
+      uFlipY: { value: 0 },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D uNormalMap;
+      uniform float uHasNormalMap;
+      uniform float uStrength;
+      uniform float uFlipY;
+      varying vec2 vUv;
+      void main() {
+        vec3 n = vec3(0.0, 0.0, 1.0);
+        if (uHasNormalMap > 0.5) {
+          n = texture2D(uNormalMap, vUv).rgb * 2.0 - 1.0;
+          // DirectX convention stores green flipped (green = −Y); uFlipY = 1
+          // inverts it so the decode matches the lightmap bake.
+          n.y *= mix(1.0, -1.0, uFlipY);
+          n.xy *= uStrength;
+          n.z = sqrt(max(0.0, 1.0 - dot(n.xy, n.xy)));
+        }
+        gl_FragColor = vec4(n * 0.5 + 0.5, 1.0);
+      }
+    `,
+  });
   private readonly originalMaterials = new WeakMap<Mesh, Material | Material[]>();
   private normalsView = false;
   private frame = 0;
@@ -151,7 +211,15 @@ export class ModelViewport {
     this.controls.mouseButtons = { LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN };
     this.controls.addEventListener('change', () => this.onCameraChange?.());
     this.scene.add(this.ambient);
-    this.scene.add(this.axes);
+    this.axes.renderOrder = 1;
+    // The gizmo lives in its own scene — rendered last, scissored into the
+    // bottom-right corner — so the model can never occlude it. It renders with
+    // auto-clear disabled (see renderGizmo), so no background plane is needed
+    // and the model shows through. The axis lines skip depth testing so the
+    // stale model depth buffer can't hide them.
+    (this.axes.material as Material).depthTest = false;
+    (this.axes.material as Material).depthWrite = false;
+    this.gizmoScene.add(this.axes);
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
     this.timer.connect(document);
@@ -167,6 +235,9 @@ export class ModelViewport {
     this.removeOverlapOverlay();
     this.model = model;
     this.scene.add(model);
+    // Keep the gizmo aligned with the model's world-axis convention — the model
+    // arrives pre-oriented from loadModel, so mirror its root rotation.
+    this.axes.rotation.copy(model.rotation);
     this.mixer = animations.length ? new AnimationMixer(model) : null;
     if (this.mixer && !matchMedia('(prefers-reduced-motion: reduce)').matches) this.mixer.clipAction(animations[0]).play();
     this.resize();
@@ -176,6 +247,9 @@ export class ModelViewport {
   setWorldAxis(worldAxis: WorldAxis): void {
     if (!this.model) return;
     orientToWorldAxis(this.model, worldAxis);
+    // Mirror the convention rotation so the gizmo tracks the model's axes:
+    // Z-up (Blender) shows the blue Z axis pointing up, Y-up (Maya) the green Y.
+    this.axes.rotation.copy(this.model.rotation);
     this.refitCamera();
   }
 
@@ -220,24 +294,9 @@ export class ModelViewport {
     return this.model ? applyLodLevel(this.model, level) : 0;
   }
 
-  /** Re-smooths the model's normals in place at the given smooth angle (a no-op
-   * while source normals are in effect). */
-  applySmoothAngle(angle: number): void {
-    if (!this.model) return;
-    recomputeVertexNormals(this.model, angle);
-  }
-
-  /** Re-tessellates the model from its pristine base geometry at the given
-   * density, re-smooths at `angle`, and restores the active UV channel (the
-   * rebuild produces a fresh geometry with the primary channel active). */
-  applyTessellation(tessellation: number, angle: number, uvChannel: string): void {
-    if (!this.model) return;
-    prepareSurfaceNormals(this.model, angle, tessellation);
-    applyUVChannel(this.model, uvChannel);
-  }
-
-  /** Swaps every mesh to a normals-as-color material for visual debugging, and
-   * restores the originals when disabled. */
+  /** Swaps every mesh to the normal-map showcase material — the actual normal
+   * map sampled at UV, not the mesh's vertex normals — and restores the
+   * originals when disabled. */
   setNormalsView(enabled: boolean): void {
     if (!this.model || this.normalsView === enabled) return;
     this.normalsView = enabled;
@@ -245,7 +304,7 @@ export class ModelViewport {
       if (!(child instanceof Mesh)) return;
       if (enabled) {
         this.originalMaterials.set(child, child.material);
-        child.material = this.normalMaterial;
+        child.material = this.normalMapMaterial;
       } else {
         const original = this.originalMaterials.get(child);
         if (original) {
@@ -254,6 +313,36 @@ export class ModelViewport {
         }
       }
     });
+  }
+
+  /** Supplies the model's normal map to the Normals view. `strength` and
+   * `flipY` (DirectX green flip) mirror the lightmap bake's decode, so the view
+   * showcases the map exactly as lighting consumes it. Pass null to clear. */
+  setNormalMap(image: CanvasImageSource | null, strength = 1, flipY = false): void {
+    if (this.normalMapTexture) {
+      this.normalMapTexture.dispose();
+      this.normalMapTexture = null;
+    }
+    if (image) {
+      const texture = new CanvasTexture(image);
+      texture.magFilter = NearestFilter;
+      texture.minFilter = NearestFilter;
+      texture.generateMipmaps = false;
+      texture.needsUpdate = true;
+      this.normalMapTexture = texture;
+    }
+    const uniforms = this.normalMapMaterial.uniforms;
+    uniforms.uNormalMap.value = this.normalMapTexture;
+    uniforms.uHasNormalMap.value = this.normalMapTexture ? 1 : 0;
+    uniforms.uStrength.value = strength;
+    uniforms.uFlipY.value = flipY ? 1 : 0;
+  }
+
+  /** Live strength update for the Normals-view showcase — cheaper than a full
+   * `setNormalMap`, since only the shader uniform moves and the texture stays
+   * untouched. Mirrors the lightmap bake's `normalStrength` decode. */
+  setNormalStrength(strength: number): void {
+    this.normalMapMaterial.uniforms.uStrength.value = strength;
   }
 
   /**
@@ -373,18 +462,10 @@ export class ModelViewport {
    * listeners. Shared by model load and world-axis changes. */
   private refitCamera(): void {
     if (!this.model) return;
-    this.fitAxesToModel();
     const target = fitCameraToObject(this.camera, this.model, this.host.clientWidth / Math.max(this.host.clientHeight, 1));
     this.controls.target.copy(target);
     this.controls.update();
     this.onCameraChange?.();
-  }
-
-  private fitAxesToModel(): void {
-    if (!this.model) return;
-    const bounds = new Box3().setFromObject(this.model);
-    const size = bounds.isEmpty() ? 1 : Math.max(bounds.getSize(new Vector3()).length() * 0.2, 0.01);
-    this.axes.scale.setScalar(size);
   }
 
   private resize(): void {
@@ -404,7 +485,41 @@ export class ModelViewport {
       (this.overlapOverlay.material as ShaderMaterial).uniforms.uTime.value = (timestamp ?? 0) / 1000;
     }
     this.renderer.render(this.scene, this.camera);
+    this.renderGizmo();
   };
+
+  /** Draws the world-axis gizmo into a fixed screen-space box at the bottom-right
+   * corner of the canvas, oriented to match the orbit camera. Rendered last from
+   * its own scene so the model can never occlude it. */
+  private renderGizmo(): void {
+    const width = this.host.clientWidth;
+    const height = this.host.clientHeight;
+    if (width <= 0 || height <= 0) return;
+    const size = Math.max(48, Math.min(72, Math.round(Math.min(width, height) * 0.16)));
+    const pixelRatio = this.renderer.getPixelRatio();
+    // The world-axis toggle is pinned to the same corner below the gizmo — keep
+    // the gizmo's bottom edge clear of it (fall back to the corner margin when
+    // no toggle is present or hidden).
+    const toggle = this.host.parentElement?.querySelector<HTMLElement>('.world-axis-toggle');
+    const toggleHeight = toggle && !toggle.hidden ? toggle.offsetHeight : 0;
+    const bottom = toggleHeight > 0 ? toggleHeight + 16 : 12;
+    this.gizmoCamera.quaternion.copy(this.camera.quaternion);
+    this.gizmoCamera.position.copy(this.gizmoCamera.getWorldDirection(new Vector3())).multiplyScalar(-3.5);
+    const x = Math.round((width - size - 12) * pixelRatio);
+    const y = Math.round(bottom * pixelRatio);
+    const s = Math.round(size * pixelRatio);
+    this.renderer.setScissorTest(true);
+    this.renderer.setScissor(x, y, s, s);
+    this.renderer.setViewport(x, y, s, s);
+    // Render without clearing: the model (already drawn this frame) stays in the
+    // framebuffer, so the gizmo box is transparent and only the axis lines draw
+    // on top of it.
+    this.renderer.autoClear = false;
+    this.renderer.render(this.gizmoScene, this.gizmoCamera);
+    this.renderer.autoClear = true;
+    this.renderer.setViewport(0, 0, Math.round(width * pixelRatio), Math.round(height * pixelRatio));
+    this.renderer.setScissorTest(false);
+  }
 
   dispose(): void {
     cancelAnimationFrame(this.frame);
@@ -414,7 +529,8 @@ export class ModelViewport {
     this.removeOverlapOverlay();
     this.setNormalsView(false);
     if (this.model) disposeModel(this.model);
-    this.normalMaterial.dispose();
+    this.normalMapMaterial.dispose();
+    this.normalMapTexture?.dispose();
     this.axes.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

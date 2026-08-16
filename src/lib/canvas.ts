@@ -27,6 +27,24 @@ export function drawImageToCanvas(image: CanvasImageSource, width: number, heigh
   return { canvas, context };
 }
 
+/** Nearest-neighbor (pixelized) resize of an image to the given size —
+ * smoothing disabled so source pixels stay crisp, matching the dithered
+ * pipeline's pixelated look. Always returns a fresh canvas at the target
+ * size, so callers can rely on canvas APIs (toBlob, getContext) regardless of
+ * the source. Used to pixelize the normal map for the dithered viewport and
+ * export, since a normal map can't be palette-dithered. */
+export function resizeNearest(
+  image: CanvasImageSource & { width: number; height: number },
+  width: number,
+  height: number,
+): HTMLCanvasElement {
+  const { canvas, context } = createCanvas(width, height);
+  if (!context) throw new Error('Canvas is unavailable.');
+  context.imageSmoothingEnabled = false;
+  context.drawImage(image, 0, 0, width, height);
+  return canvas;
+}
+
 /** Draws an image at the given size and returns its RGBA pixel data. Shared by
  * the AO, lightmap, and normal-map image readers. */
 export function imagePixels(image: CanvasImageSource, width: number, height: number): Uint8ClampedArray {

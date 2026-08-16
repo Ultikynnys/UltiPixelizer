@@ -10,6 +10,8 @@ export type TextureChannelId = 'base' | 'ao' | 'normal' | 'lightmap';
 
 export type PreviewMode = '2d' | '3d';
 
+export type PreviewViewMode = 'flat' | 'basecolor' | 'normals' | 'ao' | 'lightmap' | 'lightmap-ao';
+
 export type TextureSlot = { image: SourceImage | null; name: string };
 
 export type LightState = { color: string; intensity: number };
@@ -25,15 +27,12 @@ export type State = {
   brightness: number;
   contrast: number;
   saturation: number;
-  paletteFilter: PaletteCategory | 'all';
+  paletteFilter: PaletteCategory;
   uvMap: string;
   lodLevel: number;
   sun: SunState;
   ambient: LightState;
   worldAxis: WorldAxis;
-  useSourceNormals: boolean;
-  smoothAngle: number;
-  tessellation: number;
   cameraDirection: DirectionVector;
   stripeAngle: number;
   noiseScale: number;
@@ -45,9 +44,8 @@ export type State = {
   normalFormat: NormalFormat;
   showUVOverlap: boolean;
   showUVWireframe: boolean;
-  showNormals: boolean;
-  showAOOnly: boolean;
-  showLightmapOnly: boolean;
+  viewModeOriginal: PreviewViewMode;
+  viewModeProcessed: PreviewViewMode;
 };
 
 /** True when a lightmap is loaded (the lightmap slot holds an image). Shared by

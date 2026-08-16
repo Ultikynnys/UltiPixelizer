@@ -41,6 +41,7 @@ function setup(overrides: Parameters<typeof createRendererDeps>[0] = {}) {
     originalBaseCanvas: new FakeCanvas() as unknown as HTMLCanvasElement,
     implicitLightmapCanvas: null,
     implicitLightmapTimer: 0,
+    lightmapCleared: false,
   };
   const overlay = createOverlay(deps, shared);
   return { deps, shared, overlay };

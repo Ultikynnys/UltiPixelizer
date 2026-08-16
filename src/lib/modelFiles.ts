@@ -1,11 +1,7 @@
-export type ModelFormat = 'fbx' | 'obj' | 'gltf' | 'glb';
+export type ModelFormat = 'fbx' | 'obj' | 'gltf' | 'glb' | 'usdz';
 export type WorldAxis = 'blender' | 'maya';
 
-const modelExtensions = new Set<ModelFormat>(['fbx', 'obj', 'gltf', 'glb']);
-const imageResourcePattern = /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
-const missingImageUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
-const missingResourceUrl = 'data:application/octet-stream;base64,';
-
+const modelExtensions = new Set<ModelFormat>(['fbx', 'obj', 'gltf', 'glb', 'usdz']);
 function safelyDecodeURIComponent(value: string): string {
   try {
     return decodeURIComponent(value);
@@ -25,7 +21,7 @@ export function modelFormat(name: string): ModelFormat | null {
 
 export function findPrimaryModel(files: Iterable<Pick<File, 'name'>>): Pick<File, 'name'> {
   const models = Array.from(files).filter((file) => modelFormat(file.name));
-  if (models.length === 0) throw new Error('Choose an FBX, OBJ, glTF, or GLB model.');
+  if (models.length === 0) throw new Error('Choose an FBX, OBJ, glTF, GLB, or USDZ model.');
   if (models.length > 1) throw new Error('Choose one primary model at a time.');
   return models[0];
 }
@@ -41,6 +37,9 @@ export type ModelFileBundle = {
   format: ModelFormat;
   primaryUrl: string;
   manager: {
+    /** Relative references the bundle couldn't resolve to an uploaded file,
+     * deduplicated. Populated while the model's texture/media files load. */
+    missing: string[];
     resolveURL(url: string): string;
   };
   revoke(): void;
@@ -62,18 +61,35 @@ export function createModelFileBundle(filesInput: FileList | File[]): ModelFileB
   });
 
   const primaryUrl = urls.get(primary.name.toLowerCase())!;
+  const missing: string[] = [];
   return {
     primary,
     format,
     primaryUrl,
     manager: {
+      missing,
       resolveURL(url: string): string {
         if (/^data:/i.test(url) || createdUrls.has(url)) return url;
+        // Loader-created object URLs for embedded texture data (binary FBX
+        // Video.Content, GLB bufferView images) are blob:<origin>/<uuid> with
+        // no file extension — pass them through untouched. Blob URLs carrying
+        // a path with an extension are unresolved relative references to
+        // companion files and fall through to the lookup/failure logic.
+        if (/^blob:/i.test(url)) {
+          const basename = url.split(/[?#]/)[0].split('/').pop()!;
+          if (!/\.[^./]+$/.test(basename)) return url;
+        }
         const decoded = safelyDecodeURIComponent(url).replace(/\\/g, '/');
         const basename = decoded.split('/').pop()!;
         const uploadedResource = urls.get(decoded.toLowerCase()) ?? urls.get(basename.toLowerCase());
         if (uploadedResource) return uploadedResource;
-        return imageResourcePattern.test(decoded) ? missingImageUrl : missingResourceUrl;
+        // Never substitute a fabricated resource: the old 1×1 placeholder PNG
+        // loaded "successfully" and got extracted into the base/normal slots,
+        // overwriting the user's loaded maps with black. Return the original
+        // URL so the fetch fails loudly, the texture keeps no image, and
+        // collectModelTextures skips it.
+        if (!missing.includes(decoded)) missing.push(decoded);
+        return url;
       },
     },
     revoke(): void {

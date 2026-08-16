@@ -1,7 +1,7 @@
 import {
+  Box3,
   BufferAttribute,
   BufferGeometry,
-  DoubleSide,
   Matrix3,
   Mesh,
   Object3D,
@@ -24,6 +24,8 @@ export type BakeScene = {
   /** Occlusion reach as a multiple of the mesh bounding-sphere radius. */
   radius: number;
   maxDistance: number;
+  /** Flat world-space occluder triangle positions, 9 floats per triangle. */
+  occluderPositions: Float32Array;
 };
 
 /**
@@ -109,18 +111,23 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
     });
   });
 
+  const occluderPositions = new Float32Array(worldPositions);
   const occluder = new BufferGeometry();
-  occluder.setAttribute('position', new BufferAttribute(new Float32Array(worldPositions), 3));
+  occluder.setAttribute('position', new BufferAttribute(occluderPositions, 3));
   occluder.computeBoundingSphere();
   const radius = occluder.boundingSphere!.radius;
   const maxDistance = radius * distance;
   const epsilon = Math.max(radius * 1e-3, 1e-4);
   const bvh = worldPositions.length ? new MeshBVH(occluder) : null;
 
-  return { vertices, triangles, bvh, epsilon, radius, maxDistance };
+  return { vertices, triangles, bvh, epsilon, radius, maxDistance, occluderPositions };
 }
 
 const _occlusionRay = new Ray();
+const _hitPoint = new Vector3();
+const _triA = new Vector3();
+const _triB = new Vector3();
+const _triC = new Vector3();
 
 /**
  * Occluder raycast shared by the AO and lightmap bakes: offsets the ray origin
@@ -139,7 +146,93 @@ export function castBakeRay(
 ): boolean {
   _occlusionRay.origin.copy(position).addScaledVector(normal, epsilon);
   _occlusionRay.direction.copy(direction);
-  return bvh.raycastFirst(_occlusionRay, DoubleSide, near, far) !== null;
+  return rayHitsOccluders(bvh, _occlusionRay, near, far);
+}
+
+/**
+ * First-hit ray test over the bake BVH. Boolean occlusion never needs the
+ * closest hit, so this uses shapecast to stop the traversal at the first
+ * triangle intersection instead of raycastFirst's closest-hit search (which
+ * has to test every candidate triangle). The node-bound slab test and the
+ * triangle test mirror three-mesh-bvh's own near/far and DoubleSide semantics,
+ * so the answer matches `raycastFirst(ray, DoubleSide, near, far)`.
+ */
+function rayHitsOccluders(bvh: MeshBVH, ray: Ray, near: number, far: number): boolean {
+  const position = bvh.geometry.getAttribute('position') as BufferAttribute;
+  const index = bvh.geometry.index as BufferAttribute | null;
+  return bvh.shapecast({
+    intersectsBounds: (box) => rayBoxIntersects(ray, box, near, far),
+    intersectsRange: (offset, count) => {
+      for (let triangle = offset; triangle < offset + count; triangle += 1) {
+        let a = triangle * 3;
+        let b = a + 1;
+        let c = a + 2;
+        if (index) {
+          a = index.getX(a);
+          b = index.getX(b);
+          c = index.getX(c);
+        }
+        _triA.fromBufferAttribute(position, a);
+        _triB.fromBufferAttribute(position, b);
+        _triC.fromBufferAttribute(position, c);
+        // DoubleSide semantics: both faces occlude (backfaceCulling = false).
+        if (ray.intersectTriangle(_triA, _triB, _triC, false, _hitPoint) === null) continue;
+        const distance = ray.origin.distanceTo(_hitPoint);
+        if (distance < near || distance > far) continue;
+        return true;
+      }
+      return false;
+    },
+  });
+}
+
+/**
+ * Slab test mirroring three-mesh-bvh's `intersectsNodeBounds` so this
+ * traversal descends into exactly the nodes raycastFirst would visit: the ray's
+ * [tmin, tmax] overlap with the box must span the [near, far] interval. Handles
+ * origins inside the box (negative tmin) and infinite far the same way.
+ */
+function rayBoxIntersects(ray: Ray, box: Box3, near: number, far: number): boolean {
+  const ox = ray.origin.x;
+  const oy = ray.origin.y;
+  const oz = ray.origin.z;
+  const invx = 1 / ray.direction.x;
+  const invy = 1 / ray.direction.y;
+  const invz = 1 / ray.direction.z;
+  let tmin: number;
+  let tmax: number;
+  if (invx >= 0) {
+    tmin = (box.min.x - ox) * invx;
+    tmax = (box.max.x - ox) * invx;
+  } else {
+    tmin = (box.max.x - ox) * invx;
+    tmax = (box.min.x - ox) * invx;
+  }
+  let tymin: number;
+  let tymax: number;
+  if (invy >= 0) {
+    tymin = (box.min.y - oy) * invy;
+    tymax = (box.max.y - oy) * invy;
+  } else {
+    tymin = (box.max.y - oy) * invy;
+    tymax = (box.min.y - oy) * invy;
+  }
+  if (tmin > tymax || tymin > tmax) return false;
+  if (tymin > tmin || isNaN(tmin)) tmin = tymin;
+  if (tymax < tmax || isNaN(tmax)) tmax = tymax;
+  let tzmin: number;
+  let tzmax: number;
+  if (invz >= 0) {
+    tzmin = (box.min.z - oz) * invz;
+    tzmax = (box.max.z - oz) * invz;
+  } else {
+    tzmin = (box.max.z - oz) * invz;
+    tzmax = (box.min.z - oz) * invz;
+  }
+  if (tmin > tzmax || tzmin > tmax) return false;
+  if (tzmin > tmin || tmin !== tmin) tmin = tzmin;
+  if (tzmax < tmax || tmax !== tmax) tmax = tzmax;
+  return tmin <= far && tmax >= near;
 }
 
 /**

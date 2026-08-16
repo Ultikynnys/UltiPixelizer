@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AnimationClip, BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Object3D, Texture } from 'three';
+import { AnimationClip, BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Object3D, ShaderMaterial, Texture } from 'three';
 import { loadModel, ModelViewport, upAxisRotation } from '../src/lib/modelPreview';
+import { renderModelThumbnail } from '../src/lib/modelScene';
 import type { ModelFileBundle } from '../src/lib/modelFiles';
-import { domStubs, flushRaf, installDomStubs, rafCount } from './helpers/domStubs';
+import { domStubs, FakeCanvas, flushRaf, installDomStubs, rafCount } from './helpers/domStubs';
 
 const mocks = vi.hoisted(() => ({
   scene: null as Object3D | null,
   animations: [] as AnimationClip[],
   failWith: null as string | null,
+  deferTextureItem: false,
+  releaseTextureItem: null as (() => void) | null,
   rendererCalls: [] as string[],
   mixers: [] as Array<{ actions: Array<{ play: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }>; update: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }>,
   controls: [] as Array<{
@@ -25,9 +28,19 @@ vi.mock('three', async (importOriginal) => {
   class FakeWebGLRenderer {
     domElement = { className: '', remove: vi.fn(), style: {} };
     setPixelRatio = vi.fn((ratio: number) => mocks.rendererCalls.push(`ratio:${ratio}`));
+    getPixelRatio = vi.fn(() => 1);
     setClearColor = vi.fn(() => mocks.rendererCalls.push('clear'));
     setSize = vi.fn((width: number, height: number) => mocks.rendererCalls.push(`size:${width}x${height}`));
+    setScissorTest = vi.fn();
+    setScissor = vi.fn();
+    setViewport = vi.fn();
     render = vi.fn(() => mocks.rendererCalls.push('render'));
+    getContext = vi.fn(() => ({
+      finish: vi.fn(() => mocks.rendererCalls.push('finish')),
+      readPixels: vi.fn(),
+      RGBA: 0x1908,
+      UNSIGNED_BYTE: 0x1401,
+    }));
     dispose = vi.fn(() => mocks.rendererCalls.push('dispose'));
   }
   class FakeAnimationMixer {
@@ -99,6 +112,27 @@ vi.mock('three/addons/loaders/FBXLoader.js', async () => {
       loadAsync = vi.fn(async () => {
         this.manager?.resolveURL?.('relative.bin');
         if (mocks.failWith) throw new Error(mocks.failWith);
+        if (mocks.deferTextureItem) {
+          const manager = this.manager as { itemStart?: (url: string) => void; itemEnd?: (url: string) => void };
+          manager.itemStart?.('embedded.png');
+          mocks.releaseTextureItem = () => manager.itemEnd?.('embedded.png');
+        }
+        const object = mocks.scene ?? new Object3D();
+        (object as unknown as { animations?: unknown }).animations = mocks.animations ?? [];
+        return object;
+      });
+    },
+  };
+});
+
+vi.mock('three/addons/loaders/USDLoader.js', async () => {
+  const { Object3D } = await import('three');
+  return {
+    USDLoader: class {
+      constructor(public manager: { resolveURL?: (url: string) => string }) {}
+      loadAsync = vi.fn(async () => {
+        this.manager?.resolveURL?.('relative.bin');
+        if (mocks.failWith) throw new Error(mocks.failWith);
         const object = mocks.scene ?? new Object3D();
         (object as unknown as { animations?: unknown }).animations = mocks.animations ?? [];
         return object;
@@ -153,6 +187,8 @@ beforeEach(() => {
   mocks.scene = null;
   mocks.animations = [];
   mocks.failWith = null;
+  mocks.deferTextureItem = false;
+  mocks.releaseTextureItem = null;
   mocks.rendererCalls.length = 0;
   mocks.mixers.length = 0;
   mocks.controls.length = 0;
@@ -171,18 +207,24 @@ describe('upAxisRotation', () => {
   });
 });
 
+describe('renderModelThumbnail', () => {
+  it('renders a mesh preview into a small square canvas', () => {
+    const callsBefore = mocks.rendererCalls.length;
+    const thumbnail = renderModelThumbnail(meshScene(), 40);
+    expect((thumbnail as unknown as FakeCanvas).width).toBe(40);
+    expect((thumbnail as unknown as FakeCanvas).height).toBe(40);
+    // The lazy shared renderer draws the model before the pixels are copied.
+    expect(mocks.rendererCalls.slice(callsBefore)).toContain('render');
+    // The readback waits for the GPU (finish) before copying the framebuffer.
+    expect(mocks.rendererCalls.slice(callsBefore)).toContain('finish');
+  });
+});
+
 describe('loadModel', () => {
-  it('loads GLB scenes and recomputes stale normals by default', async () => {
+  it('loads GLB scenes keeping the embedded source normals', async () => {
     mocks.scene = meshScene();
     const result = await loadModel(bundle('glb'), [], 'maya');
     expect(result.scene.children).toHaveLength(1);
-    const normal = (result.scene.children[0] as Mesh).geometry.getAttribute('normal');
-    expect(normal.getZ(0)).toBeCloseTo(1);
-  });
-
-  it('keeps source normals when asked', async () => {
-    mocks.scene = meshScene();
-    const result = await loadModel(bundle('glb'), [], 'maya', { useSourceNormals: true });
     const normal = (result.scene.children[0] as Mesh).geometry.getAttribute('normal');
     expect(normal.getZ(0)).toBeCloseTo(-1);
   });
@@ -200,6 +242,32 @@ describe('loadModel', () => {
     expect(blender.scene.rotation.x).toBe(-Math.PI / 2);
     const maya = await loadModel(bundle('fbx'), [], 'maya');
     expect(maya.scene.rotation.x).toBe(0);
+  });
+
+  it('waits for FBX texture loads to finish before resolving', async () => {
+    mocks.scene = meshScene();
+    mocks.deferTextureItem = true;
+    let resolved = false;
+    const pending = loadModel(bundle('fbx'), [], 'maya').then(() => {
+      resolved = true;
+    });
+    // The FBX mock starts a manager item for an embedded texture; loadModel
+    // must stay pending until that item ends, so texture extraction sees a
+    // decoded image rather than a placeholder.
+    await flushRaf();
+    expect(resolved).toBe(false);
+    mocks.releaseTextureItem?.();
+    await pending;
+    expect(resolved).toBe(true);
+  });
+
+  it('loads USDZ without rotation and passes animations through', async () => {
+    mocks.scene = meshScene();
+    mocks.animations = [new AnimationClip('idle', 1, [])];
+    const result = await loadModel(bundle('usdz'), [], 'maya');
+    expect(result.scene.children).toHaveLength(1);
+    expect(result.scene.rotation.x).toBe(0);
+    expect(result.animations).toHaveLength(1);
   });
 
   it('loads OBJ with an MTL companion, resolving and revoking its blob URL', async () => {
@@ -347,36 +415,6 @@ describe('ModelViewport', () => {
     viewport.dispose();
   });
 
-  it('applySmoothAngle re-smooths normals and no-ops without a model', () => {
-    const viewport = new ModelViewport(host());
-    viewport.applySmoothAngle(30); // no model → no-op
-
-    const model = meshScene(); // stale flipped (-Z) normals
-    viewport.setModel(model, []);
-    viewport.applySmoothAngle(30);
-    const normal = (model.children[0] as Mesh).geometry.getAttribute('normal');
-    expect(normal.getX(0)).toBeCloseTo(0);
-    expect(normal.getY(0)).toBeCloseTo(0);
-    expect(normal.getZ(0)).toBeCloseTo(1);
-    viewport.dispose();
-  });
-
-  it('applyTessellation re-tessellates from the pristine base and no-ops without a model', () => {
-    const viewport = new ModelViewport(host());
-    viewport.applyTessellation(2, 30, 'uv'); // no model → no-op
-
-    const model = meshScene(); // single triangle, 3 vertices
-    viewport.setModel(model, []);
-    viewport.applyTessellation(2, 30, 'uv');
-    const geometry = (model.children[0] as Mesh).geometry;
-    // 1 triangle × 2² subtriangles × 3 corners = 12 vertices.
-    expect(geometry.getAttribute('position').count).toBe(12);
-    const normal = geometry.getAttribute('normal');
-    expect(normal).toBeDefined();
-    expect(normal.getZ(0)).toBeCloseTo(1);
-    viewport.dispose();
-  });
-
   it('setNormalsView swaps materials and restores the originals', () => {
     const viewport = new ModelViewport(host());
     const model = meshScene();
@@ -384,7 +422,10 @@ describe('ModelViewport', () => {
     const mesh = model.children[0] as Mesh;
     const original = mesh.material;
     viewport.setNormalsView(true);
-    expect((mesh.material as MeshBasicMaterial).type).toBe('MeshNormalMaterial');
+    // The normals view showcases the actual normal map, not the mesh's vertex
+    // normals — the swap target is the normal-map sampling shader.
+    expect((mesh.material as ShaderMaterial).type).toBe('ShaderMaterial');
+    expect((mesh.material as ShaderMaterial).uniforms.uHasNormalMap.value).toBe(0);
     viewport.setNormalsView(false);
     expect(mesh.material).toBe(original);
 
@@ -393,6 +434,41 @@ describe('ModelViewport', () => {
     empty.setNormalsView(true);
     empty.setNormalsView(false);
     empty.dispose();
+    viewport.dispose();
+  });
+
+  it('setNormalMap feeds the normals-view shader and clears it', () => {
+    const viewport = new ModelViewport(host());
+    viewport.setModel(meshScene(), []);
+    viewport.setNormalsView(true);
+    const uniforms = (viewport as unknown as { normalMapMaterial: ShaderMaterial }).normalMapMaterial.uniforms;
+
+    viewport.setNormalMap({} as CanvasImageSource, 0.5, true);
+    expect(uniforms.uHasNormalMap.value).toBe(1);
+    expect(uniforms.uStrength.value).toBe(0.5);
+    expect(uniforms.uFlipY.value).toBe(1);
+    expect(uniforms.uNormalMap.value).not.toBeNull();
+
+    viewport.setNormalMap(null);
+    expect(uniforms.uHasNormalMap.value).toBe(0);
+    expect(uniforms.uNormalMap.value).toBeNull();
+    viewport.dispose();
+  });
+
+  it('setNormalStrength moves the showcase uniform without touching the texture', () => {
+    const viewport = new ModelViewport(host());
+    viewport.setModel(meshScene(), []);
+    viewport.setNormalsView(true);
+    viewport.setNormalMap({} as CanvasImageSource, 1, false);
+    const uniforms = (viewport as unknown as { normalMapMaterial: ShaderMaterial }).normalMapMaterial.uniforms;
+    const texture = uniforms.uNormalMap.value;
+
+    viewport.setNormalStrength(0.35);
+
+    expect(uniforms.uStrength.value).toBe(0.35);
+    // A full setNormalMap would have rebuilt the texture; the live strength
+    // update must leave it in place.
+    expect(uniforms.uNormalMap.value).toBe(texture);
     viewport.dispose();
   });
 
@@ -455,8 +531,9 @@ describe('ModelViewport', () => {
     viewport.setModel(meshScene(), [new AnimationClip('idle', 1, [])]);
     const rendersBefore = mocks.rendererCalls.filter((call) => call === 'render').length;
     flushRaf(16);
-    // The constructor renders once synchronously; each rAF tick adds exactly one.
-    expect(mocks.rendererCalls.filter((call) => call === 'render')).toHaveLength(rendersBefore + 1);
+    // The constructor renders synchronously; each rAF tick adds exactly two —
+    // the model scene plus the corner sun-axis gizmo.
+    expect(mocks.rendererCalls.filter((call) => call === 'render')).toHaveLength(rendersBefore + 2);
     expect(mocks.mixers[0].update).toHaveBeenCalled();
     viewport.dispose();
   });
@@ -473,5 +550,38 @@ describe('ModelViewport', () => {
     flushRaf(16);
     // dispose cancels the loop, so no new renders may appear after it.
     expect(mocks.rendererCalls.filter((call) => call === 'render')).toHaveLength(rendersBefore);
+  });
+
+  it('applies images through the stashed originals while the normals view is active', () => {
+    const viewport = new ModelViewport(host());
+    viewport.setModel(meshScene(), []);
+    viewport.setNormalsView(true);
+    // texturableMaterials resolves the stashed original material, not the
+    // live normals-as-color material.
+    expect(viewport.applyImage({} as CanvasImageSource)).toBe(1);
+    viewport.dispose();
+  });
+
+  it('handles multi-material meshes while the normals view is active', () => {
+    const viewport = new ModelViewport(host());
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    geometry.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
+    geometry.setAttribute('normal', new Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+    const model = new Object3D();
+    model.add(new Mesh(geometry, [new MeshBasicMaterial(), new MeshBasicMaterial()]));
+    viewport.setModel(model, []);
+    viewport.setNormalsView(true);
+    // The stashed original is a material array — applyImage targets each entry.
+    expect(viewport.applyImage({} as CanvasImageSource)).toBe(2);
+    viewport.dispose();
+  });
+
+  it('animates the UV-overlap overlay time uniform', () => {
+    const viewport = new ModelViewport(host());
+    viewport.setModel(meshScene(), []);
+    viewport.setUVOverlap(new Map([[0, [0]]]));
+    flushRaf(16); // animate runs with the overlay present
+    viewport.dispose();
   });
 });

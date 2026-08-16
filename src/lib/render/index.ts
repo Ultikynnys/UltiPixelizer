@@ -11,6 +11,7 @@ export function createRenderer(deps: RendererDeps): RendererApi {
     originalBaseCanvas: null,
     implicitLightmapCanvas: null,
     implicitLightmapTimer: 0,
+    lightmapCleared: false,
   };
 
   const overlay = createOverlay(deps, shared);
@@ -22,6 +23,7 @@ export function createRenderer(deps: RendererDeps): RendererApi {
     generateAo: bake.generateAo,
     bakeLighting: bake.bakeLighting,
     clearLightmap: bake.clearLightmap,
+    reengageImplicitLightmap: bake.reengageImplicitLightmap,
     scheduleImplicitLightmapBake: bake.scheduleImplicitLightmapBake,
     scheduleNormalAdjustedLighting: bake.scheduleNormalAdjustedLighting,
     refreshUVWireframe: overlay.refreshUVWireframe,
@@ -31,5 +33,6 @@ export function createRenderer(deps: RendererDeps): RendererApi {
       bake.reset();
     },
     getRenderedCanvas: () => shared.renderedCanvas,
+    getImplicitLightmapCanvas: () => shared.implicitLightmapCanvas,
   };
 }

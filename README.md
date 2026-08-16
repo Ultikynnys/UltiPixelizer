@@ -6,7 +6,7 @@ On the surface, UltiPixelizer is an easy-to-use dithering tool for textures. But
 
 ## Features
 
-- **Image + model input**: drop a PNG/JPG/WebP/GIF texture, or a 3D model bundle (FBX, OBJ, glTF/GLB plus companion textures).
+- **Image + model input**: drop a PNG/JPG/WebP/GIF texture, or a 3D model bundle (FBX, OBJ, glTF/GLB, USDZ plus companion textures).
 - **Pixelation**: target resolution from 24 to 512 px.
 - **Dithering**: Floyd-Steinberg, Atkinson, Ordered 4×4, Cross, Stripes, Noise, Checker, and Hard map (no diffusion).
 - **Palettes**: 30 built-in presets plus a custom palette editor with import/export.

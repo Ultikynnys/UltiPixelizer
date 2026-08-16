@@ -28,6 +28,7 @@ function sharedState(): RenderShared {
     originalBaseCanvas: null,
     implicitLightmapCanvas: null,
     implicitLightmapTimer: 0,
+    lightmapCleared: false,
   };
 }
 
@@ -75,7 +76,8 @@ describe('createRender2D render pipeline', () => {
   it('shows the raw lightmap in both panes when lightmap-only mode is on', () => {
     const lightmap = solidTexture([200, 200, 200, 255]);
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: lightmap, name: '' } } });
-    deps.state.showLightmapOnly = true;
+    deps.state.viewModeOriginal = 'lightmap';
+    deps.state.viewModeProcessed = 'lightmap';
     const shared = sharedState();
     createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
 
@@ -85,10 +87,48 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
   });
 
+  it('pixelizes (never dithers) the normal map in the dithered pane', () => {
+    const normal = solidTexture([128, 128, 255, 255]);
+    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: normal, name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.viewModeOriginal = 'normals';
+    deps.state.viewModeProcessed = 'normals';
+    const shared = sharedState();
+    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+
+    // Original pane shows the raw normal map at native resolution.
+    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([128, 128, 255, 255]);
+    // Dithered pane shows the nearest-neighbor pixelized map (1×1 → 2×2), not
+    // a palette-quantized copy — normals can't be dithered.
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual([
+      128, 128, 255, 255, 128, 128, 255, 255,
+      128, 128, 255, 255, 128, 128, 255, 255,
+    ]);
+  });
+
+  it('shows the raw combined AO×lightmap map in both panes when Lightmap+AO mode is on', () => {
+    const ao = solidTexture([128, 128, 128, 255]); // 50% visibility
+    const lightmap = solidTexture([200, 200, 200, 255]);
+    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: lightmap, name: '' } } });
+    deps.state.viewModeOriginal = 'lightmap-ao';
+    deps.state.viewModeProcessed = 'lightmap-ao';
+    const shared = sharedState();
+    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+
+    // Combined = lightmap × AO visibility: 200 × (128/255) ≈ 100.
+    // Original pane shows the raw combined map at the target resolution.
+    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([
+      100, 100, 100, 255, 100, 100, 100, 255,
+      100, 100, 100, 255, 100, 100, 100, 255,
+    ]);
+    // Dithered pane quantizes the combined map (100 → black).
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
+  });
+
   it('shows the raw AO map in both panes when AO-only mode is on', () => {
     const ao = solidTexture([200, 200, 200, 255]);
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
-    deps.state.showAOOnly = true;
+    deps.state.viewModeOriginal = 'ao';
+    deps.state.viewModeProcessed = 'ao';
     const shared = sharedState();
     createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
 
@@ -96,6 +136,20 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([200, 200, 200, 255]);
     // Dithered pane quantizes the AO map (200 → white).
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
+  });
+
+  it('renders each pane from its own view mode', () => {
+    const ao = solidTexture([200, 200, 200, 255]);
+    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.viewModeOriginal = 'ao';
+    // viewModeProcessed stays 'flat' → the dithered pane quantizes the lit base.
+    const shared = sharedState();
+    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+
+    // Original pane shows the raw AO factors at native resolution.
+    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([200, 200, 200, 255]);
+    // Dithered pane quantizes the lit base texture, not the AO map — all dark → black.
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 
   it('draws the UV wireframe onto both panes when enabled and available', () => {
@@ -126,6 +180,19 @@ describe('createRender2D render pipeline', () => {
     createRender2D(deps, sharedState(), { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
     expect(originalViewport.applyImage).toHaveBeenCalledOnce();
     expect(processedViewport.applyImage).toHaveBeenCalledOnce();
+  });
+
+  it('upscales a small source to the target resolution with nearest-neighbor', () => {
+    const deps = createRendererDeps({ textures: { base: { image: solidTexture([40, 40, 40, 255]), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.resolution = 4;
+    const shared = sharedState();
+    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+
+    // 1×1 source → 4×4 grid: every texel stays identical to its source pixel
+    // (a smoothed resample would interpolate), and the badge reports the
+    // requested dither size, not the source's 1 × 1.
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(64).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
+    expect(deps.updatePreviewBadge).toHaveBeenCalledWith(4, 4);
   });
 
   it('stops early when the canvas context is unavailable', () => {

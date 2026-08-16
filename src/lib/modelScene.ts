@@ -1,4 +1,5 @@
 import {
+  AmbientLight,
   Box3,
   BufferAttribute,
   BufferGeometry,
@@ -12,14 +13,17 @@ import {
   NearestFilter,
   Object3D,
   PerspectiveCamera,
+  Scene,
   ShaderMaterial,
   SRGBColorSpace,
   Texture,
   Vector2,
   Vector3,
+  WebGLRenderer,
   type NormalMapTypes,
 } from 'three';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
+import { pixelsToCanvas } from './canvas';
 import { DEFAULT_SMOOTH_ANGLE } from './defaults';
 
 const uvPattern = /^uv(\d*)$/;
@@ -266,165 +270,6 @@ export function computeSmoothNormals(geometry: BufferGeometry, angleDeg = DEFAUL
   return output;
 }
 
-/** Rebuilds vertex normals from triangle winding for every mesh, discarding any
- * exporter-provided normals (often broken or smooth) and applying angle-based
- * smoothing. Returns the mesh count. */
-export function recomputeVertexNormals(object: Object3D, angleDeg = DEFAULT_SMOOTH_ANGLE): number {
-  let meshCount = 0;
-  object.traverse((child) => {
-    if (!(child instanceof Mesh)) return;
-    const source = child.geometry;
-    const geometry = computeSmoothNormals(source, angleDeg);
-    if (geometry !== source) {
-      child.geometry = geometry;
-      source.dispose();
-    }
-    meshCount += 1;
-  });
-  return meshCount;
-}
-
-/**
- * Subdivides every triangle into `segments²` subtriangles on a uniform
- * barycentric grid, interpolating `position` and every `uv*` attribute, and
- * returns a non-indexed geometry. `segments <= 1` returns the input unchanged.
- * Normals and other non-interpolatable attributes (tangents, vertex colors,
- * skinning) are intentionally dropped — the caller recomputes normals and
- * re-applies the active UV channel afterward. Material groups are scaled by
- * `segments²` so multi-material meshes keep their assignments.
- */
-export function tessellateGeometry(geometry: BufferGeometry, segments: number): BufferGeometry {
-  if (segments <= 1) return geometry;
-  const position = geometry.getAttribute('position') as BufferAttribute | undefined;
-  if (!position) return geometry;
-
-  const uvNames = Object.keys(geometry.attributes).filter((name) => uvPattern.test(name));
-  const uvAttrs = uvNames.map((name) => geometry.getAttribute(name) as BufferAttribute);
-  const index = geometry.getIndex();
-  const triangleCount = index ? index.count / 3 : position.count / 3;
-
-  const positions: number[] = [];
-  const uvs: number[][] = uvAttrs.map(() => []);
-  const pa = new Vector3();
-  const pb = new Vector3();
-  const pc = new Vector3();
-  const p = new Vector3();
-  const uvCorners = uvAttrs.map(() => [0, 0, 0, 0, 0, 0]);
-
-  for (let tri = 0; tri < triangleCount; tri += 1) {
-    const [ia, ib, ic] = triangleIndices(geometry, tri);
-    pa.fromBufferAttribute(position, ia);
-    pb.fromBufferAttribute(position, ib);
-    pc.fromBufferAttribute(position, ic);
-    for (let c = 0; c < uvAttrs.length; c += 1) {
-      const attr = uvAttrs[c];
-      uvCorners[c][0] = attr.getX(ia);
-      uvCorners[c][1] = attr.getY(ia);
-      uvCorners[c][2] = attr.getX(ib);
-      uvCorners[c][3] = attr.getY(ib);
-      uvCorners[c][4] = attr.getX(ic);
-      uvCorners[c][5] = attr.getY(ic);
-    }
-
-    // Lattice vertices on the barycentric grid, computed once per triangle so
-    // shared grid nodes resolve to identical positions for position welding.
-    const latticePositions: number[] = [];
-    const latticeUVs: number[][] = uvAttrs.map(() => []);
-    const latticeIndex: number[][] = [];
-    for (let j = 0; j <= segments; j += 1) {
-      latticeIndex[j] = [];
-      for (let i = 0; i <= segments - j; i += 1) {
-        latticeIndex[j][i] = latticePositions.length / 3;
-        const k = segments - i - j;
-        const wA = i / segments;
-        const wB = j / segments;
-        const wC = k / segments;
-        p.set(0, 0, 0).addScaledVector(pa, wA).addScaledVector(pb, wB).addScaledVector(pc, wC);
-        latticePositions.push(p.x, p.y, p.z);
-        for (let c = 0; c < uvAttrs.length; c += 1) {
-          const [ax, ay, bx, by, cx, cy] = uvCorners[c];
-          latticeUVs[c].push(ax * wA + bx * wB + cx * wC, ay * wA + by * wB + cy * wC);
-        }
-      }
-    }
-
-    const emit = (lattice: number): void => {
-      positions.push(latticePositions[lattice * 3], latticePositions[lattice * 3 + 1], latticePositions[lattice * 3 + 2]);
-      for (let c = 0; c < uvAttrs.length; c += 1) {
-        uvs[c].push(latticeUVs[c][lattice * 2], latticeUVs[c][lattice * 2 + 1]);
-      }
-    };
-    // Up-facing subtriangles, one per grid node with i + j ≤ segments − 1.
-    for (let j = 0; j < segments; j += 1) {
-      for (let i = 0; i + j <= segments - 1; i += 1) {
-        emit(latticeIndex[j][i]);
-        emit(latticeIndex[j][i + 1]);
-        emit(latticeIndex[j + 1][i]);
-      }
-    }
-    // Down-facing subtriangles, one per grid node with i + j ≤ segments − 2.
-    for (let j = 0; j < segments - 1; j += 1) {
-      for (let i = 0; i + j <= segments - 2; i += 1) {
-        emit(latticeIndex[j][i + 1]);
-        emit(latticeIndex[j + 1][i + 1]);
-        emit(latticeIndex[j + 1][i]);
-      }
-    }
-  }
-
-  const output = new BufferGeometry();
-  output.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
-  uvNames.forEach((name, c) => output.setAttribute(name, new BufferAttribute(new Float32Array(uvs[c]), 2)));
-  const segmentSquared = segments * segments;
-  for (const group of geometry.groups) {
-    output.addGroup(group.start * segmentSquared, group.count * segmentSquared, group.materialIndex);
-  }
-  return output;
-}
-
-/**
- * Returns the pristine base geometry for a mesh — the original `position`, UV
- * channels, and index before any tessellation or de-indexing. Cached in
- * `userData.ultiPixelizerBase`; three.js clones `userData` by reference, so
- * every geometry cloned from this mesh shares the same base and re-tessellation
- * rebuilds from the original rather than a compounded copy.
- */
-export function baseGeometryOf(geometry: BufferGeometry): BufferGeometry {
-  const cached = geometry.userData.ultiPixelizerBase as BufferGeometry | undefined;
-  if (cached) return cached;
-  const base = new BufferGeometry();
-  for (const [name, attribute] of Object.entries(geometry.attributes)) {
-    if (name === 'position' || uvPattern.test(name)) base.setAttribute(name, (attribute as BufferAttribute).clone());
-  }
-  if (geometry.index) base.setIndex(geometry.index.clone());
-  geometry.userData.ultiPixelizerBase = base;
-  return base;
-}
-
-/**
- * Rebuilds every mesh's surface from its pristine base geometry: optionally
- * tessellating to `tessellation` segments per edge, then recomputing smooth
- * vertex normals at `angleDeg`. The base is cached per mesh, so a later call at
- * a different tessellation level rebuilds from the original geometry rather than
- * compounding subdivision. Returns the mesh count.
- */
-export function prepareSurfaceNormals(object: Object3D, angleDeg = DEFAULT_SMOOTH_ANGLE, tessellation = 1): number {
-  let meshCount = 0;
-  object.traverse((child) => {
-    if (!(child instanceof Mesh)) return;
-    const base = baseGeometryOf(child.geometry);
-    const tessellated = tessellateGeometry(base, tessellation);
-    const smoothed = computeSmoothNormals(tessellated, angleDeg);
-    smoothed.userData.ultiPixelizerBase = base;
-    const previous = child.geometry;
-    child.geometry = smoothed;
-    if (previous !== smoothed) previous.dispose();
-    if (tessellated !== base && tessellated !== smoothed) tessellated.dispose();
-    meshCount += 1;
-  });
-  return meshCount;
-}
-
 export function cloneModelScene(source: Object3D): Object3D {
   const clone = cloneSkeleton(source);
   const textures = new Map<Texture, Texture>();
@@ -432,6 +277,15 @@ export function cloneModelScene(source: Object3D): Object3D {
     const material = sourceMaterial.clone();
     for (const [property, value] of Object.entries(material)) {
       if (!(value instanceof Texture)) continue;
+      if (value.image == null) {
+        // Loader placeholder — the texture never decoded (missing file or
+        // undefined filename). Cloning it would bump its version while the
+        // image stays null, so the renderer would warn
+        // "Texture marked for update but no image data found" every frame.
+        // A material slot without a map is the correct rendering for it.
+        (material as unknown as Record<string, unknown>)[property] = null;
+        continue;
+      }
       let texture = textures.get(value);
       if (!texture) {
         texture = value.clone();
@@ -596,4 +450,66 @@ export function disposeModel(object: Object3D): void {
     });
   });
   textures.forEach((texture) => texture.dispose());
+}
+
+// Lazy singleton renderer shared by every mesh-slot thumbnail — one offscreen
+// WebGL context for all small previews instead of one per model or per render.
+let thumbnailRenderer: WebGLRenderer | null = null;
+let thumbnailCamera: PerspectiveCamera | null = null;
+
+/** Renders a model into a small square canvas for the ribbon's mesh slot. The
+ * Lambert materials the pipeline converts to need a light to be visible, so the
+ * model renders under a full-white ambient — the same lighting the viewports
+ * use. The renderer's canvas is never composited (it stays offscreen), so the
+ * pixels are read straight out of the GL drawing buffer: `finish()` waits for
+ * the frame to complete, then `readPixels` copies it (rows flipped, since GL
+ * is bottom-up) into the returned canvas. */
+export function renderModelThumbnail(model: Object3D, size = 40): HTMLCanvasElement {
+  let renderer = thumbnailRenderer;
+  if (!renderer) {
+    renderer = new WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    renderer.setClearColor(0x000000, 0);
+    thumbnailRenderer = renderer;
+    thumbnailCamera = new PerspectiveCamera(45, 1, 0.01, 1000);
+  }
+  // Renderer and camera are created together, so a cached renderer implies a
+  // cached camera.
+  const camera = thumbnailCamera!;
+  camera.aspect = 1;
+  camera.updateProjectionMatrix();
+  // Fit the framing (center / near / far), then aim the camera at the classic
+  // 3/4 portrait angle — 45° above the horizon and 45° around, looking down at
+  // the model from its front-right — so the thumbnail always reads as a
+  // three-quarter view instead of a straight-on or top-down shot.
+  const center = fitCameraToObject(camera, model, 1);
+  const distance = camera.position.distanceTo(center);
+  const elevation = Math.PI / 4;
+  const azimuth = Math.PI / 4;
+  camera.position.copy(center).add(new Vector3(
+    Math.cos(elevation) * Math.sin(azimuth) * distance,
+    Math.sin(elevation) * distance,
+    Math.cos(elevation) * Math.cos(azimuth) * distance,
+  ));
+  camera.lookAt(center);
+  camera.updateProjectionMatrix();
+  const scene = new Scene();
+  scene.add(model, new AmbientLight(0xffffff, Math.PI));
+  renderer.setPixelRatio(1);
+  renderer.setSize(size, size, false);
+  renderer.render(scene, camera);
+  scene.remove(model);
+  const gl = renderer.getContext();
+  // Block until the GPU has finished drawing, then read the framebuffer
+  // directly — drawing the canvas element instead can return an untouched
+  // (white) bitmap, since the offscreen canvas is never presented.
+  gl.finish();
+  const raw = new Uint8Array(size * size * 4);
+  gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, raw);
+  const pixels = new Uint8ClampedArray(raw.buffer);
+  const flipped = new Uint8ClampedArray(size * size * 4);
+  const rowBytes = size * 4;
+  for (let y = 0; y < size; y += 1) {
+    flipped.set(pixels.subarray(y * rowBytes, (y + 1) * rowBytes), (size - 1 - y) * rowBytes);
+  }
+  return pixelsToCanvas(flipped, size, size);
 }

@@ -31,10 +31,16 @@ export function textureSourceImage(texture: Texture): SourceImage | null {
   const width = image.width;
   const height = image.height;
   if (typeof width !== 'number' || typeof height !== 'number' || width <= 0 || height <= 0) return null;
-  const { canvas, context } = drawImageToCanvas(image, width, height);
-  if (!context) return null;
-  if (texture.flipY === false) flipCanvasVertically(canvas, context);
-  return canvas;
+  // A draw failure (closed ImageBitmap, exotic image type) must not abort the
+  // whole model import — skip the texture and keep the slot as-is.
+  try {
+    const { canvas, context } = drawImageToCanvas(image, width, height);
+    if (!context) return null;
+    if (texture.flipY === false) flipCanvasVertically(canvas, context);
+    return canvas;
+  } catch {
+    return null;
+  }
 }
 
 function flipCanvasVertically(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D): void {

@@ -2,6 +2,13 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   base: './',
+  server: {
+    // Native fs.watch fails on this filesystem (Z: mount, UNKNOWN error) —
+    // polling keeps the dev server alive.
+    watch: {
+      usePolling: true,
+    },
+  },
   build: {
     target: 'es2022',
   },
