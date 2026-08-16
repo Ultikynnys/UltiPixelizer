@@ -127,23 +127,45 @@ export function forEachMeshIndexed(object: Object3D, callback: (mesh: Mesh, inde
  * normal attribute. Adjacent faces sharing an edge are smoothed (share a normal)
  * only when the angle between their face normals is below `angleDeg`; otherwise
  * the edge stays hard. Indexed geometry is expanded to non-indexed so hard edges
- * can own separate vertices. Returns the geometry to use — the same object, or a
- * new de-indexed geometry the caller should substitute in. */
+ * can own separate vertices; non-indexed geometry (FBX/OBJ exports duplicate
+ * every face corner) is welded by position first so shared vertices smooth
+ * across. Returns the geometry to use — the same object, or a new de-indexed
+ * geometry the caller should substitute in. */
 export function computeSmoothNormals(geometry: BufferGeometry, angleDeg = DEFAULT_SMOOTH_ANGLE): BufferGeometry {
   geometry.deleteAttribute('normal');
   const position = geometry.getAttribute('position') as BufferAttribute | undefined;
   if (!position) return geometry;
 
   const index = geometry.index;
-  if (!index) {
-    // Non-indexed geometry has no shared vertices to smooth across, so every
-    // triangle keeps its own flat face normal.
-    geometry.computeVertexNormals();
-    return geometry;
+  const cornerCount = index ? index.count : position.count;
+  const triangleCount = cornerCount / 3;
+
+  // `vertexOf` maps each corner to the position it reads; `groupOf` maps each
+  // corner to the shared vertex it belongs to. For indexed geometry both are the
+  // index entry. Non-indexed geometry (FBX/OBJ exports duplicate every face
+  // corner), so `vertexOf` is the identity while `groupOf` welds identical
+  // positions back into shared vertices.
+  const vertexOf = new Int32Array(cornerCount);
+  const groupOf = new Int32Array(cornerCount);
+  if (index) {
+    for (let i = 0; i < cornerCount; i += 1) {
+      vertexOf[i] = index.getX(i);
+      groupOf[i] = index.getX(i);
+    }
+  } else {
+    const weld = new Map<string, number>();
+    for (let i = 0; i < cornerCount; i += 1) {
+      vertexOf[i] = i;
+      const key = `${position.getX(i).toFixed(6)},${position.getY(i).toFixed(6)},${position.getZ(i).toFixed(6)}`;
+      let group = weld.get(key);
+      if (group === undefined) {
+        group = weld.size;
+        weld.set(key, group);
+      }
+      groupOf[i] = group;
+    }
   }
 
-  const cornerCount = index.count;
-  const triangleCount = cornerCount / 3;
   const cosThreshold = Math.cos((angleDeg * Math.PI) / 180);
 
   const faceNormals = new Float32Array(cornerCount);
@@ -155,9 +177,9 @@ export function computeSmoothNormals(geometry: BufferGeometry, angleDeg = DEFAUL
 
   for (let tri = 0; tri < triangleCount; tri += 1) {
     const base = tri * 3;
-    pA.fromBufferAttribute(position, index.getX(base));
-    pB.fromBufferAttribute(position, index.getX(base + 1));
-    pC.fromBufferAttribute(position, index.getX(base + 2));
+    pA.fromBufferAttribute(position, vertexOf[base]);
+    pB.fromBufferAttribute(position, vertexOf[base + 1]);
+    pC.fromBufferAttribute(position, vertexOf[base + 2]);
     triangleNormal(pA, pB, pC, cb);
     const area = cb.length();
     if (area > 1e-12) cb.divideScalar(area);
@@ -190,8 +212,8 @@ export function computeSmoothNormals(geometry: BufferGeometry, angleDeg = DEFAUL
     const fy = faceNormals[base + 1];
     const fz = faceNormals[base + 2];
     for (let k = 0; k < 3; k += 1) {
-      const vertexA = index.getX(base + k);
-      const vertexB = index.getX(base + ((k + 1) % 3));
+      const vertexA = groupOf[base + k];
+      const vertexB = groupOf[base + ((k + 1) % 3)];
       const minVertex = Math.min(vertexA, vertexB);
       const maxVertex = Math.max(vertexA, vertexB);
       const key = `${minVertex}:${maxVertex}`;
@@ -229,8 +251,9 @@ export function computeSmoothNormals(geometry: BufferGeometry, angleDeg = DEFAUL
     }
   }
 
-  const nonIndexed = geometry.toNonIndexed();
+  const output = index ? geometry.toNonIndexed() : geometry;
   const normalAttribute = new BufferAttribute(new Float32Array(cornerCount * 3), 3);
+  normalAttribute.needsUpdate = true;
   for (let corner = 0; corner < cornerCount; corner += 1) {
     const root = find(corner);
     const x = accX[root];
@@ -239,8 +262,8 @@ export function computeSmoothNormals(geometry: BufferGeometry, angleDeg = DEFAUL
     const length = Math.sqrt(x * x + y * y + z * z) || 1;
     normalAttribute.setXYZ(corner, x / length, y / length, z / length);
   }
-  nonIndexed.setAttribute('normal', normalAttribute);
-  return nonIndexed;
+  output.setAttribute('normal', normalAttribute);
+  return output;
 }
 
 /** Rebuilds vertex normals from triangle winding for every mesh, discarding any

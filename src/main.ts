@@ -5,7 +5,7 @@ import type { DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
 import { createModelFileBundle, modelFormat, type ModelFileBundle, type WorldAxis } from './lib/modelFiles';
-import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels } from './lib/modelScene';
+import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels, recomputeVertexNormals } from './lib/modelScene';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
 import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
@@ -511,7 +511,6 @@ function renderNormalControls(): void {
   normalFormatSelect.value = state.normalFormat;
   normalFormatSelect.disabled = lightmapActive;
   syncRangeValue(smoothAngleInput, smoothAngleValue, state.smoothAngle, formatDegrees);
-  smoothAngleInput.disabled = state.useSourceNormals;
   const image = textures.normal.image;
   normalStatus.textContent = image
     ? `${textures.normal.name} · ${image.width} × ${image.height}`
@@ -707,6 +706,13 @@ function applyModelLod(level: number): void {
   if (aoBakeScene) applyLodLevel(aoBakeScene, level);
   refreshUVOverlap();
   if (state.showUVOverlap) render();
+}
+
+function applySmoothAngle(angle: number): void {
+  state.smoothAngle = angle;
+  if (state.useSourceNormals) return;
+  if (aoBakeScene) recomputeVertexNormals(aoBakeScene, angle);
+  forEachViewport((viewport) => viewport.applySmoothAngle(angle));
 }
 
 function applySun(): void {
@@ -1612,11 +1618,9 @@ showNormalsInput.addEventListener('change', () => {
   forEachViewport((viewport) => viewport.setNormalsView(state.showNormals));
 });
 smoothAngleInput.addEventListener('input', () => {
-  state.smoothAngle = Number(smoothAngleInput.value);
-  smoothAngleValue.textContent = formatDegrees(state.smoothAngle);
-});
-smoothAngleInput.addEventListener('change', () => {
-  if (modelFiles.length && !state.useSourceNormals) void setModel(modelFiles);
+  const angle = Number(smoothAngleInput.value);
+  smoothAngleValue.textContent = formatDegrees(angle);
+  applySmoothAngle(angle);
 });
 function bindSunControl(): void {
   sunControlElements.orientWithCamera.addEventListener('click', () => {

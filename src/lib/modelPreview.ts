@@ -218,6 +218,13 @@ export class ModelViewport {
     return this.model ? applyLodLevel(this.model, level) : 0;
   }
 
+  /** Re-smooths the model's normals in place at the given smooth angle (a no-op
+   * while source normals are in effect). */
+  applySmoothAngle(angle: number): void {
+    if (!this.model) return;
+    recomputeVertexNormals(this.model, angle);
+  }
+
   /** Swaps every mesh to a normals-as-color material for visual debugging, and
    * restores the originals when disabled. */
   setNormalsView(enabled: boolean): void {

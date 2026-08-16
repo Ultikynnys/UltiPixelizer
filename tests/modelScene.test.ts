@@ -157,6 +157,24 @@ describe('model scene processing', () => {
     expect(normal.getX(5)).toBeCloseTo(1);
   });
 
+  it('smooths non-indexed geometry by welding shared positions', () => {
+    // Two coplanar triangles sharing an edge, stored as non-indexed soup — every
+    // face corner is a distinct vertex, exactly as FBX/OBJ exports produce.
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([
+      0, 0, 0,  1, 0, 0,  0, 1, 0,
+      1, 0, 0,  1, 1, 0,  0, 1, 0,
+    ], 3));
+    const result = computeSmoothNormals(geometry, 30);
+    expect(result).toBe(geometry);
+    const normal = result.getAttribute('normal');
+    for (let i = 0; i < 6; i += 1) {
+      expect(normal.getX(i)).toBeCloseTo(0);
+      expect(normal.getY(i)).toBeCloseTo(0);
+      expect(normal.getZ(i)).toBeCloseTo(1);
+    }
+  });
+
   it('triangleNormal returns (B−A)×(C−A) with magnitude 2×area', () => {
     const a = new Vector3(0, 0, 0);
     const b = new Vector3(1, 0, 0);
