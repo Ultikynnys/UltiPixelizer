@@ -200,7 +200,6 @@ app.innerHTML = `
               </div>
             </figure>
           </div>
-          <div class="drop-hint" id="dropHint">Drop an image or model bundle anywhere</div>
         </div>
 
         <footer class="preview-footer">
