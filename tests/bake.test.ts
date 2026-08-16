@@ -72,7 +72,7 @@ describe('generateAo', () => {
     expect(deps.showToast).toHaveBeenLastCalledWith('Ambient occlusion generated');
   });
 
-  it('bakes AO at a low resolution independent of the source size', () => {
+  it('bakes AO at the dithered texture resolution', () => {
     const scene = new Scene();
     mocks.bakeMeshAO.mockReturnValue(new Uint8ClampedArray(64 * 32).fill(255));
     const { deps, bake } = setup({ getAOScene: () => scene });
@@ -84,7 +84,26 @@ describe('generateAo', () => {
     bake.generateAo();
     vi.advanceTimersByTime(30);
 
+    // 512 × 256 dithers to 64 × 32 (pixelization width 64, aspect preserved)
+    // and the AO bake matches that exactly.
     expect(mocks.bakeMeshAO).toHaveBeenCalledWith(scene, 64, 32, { samples: 128, distance: 2 });
+  });
+
+  it('bakes AO at the dithered width for portrait textures', () => {
+    const scene = new Scene();
+    mocks.bakeMeshAO.mockReturnValue(new Uint8ClampedArray(64 * 128).fill(255));
+    const { deps, bake } = setup({ getAOScene: () => scene });
+    const portrait = new FakeCanvas();
+    portrait.width = 256;
+    portrait.height = 512;
+    deps.textures.base.image = asSourceImage(portrait);
+
+    bake.generateAo();
+    vi.advanceTimersByTime(30);
+
+    // 256 × 512 dithers to 64 × 128 — the width is capped, not the longest
+    // side, so the bake stays identical to the dithered texture.
+    expect(mocks.bakeMeshAO).toHaveBeenCalledWith(scene, 64, 128, { samples: 128, distance: 2 });
   });
 
   it('reports bake failures through the toast', () => {
@@ -158,7 +177,7 @@ describe('bakeLighting', () => {
     expect(options.normalMap.data).toEqual(new Uint8ClampedArray([128, 128, 255, 255]));
   });
 
-  it('bakes the lightmap at a low resolution independent of the source size', () => {
+  it('bakes the lightmap at the dithered texture resolution', () => {
     const scene = new Scene();
     mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(64 * 32 * 4));
     const { deps, bake } = setup({ getAOScene: () => scene });
@@ -170,8 +189,8 @@ describe('bakeLighting', () => {
     bake.bakeLighting();
     vi.advanceTimersByTime(30);
 
-    // 512 × 256 caps to the default bake resolution of 64 on the longest side,
-    // preserving aspect ratio (64 × 32).
+    // 512 × 256 dithers to 64 × 32 (pixelization width 64, aspect preserved)
+    // and the lightmap bake matches that exactly.
     expect(mocks.bakeMeshLightmap).toHaveBeenCalledWith(scene, 64, 32, expect.anything());
   });
 

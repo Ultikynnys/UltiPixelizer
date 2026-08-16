@@ -34,7 +34,7 @@ import { createCanvas } from './canvas';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
-import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, forEachMeshIndexed, materialsOf, recomputeVertexNormals, triangleIndices } from './modelScene';
+import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, forEachMeshIndexed, materialsOf, prepareSurfaceNormals, recomputeVertexNormals, triangleIndices } from './modelScene';
 import { cameraForwardFromQuaternion, directionToSun, type DirectionVector } from './sunDirection';
 import { UV_OVERLAP_LABEL } from './uvOverlap';
 
@@ -71,7 +71,7 @@ function orientToWorldAxis(object: Object3D, worldAxis: WorldAxis): void {
   object.rotation.set(upAxisRotation(worldAxis), 0, 0);
 }
 
-export type LoadModelOptions = { useSourceNormals?: boolean; smoothAngle?: number };
+export type LoadModelOptions = { useSourceNormals?: boolean; smoothAngle?: number; tessellation?: number };
 
 export async function loadModel(
   bundle: ModelFileBundle,
@@ -111,7 +111,7 @@ export async function loadModel(
     animations = [];
   }
 
-  if (!options.useSourceNormals) recomputeVertexNormals(scene, options.smoothAngle);
+  if (!options.useSourceNormals) prepareSurfaceNormals(scene, options.smoothAngle, options.tessellation);
   convertToLambertShading(scene);
   return { scene, animations };
 }
@@ -223,6 +223,15 @@ export class ModelViewport {
   applySmoothAngle(angle: number): void {
     if (!this.model) return;
     recomputeVertexNormals(this.model, angle);
+  }
+
+  /** Re-tessellates the model from its pristine base geometry at the given
+   * density, re-smooths at `angle`, and restores the active UV channel (the
+   * rebuild produces a fresh geometry with the primary channel active). */
+  applyTessellation(tessellation: number, angle: number, uvChannel: string): void {
+    if (!this.model) return;
+    prepareSurfaceNormals(this.model, angle, tessellation);
+    applyUVChannel(this.model, uvChannel);
   }
 
   /** Swaps every mesh to a normals-as-color material for visual debugging, and

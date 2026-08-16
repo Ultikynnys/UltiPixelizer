@@ -5,13 +5,13 @@ import type { DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
 import { createModelFileBundle, modelFormat, type ModelFileBundle, type WorldAxis } from './lib/modelFiles';
-import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels, recomputeVertexNormals } from './lib/modelScene';
+import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels, prepareSurfaceNormals, recomputeVertexNormals } from './lib/modelScene';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
 import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
 import { lightmapMatchesBaseColor } from './lib/lightmap';
 import type { NormalFormat } from './lib/normal';
-import { AMBIENT_FLOOR, DEFAULT_AMBIENT_INTENSITY, DEFAULT_BAKE_RESOLUTION, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY } from './lib/defaults';
+import { AMBIENT_FLOOR, DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY, DEFAULT_TESSELLATION } from './lib/defaults';
 import { createRenderer } from './lib/render';
 import { lightmapIsActive, type LightState, type PreviewMode, type State, type TextureChannelId, type TextureSlot } from './lib/state';
 import { errorMessage, safeFileName } from './lib/strings';
@@ -83,6 +83,7 @@ function defaultState(): State {
   state.worldAxis = 'blender';
   state.useSourceNormals = false;
   state.smoothAngle = DEFAULT_SMOOTH_ANGLE;
+  state.tessellation = DEFAULT_TESSELLATION;
   state.showUVOverlap = false;
   state.showUVWireframe = true;
   state.showNormals = false;
@@ -286,15 +287,14 @@ app.innerHTML = `
           <input class="range" id="aoScale" type="range" min="0" max="2" step="0.01" value="1" aria-label="Ambient occlusion scale" />
           <label class="control-row"><span><strong>Distance</strong><small>Ray reach for generated AO</small></span><output id="aoDistanceValue">2.00×</output></label>
           <input class="range" id="aoDistance" type="range" min="0.05" max="3" step="0.05" value="2" aria-label="Ambient occlusion distance" />
-          <label class="control-row"><span><strong>Resolution</strong><small>Bake size for AO & lighting</small></span><output id="bakeResolutionValue">${DEFAULT_BAKE_RESOLUTION} px</output></label>
-          <input class="range" id="bakeResolution" type="range" min="16" max="512" step="16" value="${DEFAULT_BAKE_RESOLUTION}" aria-label="Bake resolution" />
           <button class="button button-secondary button-full" id="generateAoButton" type="button">Generate AO</button>
         </section>
 
         <section class="panel normals-panel">
           <div class="panel-heading compact"><div><p class="eyebrow">SURFACE NORMALS / 05</p><h2>Normals</h2></div></div>
-          <p class="panel-description">Smooth mesh normals where the face angle is below the threshold, then perturb lighting with a normal map.</p>
+          <p class="panel-description">Smooth mesh normals where the face angle is below the threshold, subdivide coarse meshes for denser interpolation, then perturb lighting with a normal map.</p>
           ${rangeControl('smoothAngle', 'Smooth angle', 0, 180, 1, DEFAULT_SMOOTH_ANGLE, `${DEFAULT_SMOOTH_ANGLE}°`)}
+          ${rangeControl('tessellation', 'Tessellation', 1, 4, 1, DEFAULT_TESSELLATION, 'Off')}
           ${rangeControl('normalStrength', 'Normal strength', 0, 100, 1, 100, '100%')}
           <label class="control-row"><span><strong>Format</strong><small>Green channel convention</small></span></label>
           <select class="normal-format-select" id="normalFormat" aria-label="Normal map format">
@@ -392,8 +392,6 @@ const aoScaleInput = document.querySelector<HTMLInputElement>('#aoScale')!;
 const aoScaleValue = document.querySelector<HTMLOutputElement>('#aoScaleValue')!;
 const aoDistanceInput = document.querySelector<HTMLInputElement>('#aoDistance')!;
 const aoDistanceValue = document.querySelector<HTMLOutputElement>('#aoDistanceValue')!;
-const bakeResolutionInput = document.querySelector<HTMLInputElement>('#bakeResolution')!;
-const bakeResolutionValue = document.querySelector<HTMLOutputElement>('#bakeResolutionValue')!;
 const strengthInput = document.querySelector<HTMLInputElement>('#strength')!;
 const strengthValue = document.querySelector<HTMLOutputElement>('#strengthValue')!;
 const generateAoButton = document.querySelector<HTMLButtonElement>('#generateAoButton')!;
@@ -407,6 +405,8 @@ const normalFormatSelect = document.querySelector<HTMLSelectElement>('#normalFor
 const normalStatus = document.querySelector<HTMLDivElement>('#normalStatus')!;
 const smoothAngleInput = document.querySelector<HTMLInputElement>('#smoothAngle')!;
 const smoothAngleValue = document.querySelector<HTMLOutputElement>('#smoothAngleValue')!;
+const tessellationInput = document.querySelector<HTMLInputElement>('#tessellation')!;
+const tessellationValue = document.querySelector<HTMLOutputElement>('#tessellationValue')!;
 let savedCustomPalettes: CustomPalette[] = [];
 try {
   savedCustomPalettes = loadCustomPalettes(localStorage);
@@ -498,6 +498,7 @@ function updatePreviewBadge(width?: number, height?: number): void {
 
 const formatPercent = (value: number): string => `${value}%`;
 const formatDegrees = (value: number): string => `${value}°`;
+const formatTessellation = (value: number): string => (value <= 1 ? 'Off' : `${value}×`);
 const formatPixels = (value: number): string => `${value} px`;
 const formatPlain = (value: number): string => String(value);
 const formatSignedFixed2 = (value: number): string => `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
@@ -522,6 +523,8 @@ function renderNormalControls(): void {
   normalFormatSelect.value = state.normalFormat;
   normalFormatSelect.disabled = lightmapActive;
   syncRangeValue(smoothAngleInput, smoothAngleValue, state.smoothAngle, formatDegrees);
+  syncRangeValue(tessellationInput, tessellationValue, state.tessellation, formatTessellation);
+  tessellationInput.disabled = state.useSourceNormals;
   const image = textures.normal.image;
   normalStatus.textContent = image
     ? `${textures.normal.name} · ${image.width} × ${image.height}`
@@ -657,7 +660,6 @@ function updateAOControls(): void {
   syncRangeValue(aoBiasInput, aoBiasValue, Math.round(state.aoBias * 100) / 100, formatSignedFixed2);
   syncRangeValue(aoScaleInput, aoScaleValue, Math.round(state.aoScale * 100) / 100, formatTimes2);
   syncRangeValue(aoDistanceInput, aoDistanceValue, state.aoDistance, formatTimes2);
-  syncRangeValue(bakeResolutionInput, bakeResolutionValue, state.bakeResolution, formatPixels);
   renderLightmapControls();
 }
 
@@ -728,6 +730,17 @@ function applySmoothAngle(angle: number): void {
   forEachViewport((viewport) => viewport.applySmoothAngle(angle));
 }
 
+function applyTessellation(value: number): void {
+  state.tessellation = value;
+  if (state.useSourceNormals) return;
+  if (aoBakeScene) {
+    prepareSurfaceNormals(aoBakeScene, state.smoothAngle, value);
+    applyUVChannel(aoBakeScene, state.uvMap);
+  }
+  forEachViewport((viewport) => viewport.applyTessellation(value, state.smoothAngle, state.uvMap));
+  scheduleNormalAdjustedLighting();
+}
+
 function applySun(): void {
   renderSunControl();
   renderOrientationReadout();
@@ -790,7 +803,7 @@ async function setModel(files: File[]): Promise<void> {
   let bundle: ModelFileBundle | null = null;
   try {
     bundle = createModelFileBundle(files);
-    const loaded = await loadModel(bundle, files, state.worldAxis, { useSourceNormals: state.useSourceNormals, smoothAngle: state.smoothAngle });
+    const loaded = await loadModel(bundle, files, state.worldAxis, { useSourceNormals: state.useSourceNormals, smoothAngle: state.smoothAngle, tessellation: state.tessellation });
     closeModelPreview();
     modelBundle = bundle;
     modelFiles = files;
@@ -1202,6 +1215,9 @@ function updateResolution(value: number, immediate = false): void {
   syncActiveButton(document, '[data-resolution]', (button) => Number(button.dataset.resolution) === value);
   if (immediate) renderScheduler.flush();
   else renderScheduler.request();
+  // The dithered size drives the AO/lightmap bake size, so a change re-bakes
+  // the implicit lightmap at the new resolution (debounced in the scheduler).
+  scheduleImplicitLightmapBake();
 }
 
 function textureLabel(channel: TextureChannelId): string {
@@ -1388,15 +1404,6 @@ bindRange({
   output: aoDistanceValue,
   format: formatTimes2,
   apply: (value) => { state.aoDistance = value; },
-});
-bindRange({
-  input: bakeResolutionInput,
-  output: bakeResolutionValue,
-  format: formatPixels,
-  apply: (value) => {
-    state.bakeResolution = value;
-    scheduleImplicitLightmapBake();
-  },
 });
 bindRange({
   input: lightmapContributionInput,
@@ -1644,6 +1651,11 @@ smoothAngleInput.addEventListener('input', () => {
   const angle = Number(smoothAngleInput.value);
   smoothAngleValue.textContent = formatDegrees(angle);
   applySmoothAngle(angle);
+});
+tessellationInput.addEventListener('input', () => {
+  const value = Number(tessellationInput.value);
+  tessellationValue.textContent = formatTessellation(value);
+  applyTessellation(value);
 });
 function bindSunControl(): void {
   sunControlElements.orientWithCamera.addEventListener('click', () => {

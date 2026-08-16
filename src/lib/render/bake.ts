@@ -28,6 +28,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     renderNormalControls,
     renderTextureRibbon,
     applySun,
+    dimensions,
   } = deps;
 
   function normalMapOptions() {
@@ -54,25 +55,12 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     };
   }
 
-  // Baked maps (AO and lightmap) render at the user-controlled bake resolution:
-  // lighting and occlusion are smooth signals, so a low-res bake (bilinearly
-  // upscaled at apply time) is visually identical and keeps the per-pixel passes
-  // cheap regardless of the source texture size.
-  function bakeSize(source: { width: number; height: number }): { width: number; height: number } {
-    const maxDimension = Math.max(source.width, source.height);
-    const cap = state.bakeResolution;
-    const scale = maxDimension > cap ? cap / maxDimension : 1;
-    return {
-      width: Math.max(1, Math.round(source.width * scale)),
-      height: Math.max(1, Math.round(source.height * scale)),
-    };
-  }
-
   function bakeLightmapCanvas(): HTMLCanvasElement | null {
     const scene = getAOScene();
     if (!scene || !textures.base.image) return null;
-    const baseColor = textures.base.image;
-    const { width, height } = bakeSize(baseColor);
+    // Baked maps render at the dithered texture resolution — identical to the
+    // processed output — so lighting and occlusion align 1:1 with the texture.
+    const { width, height } = dimensions();
     const pixels = bakeMeshLightmap(scene, width, height, currentLightmapBakeOptions());
     return pixelsToCanvas(pixels, width, height);
   }
@@ -84,8 +72,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
       textures.ao.name = '';
       return;
     }
-    const baseColor = textures.base.image!;
-    const { width, height } = bakeSize(baseColor);
+    const { width, height } = dimensions();
     textures.ao.image = factorsToCanvas(
       bakeMeshAO(scene, width, height, { samples: AO_BAKE_SAMPLES, distance: state.aoDistance }),
       width,

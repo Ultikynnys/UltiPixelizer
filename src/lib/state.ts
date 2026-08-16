@@ -33,13 +33,13 @@ export type State = {
   worldAxis: WorldAxis;
   useSourceNormals: boolean;
   smoothAngle: number;
+  tessellation: number;
   stripeAngle: number;
   noiseScale: number;
   seed: number;
   aoBias: number;
   aoScale: number;
   aoDistance: number;
-  bakeResolution: number;
   lightmapContribution: number;
   normalStrength: number;
   normalFormat: NormalFormat;

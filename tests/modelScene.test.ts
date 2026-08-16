@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshPhongMaterial, MeshStandardMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture, Vector3 } from 'three';
-import { applyUVChannel, cloneModelScene, computeSmoothNormals, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, recomputeVertexNormals, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
+import { applyUVChannel, baseGeometryOf, cloneModelScene, computeSmoothNormals, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, prepareSurfaceNormals, recomputeVertexNormals, tessellateGeometry, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
 
 function mesh(channels: string[], materials = 1): Mesh {
   const geometry = new BufferGeometry();
@@ -254,5 +254,86 @@ describe('model scene processing', () => {
     expect(materialDispose).toHaveBeenCalledOnce();
     expect(textureDispose).toHaveBeenCalledOnce();
     expect(close).not.toHaveBeenCalled();
+  });
+});
+
+describe('mesh tessellation', () => {
+  const triangle = (): BufferGeometry => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    geometry.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
+    geometry.setIndex([0, 1, 2]);
+    return geometry;
+  };
+
+  it('subdivides each triangle into segments² non-indexed subtriangles', () => {
+    const geometry = triangle();
+    const subdivided = tessellateGeometry(geometry, 2);
+    expect(subdivided).not.toBe(geometry);
+    expect(subdivided.index).toBeNull();
+    // 1 triangle × 2² subtriangles × 3 corners = 12 vertices.
+    expect(subdivided.getAttribute('position').count).toBe(12);
+    expect(subdivided.getAttribute('uv').count).toBe(12);
+  });
+
+  it('returns the input unchanged for a segment count of one', () => {
+    const geometry = triangle();
+    expect(tessellateGeometry(geometry, 1)).toBe(geometry);
+    expect(tessellateGeometry(geometry, 0)).toBe(geometry);
+  });
+
+  it('interpolates UVs linearly from the barycentric position', () => {
+    const subdivided = tessellateGeometry(triangle(), 3);
+    const position = subdivided.getAttribute('position');
+    const uv = subdivided.getAttribute('uv');
+    for (let i = 0; i < position.count; i += 1) {
+      // The triangle is A=(0,0) B=(1,0) C=(0,1), so x = weight of B and y = weight of C.
+      expect(uv.getX(i)).toBeCloseTo(position.getX(i));
+      expect(uv.getY(i)).toBeCloseTo(position.getY(i));
+    }
+  });
+
+  it('scales material groups by segments²', () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], 3));
+    geometry.setIndex([0, 1, 2, 0, 2, 3]);
+    geometry.addGroup(0, 3, 0);
+    geometry.addGroup(3, 3, 1);
+    const subdivided = tessellateGeometry(geometry, 2);
+    expect(subdivided.groups).toEqual([
+      { start: 0, count: 12, materialIndex: 0 },
+      { start: 12, count: 12, materialIndex: 1 },
+    ]);
+  });
+
+  it('caches the pristine base geometry once and returns the same instance', () => {
+    const geometry = triangle();
+    expect(baseGeometryOf(geometry)).toBe(baseGeometryOf(geometry));
+    expect(geometry.userData.ultiPixelizerBase).toBeDefined();
+  });
+
+  it('prepareSurfaceNormals re-tessellates from the pristine base without compounding', () => {
+    const root = new Object3D();
+    const mesh = new Mesh(triangle(), new MeshBasicMaterial());
+    root.add(mesh);
+
+    prepareSurfaceNormals(root, 30, 2);
+    expect(mesh.geometry.getAttribute('position').count).toBe(12);
+
+    prepareSurfaceNormals(root, 30, 3);
+    expect(mesh.geometry.getAttribute('position').count).toBe(27);
+
+    // Back to 2 segments must rebuild from the original (12), not 4² × the 9-segment mesh.
+    prepareSurfaceNormals(root, 30, 2);
+    expect(mesh.geometry.getAttribute('position').count).toBe(12);
+  });
+
+  it('prepareSurfaceNormals always produces a normal attribute', () => {
+    const root = new Object3D();
+    root.add(new Mesh(triangle(), new MeshBasicMaterial()));
+    prepareSurfaceNormals(root, 30, 2);
+    const normal = (root.children[0] as Mesh).geometry.getAttribute('normal');
+    expect(normal).toBeDefined();
+    expect(normal.count).toBe(12);
   });
 });
