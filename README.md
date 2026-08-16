@@ -20,6 +20,20 @@ On the surface, UltiPixelizer is an easy-to-use dithering tool for textures. But
 
 Open the live app at [ultikynnys.github.io/UltiPixelizer](https://ultikynnys.github.io/UltiPixelizer/).
 
+## Desktop app
+
+UltiPixelizer also ships as a standalone desktop app for Windows and Linux via [Tauri 2](https://v2.tauri.app/) — a few megabytes instead of a whole browser, using the OS webview. The `Build desktop apps` workflow packages it on every push to `main` (installers land as workflow artifacts) and publishes a GitHub Release when you push a `v*` tag.
+
+To build locally you need [Rust](https://rustup.rs/) and the [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/):
+
+```sh
+npm install
+npm run tauri dev      # run against the Vite dev server
+npm run tauri build    # production bundles in src-tauri/target/release/bundle/
+```
+
+All processing stays local either way. One caveat: the UI fonts load from Google Fonts, so the desktop app needs a network connection for the custom typography — offline it falls back to system fonts.
+
 ## License
 
 [MIT](LICENSE)

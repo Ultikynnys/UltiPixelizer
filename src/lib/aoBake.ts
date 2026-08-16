@@ -6,6 +6,11 @@ import {
   type AOBandRequest,
   type SerializedBakeScene,
 } from './aoRaster';
+// The worker is inlined into the bundle (blob URL) rather than fetched as a
+// module file: desktop shells (Tauri's custom protocol, Electron's file://)
+// and restricted CSPs can reject module workers loaded from a URL, whereas a
+// blob-backed worker is protocol-agnostic. The browser behavior is identical.
+import AOWorker from './aoWorker.worker?worker&inline';
 
 export type BakeAOMLOptions = {
   /** Hemisphere samples per texel. Odd counts round up for paired symmetry. Default 128. */
@@ -128,7 +133,7 @@ function bakeWithWorkers(
     };
 
     bands.forEach((band, bandIndex) => {
-      const worker = new Worker(new URL('./aoWorker.worker.ts', import.meta.url), { type: 'module' });
+      const worker = new AOWorker();
       workers.push(worker);
       worker.onmessage = (event) => {
         const message = event.data;

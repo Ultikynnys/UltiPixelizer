@@ -1,0 +1,63 @@
+name: Build desktop apps
+
+# Builds standalone Tauri apps for Windows and Linux. On every push to main
+# (and manual dispatch) the installers are uploaded as workflow artifacts; on
+# `v*` tags tauri-action also creates a GitHub Release with the same files.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+          - platform: ubuntu-latest
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # WebKitGTK + packaging deps required to compile the Tauri Rust crate and
+      # produce AppImage/deb bundles on Ubuntu (per the Tauri v2 docs).
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev libssl-dev
+
+      - name: Test
+        run: npm test
+
+      # The build version badge (topbar) is stamped at build time by Vite.
+      - name: Set build version
+        run: |
+          echo "VITE_BUILD_NUMBER=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
+          echo "VITE_COMMIT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      # Installs the Rust toolchain, runs `npm run tauri build` (which runs the
+      # web build first), uploads the bundles as workflow artifacts, and — when
+      # tagName is set — creates a GitHub Release.
+      - name: Build and package (Tauri)
+        uses: tauri-apps/tauri-action@v0
+        with:
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseBody: 'Standalone UltiPixelizer build. Download the installer for your platform (Windows .msi/.exe, Linux .AppImage/.deb). All processing stays on-device.'
+          releaseDraft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

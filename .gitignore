@@ -5,3 +5,5 @@ coverage/
 *.log
 .DS_Store
 Thumbs.db
+src-tauri/target/
+src-tauri/gen/
