@@ -11,7 +11,7 @@ import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
 import { createPreset, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
 import { lightmapMatchesBaseColor } from './lib/lightmap';
 import type { NormalFormat } from './lib/normal';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY } from './lib/defaults';
+import { AMBIENT_FLOOR, DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY } from './lib/defaults';
 import { createRenderer } from './lib/render';
 import type { LightState, PreviewMode, State, TextureChannelId, TextureSlot } from './lib/state';
 import { safeFileName } from './lib/strings';
@@ -667,14 +667,14 @@ function applySun(): void {
   renderSunControl();
   renderOrientationReadout();
   const lightmapActive = textures.lightmap.image !== null;
-  const ambientNeutral = lightmapActive || !state.ambient.enabled;
+  const ambientIntensity = lightmapActive ? 1 : state.ambient.enabled ? Math.max(AMBIENT_FLOOR, state.ambient.intensity) : 0;
   forEachViewport((viewport) => {
     viewport.setSunDirection(state.sun.direction);
     viewport.setSunEnabled(state.sun.enabled && !lightmapActive);
     viewport.setSunColor(state.sun.color);
     viewport.setSunIntensity(state.sun.intensity);
-    viewport.setAmbientColor(ambientNeutral ? '#ffffff' : state.ambient.color);
-    viewport.setAmbientIntensity(ambientNeutral ? 1 : state.ambient.intensity);
+    viewport.setAmbientColor(lightmapActive ? '#ffffff' : state.ambient.color);
+    viewport.setAmbientIntensity(ambientIntensity);
   });
   scheduleImplicitLightmapBake();
 }

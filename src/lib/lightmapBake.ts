@@ -2,6 +2,7 @@ import { DoubleSide, Object3D, Ray, Vector3 } from 'three';
 import { hexToRgb, isHexColor } from './palettes';
 import { directionToSun, type DirectionVector } from './sunDirection';
 import { collectBakeScene, rasterizeBake, type BakeTriangle, type UvPair } from './bakeGeometry';
+import { AMBIENT_FLOOR } from './defaults';
 import { triangleNormal } from './modelScene';
 import { sampleNormalMap, type NormalMapSource } from './normal';
 
@@ -112,8 +113,8 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
   const sun = directionToSun(options.sunDirection);
   const towardSun = new Vector3(sun.x, sun.y, sun.z);
   const sunColor = parseColor(options.sunColor);
-  const ambientColor: RGB = options.ambientEnabled === false ? [1, 1, 1] : parseColor(options.ambientColor);
-  const ambientScale = options.ambientEnabled === false ? 1 : clamp01(options.ambientIntensity);
+  const ambientColor: RGB = parseColor(options.ambientColor);
+  const ambientScale = options.ambientEnabled === false ? 0 : Math.max(AMBIENT_FLOOR, clamp01(options.ambientIntensity));
   const sunScale = options.sunEnabled === false ? 0 : clamp01(options.sunIntensity);
   const normalMap = options.normalMap;
   const normalStrength = Math.min(1, Math.max(0, options.normalStrength ?? 1));
