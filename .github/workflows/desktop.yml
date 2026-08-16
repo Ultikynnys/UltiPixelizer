@@ -42,11 +42,20 @@ jobs:
       - name: Test
         run: npm test
 
-      # The build version badge (topbar) is stamped at build time by Vite.
+      # The build version badge (topbar) is stamped at build time by Vite. The
+      # installer version is generated from the SAME git build count via
+      # scripts/build-version.mjs (v124 -> 1.2.4: hundreds split into three)
+      # and injected into the Tauri bundle with a --config merge, so the
+      # offline installers always carry the same build as the in-app badge.
       - name: Set build version
+        shell: bash
         run: |
-          echo "VITE_BUILD_NUMBER=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
+          BUILD_NUMBER=$(git rev-list --count HEAD)
+          VERSION=$(node scripts/build-version.mjs "$BUILD_NUMBER")
+          echo "VITE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "VITE_COMMIT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "ULTIPIXELIZER_VERSION=$VERSION" >> "$GITHUB_ENV"
+          printf '{"version":"%s"}' "$VERSION" > "${{ runner.temp }}/bundle-version.json"
 
       # Installs the Rust toolchain, runs `npm run tauri build` (which runs the
       # web build first), uploads the bundles as workflow artifacts, and — when
@@ -59,5 +68,8 @@ jobs:
           releaseBody: 'Standalone UltiPixelizer build. Download the installer for your platform (Windows .msi/.exe, Linux .AppImage/.deb). All processing stays on-device.'
           releaseDraft: false
           prerelease: false
+          # Injects the version generated from the git build count (see the
+          # Set build version step) into the bundle.
+          args: --config ${{ runner.temp }}/bundle-version.json
         env:
           GITHUB_TOKEN: ${{ github.token }}

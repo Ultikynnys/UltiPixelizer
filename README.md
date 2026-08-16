@@ -34,6 +34,8 @@ npm run tauri build    # production bundles in src-tauri/target/release/bundle/
 
 All processing stays local either way. One caveat: the UI fonts load from Google Fonts, so the desktop app needs a network connection for the custom typography — offline it falls back to system fonts.
 
+Installer versions track the in-app build badge: both derive from the same git build count, with the count split into three digits for semver (`v124` in the badge → installer `1.2.4`).
+
 ## License
 
 [MIT](LICENSE)
