@@ -1,28 +1,16 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { palettes } from '../src/lib/palettes';
 import {
-  PRESET_STORAGE_KEY,
   applyConfigValues,
   collectConfigValues,
   createPreset,
   defaultConfigValues,
-  deletePreset,
   isConversionPreset,
-  loadPresetLibrary,
   parsePreset,
-  savePresetLibrary,
   serializePreset,
-  upsertPreset,
   type ConversionConfig,
-  type StorageLike,
 } from '../src/lib/presets';
 import type { State } from '../src/lib/state';
-
-class MemoryStorage implements StorageLike {
-  data = new Map<string, string>();
-  getItem(key: string): string | null { return this.data.get(key) ?? null; }
-  setItem(key: string, value: string): void { this.data.set(key, value); }
-}
 
 const config: ConversionConfig = {
   resolution: 128,
@@ -48,9 +36,6 @@ const config: ConversionConfig = {
   normalStrength: 0.6,
   normalFormat: 'opengl',
 };
-
-let storage: MemoryStorage;
-beforeEach(() => { storage = new MemoryStorage(); });
 
 describe('conversion presets', () => {
   it('captures and round-trips every setting and complete palette metadata', () => {
@@ -152,34 +137,6 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...base, normalFormat: 'vulkan' })).toBe(false);
   });
 
-  it('persists, replaces by case-insensitive name, and deletes named presets', () => {
-    const first = createPreset('Portrait', '', config, new Date('2026-01-01'));
-    const replacement = createPreset('portrait', 'updated', { ...config, resolution: 64 }, new Date('2026-01-02'));
-    expect(upsertPreset(storage, first)).toHaveLength(1);
-    const updated = upsertPreset(storage, replacement);
-    expect(updated).toHaveLength(1);
-    expect(updated[0].resolution).toBe(64);
-    expect(deletePreset(storage, replacement.id)).toEqual([]);
-    expect(storage.data.has(PRESET_STORAGE_KEY)).toBe(true);
-  });
-
-  it('returns nothing for absent storage and throws for corrupt or non-array data', () => {
-    expect(loadPresetLibrary(storage)).toEqual([]);
-    storage.data.set(PRESET_STORAGE_KEY, '{bad');
-    expect(() => loadPresetLibrary(storage)).toThrow('corrupt JSON');
-    storage.data.set(PRESET_STORAGE_KEY, '{}');
-    expect(() => loadPresetLibrary(storage)).toThrow('not an array');
-  });
-
-  it('drops invalid entries and keeps valid ones', () => {
-    const valid = createPreset('Valid', '', config);
-    storage.data.set(PRESET_STORAGE_KEY, JSON.stringify([{}, valid]));
-    expect(loadPresetLibrary(storage)).toEqual([valid]);
-  });
-
-  it('refuses to save invalid library entries', () => {
-    expect(() => savePresetLibrary(storage, [{} as never])).toThrow('invalid data');
-  });
 });
 
 describe('shared settings schema (CONFIG_FIELDS)', () => {

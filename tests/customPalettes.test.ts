@@ -9,7 +9,6 @@ import {
   loadCustomPalettes,
   matchingPaletteKey,
   parseCustomPalette,
-  saveCustomPalettes,
   selectOrCreatePalette,
   serializeCustomPalette,
   updateCustomPalette,
@@ -113,9 +112,4 @@ describe('custom palettes', () => {
     expect(loadCustomPalettes(storage)).toEqual([valid]);
   });
 
-  it('reports invalid libraries and blocked or full storage', () => {
-    expect(() => saveCustomPalettes(storage, [{} as never])).toThrow('invalid data');
-    storage.shouldThrow = true;
-    expect(() => saveCustomPalettes(storage, [])).toThrow('full or blocked');
-  });
 });

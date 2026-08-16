@@ -94,10 +94,6 @@ export function loadCustomPalettes(storage: StorageLike): CustomPalette[] {
   return customPaletteLibrary.load(storage);
 }
 
-export function saveCustomPalettes(storage: StorageLike, palettes: CustomPalette[]): void {
-  customPaletteLibrary.save(storage, palettes);
-}
-
 export function upsertCustomPalette(storage: StorageLike, palette: CustomPalette): CustomPalette[] {
   return customPaletteLibrary.upsert(storage, palette, (entry) => entry.key);
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshPhongMaterial, MeshStandardMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture, Vector3 } from 'three';
-import { applyTextureToModel, applyUVChannel, cloneModelScene, computeSmoothNormals, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, recomputeVertexNormals, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
+import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshPhongMaterial, MeshStandardMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture, Vector3 } from 'three';
+import { applyUVChannel, cloneModelScene, computeSmoothNormals, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, recomputeVertexNormals, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
 
 function mesh(channels: string[], materials = 1): Mesh {
   const geometry = new BufferGeometry();
@@ -26,19 +26,6 @@ describe('model scene processing', () => {
     expect(applyUVChannel(root, 'uv1')).toEqual({ fallbackMeshes: 1, missingMeshes: 1 });
     expect(exact.geometry.getAttribute('uv')).toBe(exact.geometry.userData.ultiPixelizerUVs.uv1);
     expect(fallback.geometry.getAttribute('uv')).toBe(fallback.geometry.userData.ultiPixelizerUVs.uv2);
-  });
-
-  it('assigns a texture to every material slot', () => {
-    const root = new Object3D();
-    const single = mesh(['uv']);
-    const multiple = mesh(['uv'], 3);
-    const unsupported = new Mesh(new BufferGeometry(), new ShaderMaterial());
-    root.add(single, multiple, unsupported);
-    const texture = new Texture();
-    expect(applyTextureToModel(root, texture)).toBe(5);
-    expect((single.material as MeshBasicMaterial).map).toBe(texture);
-    expect((single.material as MeshBasicMaterial).side).toBe(DoubleSide);
-    expect((multiple.material as MeshBasicMaterial[]).every((material) => material.map === texture && material.side === DoubleSide)).toBe(true);
   });
 
   it('creates a nearest-neighbor sRGB canvas texture', () => {

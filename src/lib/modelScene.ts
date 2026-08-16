@@ -393,18 +393,6 @@ export function applyTextureToMaterial(material: Material, texture: Texture): vo
   textured.needsUpdate = true;
 }
 
-export function applyTextureToModel(object: Object3D, texture: Texture): number {
-  let materialCount = 0;
-  object.traverse((child) => {
-    if (!(child instanceof Mesh)) return;
-    materialsOf(child).forEach((material) => {
-      applyTextureToMaterial(material, texture);
-      materialCount += 1;
-    });
-  });
-  return materialCount;
-}
-
 export function fitCameraToObject(camera: PerspectiveCamera, object: Object3D, aspect: number): Vector3 {
   const bounds = new Box3().setFromObject(object);
   const center = bounds.isEmpty() ? new Vector3() : bounds.getCenter(new Vector3());

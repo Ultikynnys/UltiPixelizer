@@ -1,15 +1,13 @@
 import { isHexColor, isPalette, type Palette } from './palettes';
 import type { DitherMode } from './dither';
 import { clamp01 } from './math';
-import { createStoredCollection, parseJsonFile, serializeJsonFile, type StorageLike } from './storage';
+import { parseJsonFile, serializeJsonFile } from './storage';
 import { slugify } from './strings';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { NormalFormat } from './normal';
 import type { State } from './state';
-export type { StorageLike } from './storage';
 
 export const PRESET_VERSION = 5;
-export const PRESET_STORAGE_KEY = 'ultipixelizer:conversion-presets:v1';
 
 export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'none'];
 
@@ -207,27 +205,4 @@ export function parsePreset(json: string): ConversionPreset {
     invalidJson: 'Preset file is not valid JSON.',
     invalidData: 'Preset file has invalid or unsupported settings.',
   }, { before: migratePreset });
-}
-
-const presetLibrary = createStoredCollection<ConversionPreset>({
-  storageKey: PRESET_STORAGE_KEY,
-  validate: isConversionPreset,
-  migrate: migratePreset,
-  invalidSaveMessage: 'Preset library contains invalid data.',
-});
-
-export function loadPresetLibrary(storage: StorageLike): ConversionPreset[] {
-  return presetLibrary.load(storage);
-}
-
-export function savePresetLibrary(storage: StorageLike, presets: ConversionPreset[]): void {
-  presetLibrary.save(storage, presets);
-}
-
-export function upsertPreset(storage: StorageLike, preset: ConversionPreset): ConversionPreset[] {
-  return presetLibrary.upsert(storage, preset, (entry) => entry.name.toLowerCase());
-}
-
-export function deletePreset(storage: StorageLike, id: string): ConversionPreset[] {
-  return presetLibrary.remove(storage, id, (entry) => entry.id);
 }
