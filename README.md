@@ -2,7 +2,7 @@
 
 ![UltiPixelizer example](Assets/Example.png)
 
-UltiPixelizer turns a texture or a whole 3D model into crisp, palette-driven pixel art, entirely in your browser. Every file is processed locally; nothing is uploaded.
+On the surface, UltiPixelizer is an easy-to-use dithering tool for textures. But feed it a 3D model and you can bake lighting and ambient occlusion, which, combined with a normal map and a base color, achieve a retro PS1-esque aesthetic. Every file is processed locally in your browser; nothing is uploaded.
 
 ## Features
 
