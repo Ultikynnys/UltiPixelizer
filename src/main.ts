@@ -136,10 +136,6 @@ app.innerHTML = `
               <option value="blender">Blender · Z-up</option>
               <option value="maya">Maya · Y-up</option>
             </select></label>
-            <label class="uv-overlap-control" id="uvOverlapControl" hidden title="Highlight regions where UV shells overlap">
-              <span>UV overlap</span>
-              ${toggleControl('uvOverlap', 'Show overlapping UVs')}
-            </label>
             <label class="uv-overlap-control" id="uvWireframeControl" hidden title="Overlay UV island wireframes on the 2D view">
               <span>UV islands</span>
               ${toggleControl('uvWireframe', 'Show UV island wireframes', true)}
@@ -194,6 +190,10 @@ app.innerHTML = `
                   <button type="button" data-preview-mode="2d" class="active">2D</button>
                   <button type="button" data-preview-mode="3d">3D</button>
                 </div>
+                <label class="uv-overlap-control" id="uvOverlapControl" hidden title="Highlight regions where UV shells overlap">
+                  <span>UV overlap</span>
+                  ${toggleControl('uvOverlap', 'Show overlapping UVs')}
+                </label>
               </div>
             </figure>
             <figure class="preview-pane processed-pane">
@@ -587,7 +587,7 @@ function renderUVControl(): void {
 }
 
 function renderUVOverlapControl(): void {
-  syncCheckboxControl(uvOverlapControl, uvOverlapInput, modelUVChannels.length > 0, state.showUVOverlap);
+  syncCheckboxControl(uvOverlapControl, uvOverlapInput, modelUVChannels.length > 0 && originalPreviewMode === '2d', state.showUVOverlap);
 }
 
 function renderUVWireframeControl(): void {
@@ -789,6 +789,7 @@ function applyPreviewMode(): void {
   applyPane(originalPreviewMode, originalCanvas, originalModelHost, originalPreviewToggle);
   applyPane(processedPreviewMode, previewCanvas, processedModelHost, processedPreviewToggle);
   renderSunControl();
+  renderUVOverlapControl();
 }
 
 function closeModelPreview(): void {
