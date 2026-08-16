@@ -1,13 +1,23 @@
 name: Build desktop apps
 
-# Builds standalone Tauri apps for Windows and Linux. On every push to main
-# (and manual dispatch) the installers are uploaded as workflow artifacts; on
-# `v*` tags tauri-action also creates a GitHub Release with the same files.
+# Builds standalone Tauri apps for Windows and Linux and publishes them. Every
+# push to main is packaged into installers, tagged with the build version (the
+# same git build count the in-app badge uses, split into semver — v125 ->
+# 1.2.5) and attached to a published GitHub Release. The tag push uses
+# GITHUB_TOKEN, which does NOT re-trigger workflows. workflow_dispatch
+# re-runs the current commit and updates the same release.
 on:
   push:
     branches: [main]
-    tags: ['v*']
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Serialize runs so queued pushes publish in order instead of racing on tags.
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -21,6 +31,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Full history so `git rev-list --count HEAD` (the build number the
+          # badge and installer version derive from) counts real commits —
+          # the default shallow checkout would always report 1.
+          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@v7
@@ -57,19 +72,76 @@ jobs:
           echo "ULTIPIXELIZER_VERSION=$VERSION" >> "$GITHUB_ENV"
           printf '{"version":"%s"}' "$VERSION" > "${{ runner.temp }}/bundle-version.json"
 
-      # Installs the Rust toolchain, runs `npm run tauri build` (which runs the
-      # web build first), uploads the bundles as workflow artifacts, and — when
-      # tagName is set — creates a GitHub Release.
+      # Installs the Rust toolchain and packages the installers. No release is
+      # created here — the matrix jobs would race; the release job below
+      # publishes the combined installers to the version tag.
       - name: Build and package (Tauri)
         uses: tauri-apps/tauri-action@v0
         with:
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          releaseBody: 'Standalone UltiPixelizer build. Download the installer for your platform (Windows .msi/.exe, Linux .AppImage/.deb). All processing stays on-device.'
-          releaseDraft: false
-          prerelease: false
-          # Injects the version generated from the git build count (see the
-          # Set build version step) into the bundle.
           args: --config ${{ runner.temp }}/bundle-version.json
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.platform }}
+          path: src-tauri/target/release/bundle
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # The release tag is the same version the installers were stamped with —
+      # recomputed here from the identical git build count (same commit, so it
+      # matches the build job).
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          echo "version=$(node scripts/build-version.mjs)" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        shell: bash
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+
+      - name: Download installers
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      # Published (not draft) so the files are immediately downloadable from
+      # the release page. Re-running the workflow for the same commit updates
+      # the existing release instead of failing.
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" release/* \
+              --title "UltiPixelizer $TAG" \
+              --notes "Standalone UltiPixelizer build (Windows .msi/.exe, Linux .AppImage/.deb). All processing stays on-device."
+          fi

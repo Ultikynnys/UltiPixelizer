@@ -22,7 +22,7 @@ Open the live app at [ultikynnys.github.io/UltiPixelizer](https://ultikynnys.git
 
 ## Desktop app
 
-UltiPixelizer also ships as a standalone desktop app for Windows and Linux via [Tauri 2](https://v2.tauri.app/) — a few megabytes instead of a whole browser, using the OS webview. The `Build desktop apps` workflow packages it on every push to `main` (installers land as workflow artifacts) and publishes a GitHub Release when you push a `v*` tag.
+UltiPixelizer also ships as a standalone desktop app for Windows and Linux via [Tauri 2](https://v2.tauri.app/) — a few megabytes instead of a whole browser, using the OS webview. The `Build desktop apps` workflow packages every push to `main` and publishes the installers as a GitHub Release, auto-tagging each build with its version (e.g. `v1.2.5`).
 
 To build locally you need [Rust](https://rustup.rs/) and the [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/):
 
