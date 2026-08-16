@@ -1,4 +1,4 @@
-import { bakeMeshAO } from '../aoBake';
+import { bakeMeshAOAsync } from '../aoBake';
 import { factorsToCanvas, pixelsToCanvas } from '../canvas';
 import { errorMessage } from '../strings';
 import { bakeMeshLightmap, type BakeLightmapOptions } from '../lightmapBake';
@@ -63,20 +63,24 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     return pixelsToCanvas(pixels, width, height);
   }
 
-  function computeAO(): void {
+  async function computeAO(): Promise<boolean> {
     const scene = getAOScene();
     if (!scene) {
       textures.ao.image = null;
       textures.ao.name = '';
-      return;
+      return false;
     }
     const { width, height } = dimensions();
-    textures.ao.image = factorsToCanvas(
-      bakeMeshAO(scene, width, height, { samples: AO_BAKE_SAMPLES, distance: state.aoDistance }),
+    const factors = await bakeMeshAOAsync(
+      scene,
       width,
       height,
+      { samples: AO_BAKE_SAMPLES, distance: state.aoDistance },
+      (percent) => showToast(`Generating AO… ${percent}%`),
     );
+    textures.ao.image = factorsToCanvas(factors, width, height);
     textures.ao.name = 'Generated AO';
+    return true;
   }
 
   // Shared async-bake runner: scene guard, progress toast, deferred try/catch.
@@ -88,7 +92,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     progressMessage: string,
     failureMessage: string,
     successMessage: string,
-    work: () => boolean,
+    work: () => boolean | Promise<boolean>,
   ): Promise<boolean> {
     if (!getAOScene()) {
       showToast(noSceneMessage);
@@ -97,21 +101,24 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     showToast(progressMessage);
     return new Promise((resolve) => {
       window.setTimeout(() => {
-        try {
-          const completed = work();
-          if (completed) showToast(successMessage);
-          resolve(completed);
-        } catch (error) {
-          showToast(errorMessage(error, failureMessage));
-          resolve(false);
-        }
+        Promise.resolve()
+          .then(work)
+          .then((completed) => {
+            if (completed) showToast(successMessage);
+            resolve(completed);
+          })
+          .catch((error) => {
+            showToast(errorMessage(error, failureMessage));
+            resolve(false);
+          });
       }, 30);
     });
   }
 
   function generateAo(): Promise<boolean> {
-    return runBakeTask('Load a model to generate AO', 'Generating AO…', 'Could not generate ambient occlusion.', 'Ambient occlusion generated', () => {
-      computeAO();
+    return runBakeTask('Load a model to generate AO', 'Generating AO…', 'Could not generate ambient occlusion.', 'Ambient occlusion generated', async () => {
+      const completed = await computeAO();
+      if (!completed) return false;
       renderTextureRibbon();
       render2d.render();
       return true;
