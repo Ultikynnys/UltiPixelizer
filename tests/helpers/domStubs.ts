@@ -6,9 +6,9 @@ import type { SourceImage } from '../../src/lib/state';
  *
  * The lib layer (canvas.ts, render/*, modelPreview.ts) reaches for
  * `document.createElement('canvas')`, 2D contexts, `ImageData`,
- * `requestAnimationFrame`, `ResizeObserver`, `matchMedia` and friends — all
- * absent in node. Installing these stubs once per test file keeps those tests
- * deterministic and free of a jsdom dependency.
+ * `requestAnimationFrame`, `ResizeObserver`, `matchMedia`, `getComputedStyle`
+ * and friends — all absent in node. Installing these stubs once per test file
+ * keeps those tests deterministic and free of a jsdom dependency.
  */
 
 export class FakeImageData {
@@ -230,6 +230,9 @@ export function installDomStubs(): void {
     removeListener: vi.fn(),
     dispatchEvent: vi.fn(),
   }));
+  // modelPreview.ts reads the --backdrop token from the computed style; return
+  // empty so callers fall back to their hardcoded default.
+  vi.stubGlobal('getComputedStyle', () => ({ getPropertyValue: () => '' }));
   vi.stubGlobal('devicePixelRatio', 1);
   vi.stubGlobal(
     'ResizeObserver',

@@ -21,6 +21,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 function base8() {
@@ -32,11 +33,15 @@ function base8() {
 
 function setup(overrides: Parameters<typeof createRendererDeps>[0] = {}) {
   const deps = createRendererDeps(overrides);
+  // Bake at 8×8 by default so base8 fixtures match their 8×8 mock buffers;
+  // downscale-dimension tests override to 64 explicitly.
+  deps.state.resolution = 8;
   const shared: RenderShared = {
     renderedCanvas: new FakeCanvas() as unknown as HTMLCanvasElement,
     originalBaseCanvas: null,
     implicitLightmapCanvas: null,
     implicitLightmapTimer: 0,
+    lightmapCleared: false,
   };
   const render2d = { render: vi.fn() };
   const bake = createBake(deps, shared, render2d);
@@ -44,10 +49,9 @@ function setup(overrides: Parameters<typeof createRendererDeps>[0] = {}) {
 }
 
 describe('generateAo', () => {
-  it('toasts and does nothing without a loaded scene', () => {
-    const { deps, render2d, bake } = setup();
+  it('does nothing without a loaded scene', () => {
+    const { render2d, bake } = setup();
     bake.generateAo();
-    expect(deps.showToast).toHaveBeenCalledWith('Load a model to generate AO');
     vi.advanceTimersByTime(1000);
     expect(mocks.bakeMeshAOAsync).not.toHaveBeenCalled();
     expect(render2d.render).not.toHaveBeenCalled();
@@ -60,7 +64,6 @@ describe('generateAo', () => {
     deps.textures.base.image = base8();
 
     const promise = bake.generateAo();
-    expect(deps.showToast).toHaveBeenCalledWith('Generating AO…');
     expect(mocks.bakeMeshAOAsync).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(30);
@@ -70,7 +73,6 @@ describe('generateAo', () => {
     expect(deps.textures.ao.name).toBe('Generated AO');
     expect(deps.renderTextureRibbon).toHaveBeenCalled();
     expect(render2d.render).toHaveBeenCalledOnce();
-    expect(deps.showToast).toHaveBeenLastCalledWith('Ambient occlusion generated');
   });
 
   it('bakes AO at the dithered texture resolution', async () => {
@@ -80,6 +82,7 @@ describe('generateAo', () => {
     const large = new FakeCanvas();
     large.width = 512;
     large.height = 256;
+    deps.state.resolution = 64;
     deps.textures.base.image = asSourceImage(large);
 
     const promise = bake.generateAo();
@@ -98,6 +101,7 @@ describe('generateAo', () => {
     const portrait = new FakeCanvas();
     portrait.width = 256;
     portrait.height = 512;
+    deps.state.resolution = 64;
     deps.textures.base.image = asSourceImage(portrait);
 
     const promise = bake.generateAo();
@@ -109,7 +113,8 @@ describe('generateAo', () => {
     expect(mocks.bakeMeshAOAsync).toHaveBeenCalledWith(scene, 64, 128, { samples: 128, distance: 2 }, expect.any(Function));
   });
 
-  it('reports bake failures through the toast', async () => {
+  it('reports bake failures to the console', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.bakeMeshAOAsync.mockRejectedValue(new Error('gpu exploded'));
     const { deps, bake } = setup({ getAOScene: () => new Scene() });
     deps.textures.base.image = base8();
@@ -117,26 +122,23 @@ describe('generateAo', () => {
     const promise = bake.generateAo();
     vi.advanceTimersByTime(30);
     await promise;
-    expect(deps.showToast).toHaveBeenLastCalledWith('gpu exploded');
+    expect(consoleError).toHaveBeenCalledWith('Could not generate ambient occlusion.', expect.any(Error));
   });
 });
 
 describe('bakeLighting', () => {
-  it('toasts without a loaded scene', () => {
-    const { deps, bake } = setup();
+  it('does nothing without a loaded scene', () => {
+    const { bake } = setup();
     bake.bakeLighting();
-    expect(deps.showToast).toHaveBeenCalledWith('Load a model to bake lighting');
     vi.advanceTimersByTime(1000);
     expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
   });
 
-  it('toasts when the base texture is missing', async () => {
-    const { deps, bake } = setup({ getAOScene: () => new Scene() });
+  it('does nothing when the base texture is missing', async () => {
+    const { bake } = setup({ getAOScene: () => new Scene() });
     const promise = bake.bakeLighting();
-    expect(deps.showToast).toHaveBeenCalledWith('Baking lighting…');
     vi.advanceTimersByTime(30);
     await promise;
-    expect(deps.showToast).toHaveBeenLastCalledWith('Load a base texture to bake lighting');
     expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
   });
 
@@ -158,7 +160,19 @@ describe('bakeLighting', () => {
     expect(deps.renderTextureRibbon).toHaveBeenCalled();
     expect(deps.applySun).toHaveBeenCalled();
     expect(render2d.render).toHaveBeenCalledOnce();
-    expect(deps.showToast).toHaveBeenLastCalledWith('Lighting baked');
+  });
+
+  it('re-engages the implicit preview after a suppressed clear', async () => {
+    mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(8 * 8 * 4));
+    const { deps, shared, bake } = setup({ getAOScene: () => new Scene() });
+    deps.textures.base.image = base8();
+    shared.lightmapCleared = true;
+
+    const promise = bake.bakeLighting();
+    vi.advanceTimersByTime(30);
+    await promise;
+
+    expect(shared.lightmapCleared).toBe(false);
   });
 
   it('reads an uploaded normal map when one is present', async () => {
@@ -189,6 +203,7 @@ describe('bakeLighting', () => {
     const large = new FakeCanvas();
     large.width = 512;
     large.height = 256;
+    deps.state.resolution = 64;
     deps.textures.base.image = asSourceImage(large);
 
     const promise = bake.bakeLighting();
@@ -200,7 +215,8 @@ describe('bakeLighting', () => {
     expect(mocks.bakeMeshLightmap).toHaveBeenCalledWith(scene, 64, 32, expect.anything());
   });
 
-  it('reports bake failures through the toast', async () => {
+  it('reports bake failures to the console', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.bakeMeshLightmap.mockImplementation(() => {
       throw new Error('no memory');
     });
@@ -210,7 +226,7 @@ describe('bakeLighting', () => {
     const promise = bake.bakeLighting();
     vi.advanceTimersByTime(30);
     await promise;
-    expect(deps.showToast).toHaveBeenLastCalledWith('no memory');
+    expect(consoleError).toHaveBeenCalledWith('Could not bake lighting.', expect.any(Error));
   });
 });
 
@@ -226,6 +242,35 @@ describe('clearLightmap', () => {
     expect(deps.textures.lightmap.name).toBe('');
     expect(deps.renderLightmapControls).toHaveBeenCalled();
     expect(deps.applySun).toHaveBeenCalled();
+    expect(render2d.render).toHaveBeenCalledOnce();
+  });
+
+  it('drops the implicit lightmap and cancels a pending re-bake', () => {
+    mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(8 * 8 * 4));
+    const { deps, shared, bake } = setup({ getAOScene: () => new Scene() });
+    deps.textures.base.image = base8();
+    bake.scheduleImplicitLightmapBake();
+    shared.implicitLightmapCanvas = new FakeCanvas() as unknown as HTMLCanvasElement;
+
+    bake.clearLightmap();
+
+    expect(shared.implicitLightmapCanvas).toBeNull();
+    vi.advanceTimersByTime(1000);
+    expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
+  });
+
+  it('suppressing the clear keeps the render unlit until an explicit bake', () => {
+    const { deps, render2d, shared, bake } = setup({ getAOScene: () => new Scene() });
+    deps.textures.base.image = base8();
+
+    bake.clearLightmap(true);
+
+    expect(shared.lightmapCleared).toBe(true);
+    // Sun/ambient changes after the clear must not resurrect the lightmap.
+    bake.scheduleImplicitLightmapBake();
+    vi.advanceTimersByTime(1000);
+    expect(shared.implicitLightmapCanvas).toBeNull();
+    expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
     expect(render2d.render).toHaveBeenCalledOnce();
   });
 });
@@ -245,6 +290,29 @@ describe('implicit lightmap scheduling', () => {
     expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
   });
 
+  it('does not bake while the lightmap was explicitly cleared', () => {
+    const { shared, bake } = setup({ getAOScene: () => new Scene() });
+    shared.lightmapCleared = true;
+    bake.scheduleImplicitLightmapBake();
+    vi.advanceTimersByTime(1000);
+    expect(shared.implicitLightmapCanvas).toBeNull();
+    expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
+  });
+
+  it('reengageImplicitLightmap resumes baking after a cleared slot', () => {
+    mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(8 * 8 * 4));
+    const { deps, shared, bake } = setup({ getAOScene: () => new Scene() });
+    deps.textures.base.image = base8();
+    shared.lightmapCleared = true;
+
+    bake.reengageImplicitLightmap();
+    bake.scheduleImplicitLightmapBake();
+    vi.advanceTimersByTime(200);
+
+    expect(mocks.bakeMeshLightmap).toHaveBeenCalledOnce();
+    expect(shared.implicitLightmapCanvas).not.toBeNull();
+  });
+
   it('bakes the implicit lightmap after the debounce and renders', () => {
     mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(8 * 8 * 4));
     const { deps, render2d, shared, bake } = setup({ getAOScene: () => new Scene() });
@@ -257,6 +325,8 @@ describe('implicit lightmap scheduling', () => {
     expect(mocks.bakeMeshLightmap).toHaveBeenCalledOnce();
     expect(shared.implicitLightmapCanvas).not.toBeNull();
     expect(render2d.render).toHaveBeenCalledOnce();
+    // The ribbon slot previews the implicit lightmap, so it refreshes too.
+    expect(deps.renderTextureRibbon).toHaveBeenCalledOnce();
   });
 
   it('coalesces rapid requests into a single bake', () => {
@@ -275,11 +345,13 @@ describe('implicit lightmap scheduling', () => {
     mocks.bakeMeshLightmap.mockImplementation(() => {
       throw new Error('bake failed');
     });
-    const { render2d, shared, bake } = setup({ getAOScene: () => new Scene() });
+    const { deps, render2d, shared, bake } = setup({ getAOScene: () => new Scene() });
     bake.scheduleImplicitLightmapBake();
     vi.advanceTimersByTime(200);
     expect(shared.implicitLightmapCanvas).toBeNull();
     expect(render2d.render).not.toHaveBeenCalled();
+    // The ribbon still refreshes so the slot preview drops the stale canvas.
+    expect(deps.renderTextureRibbon).toHaveBeenCalledOnce();
   });
 
   it('scheduleNormalAdjustedLighting reuses the same debounce path', () => {
@@ -291,12 +363,14 @@ describe('implicit lightmap scheduling', () => {
     expect(mocks.bakeMeshLightmap).toHaveBeenCalledOnce();
   });
 
-  it('reset cancels any pending bake', () => {
+  it('reset cancels any pending bake and re-engages the preview', () => {
     const { shared, bake } = setup({ getAOScene: () => new Scene() });
+    shared.lightmapCleared = true;
     bake.scheduleImplicitLightmapBake();
     bake.reset();
     vi.advanceTimersByTime(1000);
     expect(shared.implicitLightmapCanvas).toBeNull();
+    expect(shared.lightmapCleared).toBe(false);
     expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
   });
 });

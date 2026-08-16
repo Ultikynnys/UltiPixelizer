@@ -10,6 +10,7 @@ import {
   loadImageFile,
   pixelsToCanvas,
   processLitImageData,
+  resizeNearest,
 } from '../src/lib/canvas';
 import { asSourceImage, domStubs, FakeCanvas, installDomStubs, stubDocument } from './helpers/domStubs';
 
@@ -88,6 +89,17 @@ describe('canvas drawing helpers', () => {
   it('reads image pixels through the 2D context', () => {
     const source = pixelCanvas([10, 20, 30, 255]);
     expect(Array.from(imagePixels(source, 1, 1))).toEqual([10, 20, 30, 255]);
+  });
+
+  it('pixelizes with nearest-neighbor sampling into a fresh canvas', () => {
+    const source = pixelCanvas([200, 100, 50, 255]);
+    // 1×1 → 2×1 nearest-neighbor upscale duplicates the single source pixel.
+    const upscaled = resizeNearest(source, 2, 1);
+    expect(Array.from((upscaled as unknown as FakeCanvas).context.pixels)).toEqual([200, 100, 50, 255, 200, 100, 50, 255]);
+    // Always a fresh canvas at the target size, even when it already matches.
+    const sameSize = resizeNearest(source, 1, 1);
+    expect(sameSize).not.toBe(source);
+    expect(Array.from((sameSize as unknown as FakeCanvas).context.pixels)).toEqual([200, 100, 50, 255]);
   });
 
   it('throws a friendly error when pixels cannot be read', () => {

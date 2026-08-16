@@ -10,7 +10,7 @@ export type TextureChannelId = 'base' | 'ao' | 'normal' | 'lightmap';
 
 export type PreviewMode = '2d' | '3d';
 
-export type PreviewViewMode = 'flat' | 'normals' | 'ao' | 'lightmap';
+export type PreviewViewMode = 'flat' | 'basecolor' | 'normals' | 'ao' | 'lightmap' | 'lightmap-ao';
 
 export type TextureSlot = { image: SourceImage | null; name: string };
 
@@ -27,7 +27,7 @@ export type State = {
   brightness: number;
   contrast: number;
   saturation: number;
-  paletteFilter: PaletteCategory | 'all';
+  paletteFilter: PaletteCategory;
   uvMap: string;
   lodLevel: number;
   sun: SunState;

@@ -3,6 +3,7 @@
 :root {
   color-scheme: dark;
   /* ── surfaces, dark → light ── */
+  --backdrop: #0d0d0c;
   --ink: #171716;
   --stage: #1c1c1b;
   --chip: #1f1f1e;
@@ -15,6 +16,7 @@
   --line-bright: #55554f;
   /* ── control sizing ── */
   --control-height: 32px;
+  --control-width: 410px;
   /* ── text, dim → bright ── */
   --faint: #77776e;
   --muted: #97978e;
@@ -40,12 +42,12 @@ html, body, #app { height: 100%; margin: 0; }
 body { overflow: hidden; }
 body { background: var(--ink); color: var(--paper); }
 button, input { font: inherit; }
-button, summary { -webkit-tap-highlight-color: transparent; }
-button { color: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
+button { border: 0; color: inherit; }
 
 .topbar {
   align-items: center; background: color-mix(in srgb, var(--ink) 96%, transparent); display: flex;
-  height: 72px; justify-content: space-between; padding: 0 28px; position: sticky; top: 0; z-index: 20;
+  height: 72px; justify-content: space-between; padding: 0 28px; position: sticky; top: 0; width: calc(100% - var(--control-width)); z-index: 20;
   backdrop-filter: blur(12px);
 }
 .brand { align-items: center; color: var(--paper); display: flex; font-size: 18px; font-weight: 800; gap: 12px; letter-spacing: -.04em; text-decoration: none; width: fit-content; }
@@ -55,6 +57,10 @@ button { color: inherit; }
 .brand-mark i { background: var(--paper); display: block; height: 7px; }
 .brand-mark i:last-child { background: var(--accent); }
 .button { align-items: center; border: 0; cursor: pointer; display: inline-flex; font-size: 12px; font-weight: 700; gap: 14px; justify-content: center; padding: 12px 17px; }
+/* Standalone action buttons (Save / Load / Reset settings, Export PNG, Orient
+   Sun with Camera) share one raised surface — the single source for button
+   chrome instead of UA default buttonface. */
+.button, .orient-sun-button { background: var(--raised); }
 .button-quiet { background: transparent; color: var(--muted); justify-self: end; padding-right: 0; }
 .button-quiet:hover { color: var(--paper); }
 .topbar-actions { align-items: center; display: flex; gap: 6px; }
@@ -78,7 +84,7 @@ button { color: inherit; }
 .icon-button { align-items: center; background: var(--chip); color: var(--paper-soft); cursor: pointer; display: flex; justify-content: center; padding: 0; }
 .icon-button:hover, .icon-button:focus-visible { background: var(--accent); color: var(--on-accent); }
 
-.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 410px; grid-template-rows: minmax(0, 1fr); height: calc(100vh - 72px); overflow: hidden; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) var(--control-width); grid-template-rows: minmax(0, 1fr); height: calc(100vh - 72px); overflow: hidden; }
 .preview-column { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; overflow: hidden; }
 .preview-toolbar { align-items: center; display: flex; gap: 24px; min-height: 86px; padding: 18px 28px; }
 .eyebrow { color: var(--accent); font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500; letter-spacing: .15em; margin: 0 0 7px; }
@@ -87,7 +93,20 @@ button { color: inherit; }
 .value-pill { background: var(--card); color: var(--paper-dim); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .08em; padding: 9px 11px; }
 .uv-control { align-items: center; display: flex; gap: 6px; }
 .uv-control span { color: var(--muted); font: 500 8px 'DM Mono', monospace; text-transform: uppercase; }
-.select { background: var(--card); border: none; color: var(--paper); font: 500 9px 'DM Mono', monospace; padding: 7px 8px; }
+.select {
+  appearance: none; /* strip native control frame/outline — border: none alone can't remove UA chrome */
+  background: var(--card);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath d='M1.5 3L4 5.5 6.5 3' fill='none' stroke='%2397978e' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 8px center;
+  background-repeat: no-repeat;
+  border: none;
+  color: var(--paper);
+  font: 500 9px 'DM Mono', monospace;
+  outline: none;
+  padding: 7px 22px 7px 8px;
+}
+.select:focus, .select:focus-visible { outline: none; }
+.select::picker(select) { border: none; outline: none; }
 select option { background: var(--card); color: var(--paper); }
 .uv-overlap-control { align-items: center; display: flex; gap: 6px; }
 .uv-overlap-control > span:first-child { color: var(--muted); font: 500 8px 'DM Mono', monospace; text-transform: uppercase; }
@@ -98,15 +117,9 @@ select option { background: var(--card); color: var(--paper); }
 .sun-overlay[hidden] { display: none; }
 .sun-overlay-heading { align-items: center; display: flex; justify-content: space-between; width: 100%; }
 .sun-overlay-heading > span { color: var(--paper); font: 600 8px 'DM Mono', monospace; letter-spacing: .1em; text-transform: uppercase; }
-.lightmap-active-label { color: var(--accent); display: none; font: 600 7px 'DM Mono', monospace; letter-spacing: .08em; padding: 3px 2px; text-transform: uppercase; }
-.sun-overlay.lightmap-active .sun-overlay-heading,
-.sun-overlay.lightmap-active .orient-sun-button,
-.sun-overlay.lightmap-active .light-controls,
-.sun-overlay.lightmap-active .orientation-readout { display: none; }
-.sun-overlay.lightmap-active .lightmap-active-label { display: block; }
 .uv-overlap-control.is-disabled { opacity: .45; pointer-events: none; }
 .orient-sun-button {
-  background: transparent; color: inherit; cursor: pointer;
+  color: inherit; cursor: pointer;
   font: 600 8px 'DM Mono', monospace; margin: 7px 0 3px; padding: 7px 8px; text-transform: uppercase; width: 136px;
 }
 .orient-sun-button:disabled { cursor: not-allowed; opacity: .35; }
@@ -140,7 +153,7 @@ select option { background: var(--card); color: var(--paper); }
 .preview-pane figcaption { align-items: center; color: var(--paper); display: flex; font: 500 9px 'DM Mono', monospace; gap: 7px; letter-spacing: .1em; text-transform: uppercase; }
 .preview-pane figcaption span { color: var(--accent); }
 .preview-pane figcaption .fig-dims { color: var(--muted); margin-left: auto; }
-.canvas-frame { align-items: center; background: var(--ink); display: flex; justify-content: center; min-width: 0; overflow: hidden; position: relative; }
+.canvas-frame { align-items: center; background: var(--backdrop); display: flex; justify-content: center; min-width: 0; overflow: hidden; position: relative; }
 .preview-pane canvas { display: block; image-rendering: pixelated; max-height: clamp(240px, 52vh, 560px); max-width: 100%; min-width: 0; object-fit: contain; width: 100%; }
 .preview-pane canvas[hidden], .model-host[hidden], .uv-control[hidden], .uv-overlap-control[hidden] { display: none; }
 .model-host { height: clamp(280px, 52vh, 560px); min-height: 0; width: 100%; }
@@ -158,7 +171,6 @@ select option { background: var(--card); color: var(--paper); }
   background: transparent; border: 0; color: inherit; cursor: pointer;
   font: 700 9px 'Manrope', system-ui, sans-serif; letter-spacing: .08em; padding: 6px 12px;
 }
-.preview-mode-toggle button.active { color: var(--paper); }
 .preview-view-toggle {
   align-items: center; background: color-mix(in srgb, var(--ink) 92%, transparent);
   bottom: 8px; display: flex; gap: 2px; left: 8px; padding: 3px; position: absolute; z-index: 10;
@@ -168,9 +180,51 @@ select option { background: var(--card); color: var(--paper); }
   background: transparent; border: 0; color: inherit; cursor: pointer;
   font: 700 8px 'DM Mono', monospace; letter-spacing: .06em; padding: 5px 8px; text-transform: uppercase;
 }
-.preview-view-toggle button.active { color: var(--paper); }
 .preview-view-toggle button:disabled { cursor: not-allowed; opacity: .35; }
-.preview-footer { align-items: center; display: flex; gap: 12px; justify-content: flex-end; min-height: 82px; padding: 15px 28px; }
+.world-axis-toggle { bottom: 8px; left: auto; right: 8px; }
+/* Export PNG sits on the dithered preview's bottom-left corner — inside the
+   canvas-frame, above whichever pane (2D canvas or 3D model) fills it — so it
+   stays reachable in both preview modes. It borrows the view-mode segment pill
+   (Combined / BaseColor / Normals / …) so the overlay controls share one
+   dark-ink chip language. */
+#exportButton {
+  background: color-mix(in srgb, var(--ink) 92%, transparent);
+  bottom: 8px; color: var(--paper); font: 700 16px 'DM Mono', monospace;
+  gap: 12px; left: 8px; letter-spacing: .06em; padding: 10px 16px;
+  position: absolute; text-transform: uppercase; z-index: 10;
+}
+#exportButton svg { height: 20px; width: 20px; }
+#exportButton:hover, #exportButton:focus-visible { background: var(--paper); color: var(--ink); }
+/* Average texel density chip on the dithered preview's top-left corner — UV
+   face size compared with mesh face size in world space. Inside the
+   canvas-frame, above whichever pane (2D canvas or 3D model) fills it, so it
+   stays visible in both preview modes. Same dark-ink chip language as the
+   other corner overlays. */
+.texel-density {
+  background: color-mix(in srgb, var(--ink) 92%, transparent);
+  display: grid; gap: 2px; justify-items: start; left: 8px; padding: 6px 8px;
+  position: absolute; top: 8px; z-index: 10;
+}
+.texel-density[hidden] { display: none; }
+.texel-density > span { color: var(--muted); font: 500 8px 'DM Mono', monospace; letter-spacing: .06em; text-transform: uppercase; }
+.texel-density output { color: var(--paper); font: 700 12px 'DM Mono', monospace; }
+
+/* AO bake progress: centered card over the workspace while worker bands
+   rasterize. Modal — the bake is short and state is mid-flight, so clicks are
+   absorbed until the map lands. */
+.ao-bake-overlay {
+  align-items: center; background: color-mix(in srgb, var(--backdrop) 55%, transparent);
+  display: flex; inset: 0; justify-content: center; position: fixed; z-index: 40;
+}
+.ao-bake-overlay[hidden] { display: none; }
+.ao-bake-card {
+  background: var(--card); border: 1px solid var(--line);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .5); min-width: 300px; padding: 20px 22px;
+}
+.ao-bake-title { color: var(--paper); font: 700 9px 'DM Mono', monospace; letter-spacing: .12em; margin: 0 0 12px; text-transform: uppercase; }
+.ao-bake-track { background: var(--ink); border: 1px solid var(--line); height: 8px; overflow: hidden; }
+.ao-bake-fill { background: var(--accent); height: 100%; transition: width .12s ease; width: 0; }
+.ao-bake-percent { color: var(--muted); font: 500 9px 'DM Mono', monospace; margin: 8px 0 0; text-align: right; }
 
 .texture-ribbon { align-items: center; display: flex; gap: 10px; }
 .texture-slot { align-items: center; background: var(--stage); cursor: pointer; display: flex; flex-direction: column; gap: 5px; height: 66px; justify-content: center; min-width: 82px; padding: 6px 8px; position: relative; }
@@ -189,8 +243,18 @@ select option { background: var(--card); color: var(--paper); }
 .texture-slot-clear { bottom: 4px; display: none; font: 500 10px 'DM Mono', monospace; height: 16px; line-height: 1; position: absolute; right: 4px; width: 16px; }
 .texture-slot.filled .texture-slot-clear { display: flex; }
 .texture-slot-bake { font: 500 8px 'DM Mono', monospace; height: 16px; left: 4px; letter-spacing: .04em; padding: 0 4px; position: absolute; top: 4px; }
+.texture-slot-format { display: flex; gap: 1px; left: 4px; position: absolute; top: 4px; }
+.texture-slot-format button { background: var(--card); border: 0; color: var(--muted); cursor: pointer; font: 700 8px 'DM Mono', monospace; height: 16px; letter-spacing: .04em; padding: 0 4px; }
+.texture-slot-format button:hover, .texture-slot-format button.active { background: var(--paper); color: var(--ink); }
+.texture-slot-format button:disabled { cursor: not-allowed; opacity: .35; }
+/* Slot icon buttons sit on --stage; --chip matches it almost exactly, so give them a lighter card face so they read as controls. */
+.texture-slot .icon-button { background: var(--card); }
+.texture-slot .icon-button:hover, .texture-slot .icon-button:focus-visible { background: var(--accent); color: var(--on-accent); }
+/* Filled texture slots: the applied image becomes the slot's background. Preview paints first (below), label next, then the buttons (all positioned, DOM order) — so controls stay on top. */
+.texture-slot[data-texture].filled .texture-slot-preview { height: 100%; inset: 0; position: absolute; width: 100%; }
+.texture-slot[data-texture].filled .texture-slot-label { bottom: 3px; left: 6px; max-width: calc(100% - 30px); position: absolute; text-shadow: 0 1px 2px rgba(0, 0, 0, .85); width: auto; }
 
-.control-column { background: var(--surface); min-height: 0; overflow-y: auto; scrollbar-color: var(--line) var(--surface); }
+.control-column { background: var(--surface); bottom: 0; min-height: 0; overflow-y: auto; position: fixed; right: 0; scrollbar-color: var(--line) var(--surface); top: 0; width: var(--control-width); }
 .panel { padding: 24px 25px; }
 .panel h2 { font-size: 17px; letter-spacing: -.03em; margin: 0; }
 .panel-heading { align-items: center; display: flex; justify-content: space-between; margin-bottom: 22px; }
@@ -209,30 +273,27 @@ select option { background: var(--card); color: var(--paper); }
 
 .catalog-count { color: var(--muted); font: 500 8px 'DM Mono', monospace; letter-spacing: .06em; }
 .palette-filters { display: flex; flex-wrap: wrap; gap: 4px; margin: -5px 0 13px; }
-.palette-filters button { background: transparent; color: var(--muted); cursor: pointer; font: 500 8px 'DM Mono', monospace; padding: 6px 8px; text-transform: uppercase; }
-.palette-filters button:hover, .palette-filters button.active { background: var(--paper); color: var(--ink); }
+.palette-filters button { background: transparent; border: 0; color: var(--muted); cursor: pointer; font: 500 8px 'DM Mono', monospace; padding: 6px 8px; text-transform: uppercase; }
+.palette-filters button:hover, .palette-filters button.active,
+.preview-view-toggle button:not(:disabled):hover, .preview-view-toggle button.active,
+.preview-mode-toggle button:not(:disabled):hover, .preview-mode-toggle button.active { background: var(--paper); color: var(--ink); }
 .palette-grid { display: grid; gap: 6px; grid-template-columns: repeat(2,1fr); max-height: 340px; overflow-y: auto; padding-right: 3px; scrollbar-color: var(--line-bright) var(--panel); }
 .palette-card { background: var(--card); color: var(--paper-dim); cursor: pointer; display: flex; flex-direction: column; font-size: 10px; gap: 7px; min-width: 0; padding: 9px; position: relative; text-align: left; }
 .palette-card:hover { background: var(--raised); }
 .palette-card.active { background: color-mix(in srgb, var(--accent) 25%, var(--card)); color: var(--paper); }
-.palette-card-new { align-items: center; background: transparent; color: var(--muted); gap: 5px; justify-content: center; min-height: 58px; text-align: center; }
+.palette-card-new { align-items: center; background: var(--card); color: var(--muted); gap: 5px; justify-content: center; min-height: 58px; text-align: center; }
 .palette-card-new-icon { font: 500 20px 'DM Mono', monospace; line-height: 1; }
 .palette-card-new-label { font-size: 9px; }
-.palette-card-actions { display: flex; gap: 3px; position: absolute; right: 5px; top: 5px; }
+.palette-card-actions { display: flex; flex: 0 0 auto; gap: 3px; }
 .palette-card-duplicate, .palette-card-export, .palette-card-delete { font: 500 11px 'DM Mono', monospace; height: 18px; line-height: 1; width: 18px; }
-.palette-card-label { align-items: center; display: flex; gap: 6px; justify-content: space-between; min-width: 0; }
-.palette-card-label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-card-export svg { width: 10px; height: 10px; }
+.palette-card-label { align-items: center; display: flex; gap: 6px; min-width: 0; }
+.palette-card-label > span:first-child { margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-card-label b { background: var(--chip); color: var(--muted); flex: 0 0 auto; font: 500 8px 'DM Mono', monospace; padding: 2px 4px; }
 .mini-swatches { display: flex; height: 13px; overflow: hidden; width: 100%; }
 .mini-swatches i { background: var(--swatch); flex: 1; min-width: 2px; }
-.palette-detail { align-items: center; display: flex; justify-content: space-between; margin-top: 17px; padding-top: 16px; }
-.palette-detail strong, .palette-detail small { display: block; }
-.palette-detail strong { font: 500 10px 'DM Mono', monospace; letter-spacing: .06em; }
-.palette-detail small { color: var(--muted); font-size: 9px; margin-top: 4px; }
-.swatch-strip { display: flex; max-width: 180px; overflow: hidden; }
-.swatch-strip span { background: var(--swatch); display: block; height: 20px; min-width: 10px; }
 .custom-palette { margin-top: 15px; padding-top: 13px; }
-.custom-palette summary { color: var(--paper-dim); cursor: pointer; display: flex; font-size: 10px; justify-content: space-between; list-style: none; }
+.custom-palette-title { color: var(--paper-dim); font-size: 10px; }
 .palette-editor { border: 0; margin: 0; min-width: 0; padding: 0; }
 .palette-editor:disabled { filter: grayscale(1); opacity: .45; pointer-events: none; }
 .palette-editor-fields { display: grid; gap: 8px; margin-top: 14px; }
@@ -244,7 +305,7 @@ select option { background: var(--card); color: var(--paper); }
 .custom-color label { cursor: pointer; display: block; height: 25px; position: relative; width: 25px; }
 .custom-color .color-chip { height: 100%; width: 100%; }
 .custom-color button { font-size: 10px; height: 15px; position: absolute; right: 0; top: 16px; width: 15px; }
-.custom-color-add { align-items: center; background: transparent; color: var(--muted); cursor: pointer; display: flex; font: 500 15px 'DM Mono', monospace; height: 25px; justify-content: center; line-height: 1; padding: 0; width: 25px; }
+.custom-color-add { align-items: center; background: var(--card); color: var(--muted); cursor: pointer; display: flex; font: 500 15px 'DM Mono', monospace; height: 25px; justify-content: center; line-height: 1; padding: 0; width: 25px; }
 .mode-grid { display: grid; gap: 6px; grid-template-columns: repeat(2,1fr); }
 .mode-button { background: var(--card); cursor: pointer; display: grid; gap: 2px; grid-template-columns: 40px 1fr; padding: 8px; text-align: left; }
 .mode-button:hover { background: var(--raised); }
@@ -268,31 +329,28 @@ select option { background: var(--card); color: var(--paper); }
 .control-row output { color: var(--paper); font: 500 9px 'DM Mono', monospace; }
 .light-controls .control-row { margin-top: 0; }
 .panel-description { color: var(--muted); font-size: 9px; line-height: 1.5; margin: 4px 0 0; }
-.lightmap-status, .normal-status { background: var(--surface); color: var(--paper-dim); font: 500 8px 'DM Mono', monospace; margin-top: 13px; overflow: hidden; padding: 8px; text-overflow: ellipsis; white-space: nowrap; }
-.normal-format-select { width: 100%; }
-.toast { background: var(--paper); bottom: 26px; color: var(--ink); font: 500 10px 'DM Mono', monospace; left: 50%; opacity: 0; padding: 11px 16px; pointer-events: none; position: fixed; transform: translate(-50%,12px); transition: .2s; z-index: 50; }
-.toast.visible { opacity: 1; transform: translate(-50%,0); }
+.lightmap-status { background: var(--surface); color: var(--paper-dim); font: 500 8px 'DM Mono', monospace; margin-top: 13px; overflow: hidden; padding: 8px; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── interactive states: hover / focus / active are all color changes, never rings ── */
 :focus-visible { outline: none; }
-button:focus-visible, [role='button']:focus-visible, summary:focus-visible,
+button:focus-visible, [role='button']:focus-visible,
 select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .range:focus-visible { background: transparent; }
 .range:focus-visible::-webkit-slider-thumb { background: var(--accent); }
 .range:focus-visible::-moz-range-thumb { background: var(--accent); }
 .brand:hover, .brand:focus-visible { color: var(--accent); }
-.custom-palette summary:hover { color: var(--paper); }
 .button-quiet:focus-visible { color: var(--paper); }
 .preview-mode-toggle button:focus-visible { color: var(--paper); }
-.preview-view-toggle button:focus-visible { color: var(--paper); }
 .palette-card-new:focus-visible, .custom-color-add:focus-visible { color: var(--paper); }
-.resolution-presets button:focus-visible, .palette-filters button:focus-visible { background: var(--paper); color: var(--ink); }
+.resolution-presets button:focus-visible, .palette-filters button:focus-visible, .preview-view-toggle button:focus-visible { background: var(--paper); color: var(--ink); }
 .palette-card:focus-visible, .mode-button:focus-visible { background: color-mix(in srgb, var(--accent) 22%, var(--card)); }
 .hidden-input:focus-visible + .color-chip { background: color-mix(in srgb, var(--accent) 40%, var(--swatch)); }
 
 @media (max-width: 900px) {
   html, body, #app { height: auto; min-height: 100%; }
   body { overflow: auto; }
+  .topbar { width: auto; }
+  .control-column { position: static; width: auto; }
   .workspace { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; overflow: visible; }
   .preview-column { grid-template-rows: auto auto auto; overflow: visible; }
   .control-column { max-height: none; }
@@ -306,13 +364,12 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
   .topbar { height: 62px; padding: 0 16px; }
   .preview-toolbar { min-height: 74px; padding: 14px 16px; }
   .preview-toolbar h1 { max-width: 48vw; }
-  .canvas-stage { padding: 14px 10px; }
+  .canvas-stage { padding: 10px; }
   .model-host { height: clamp(240px, 44vh, 380px); }
   .comparison-grid { gap: 8px; }
   .preview-pane { gap: 6px; }
   .preview-pane figcaption { font-size: 8px; }
   .preview-pane canvas { min-width: 0; width: 100%; }
-  .preview-footer { padding: 13px 16px; }
   .button { padding: 11px 12px; }
   .control-column { display: block; }
   .panel { padding: 22px 18px; }

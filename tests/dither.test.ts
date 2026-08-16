@@ -33,7 +33,6 @@ describe('palette helpers', () => {
     for (const [key, palette] of Object.entries(palettes)) {
       expect(key).toMatch(/^[a-z0-9]+$/);
       expect(palette.name.length).toBeGreaterThan(0);
-      expect(palette.description.length).toBeGreaterThan(0);
       expect(['compact', 'pixel-art', 'hardware', 'themed', 'extended']).toContain(palette.category);
       expect(palette.colors.length).toBeGreaterThanOrEqual(2);
       expect(new Set(palette.colors).size, `${palette.name} has duplicate colors`).toBe(palette.colors.length);

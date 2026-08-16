@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AnimationClip, BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Object3D, Texture } from 'three';
+import { AnimationClip, BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Object3D, ShaderMaterial, Texture } from 'three';
 import { loadModel, ModelViewport, upAxisRotation } from '../src/lib/modelPreview';
+import { renderModelThumbnail } from '../src/lib/modelScene';
 import type { ModelFileBundle } from '../src/lib/modelFiles';
-import { domStubs, flushRaf, installDomStubs, rafCount } from './helpers/domStubs';
+import { domStubs, FakeCanvas, flushRaf, installDomStubs, rafCount } from './helpers/domStubs';
 
 const mocks = vi.hoisted(() => ({
   scene: null as Object3D | null,
@@ -27,9 +28,19 @@ vi.mock('three', async (importOriginal) => {
   class FakeWebGLRenderer {
     domElement = { className: '', remove: vi.fn(), style: {} };
     setPixelRatio = vi.fn((ratio: number) => mocks.rendererCalls.push(`ratio:${ratio}`));
+    getPixelRatio = vi.fn(() => 1);
     setClearColor = vi.fn(() => mocks.rendererCalls.push('clear'));
     setSize = vi.fn((width: number, height: number) => mocks.rendererCalls.push(`size:${width}x${height}`));
+    setScissorTest = vi.fn();
+    setScissor = vi.fn();
+    setViewport = vi.fn();
     render = vi.fn(() => mocks.rendererCalls.push('render'));
+    getContext = vi.fn(() => ({
+      finish: vi.fn(() => mocks.rendererCalls.push('finish')),
+      readPixels: vi.fn(),
+      RGBA: 0x1908,
+      UNSIGNED_BYTE: 0x1401,
+    }));
     dispose = vi.fn(() => mocks.rendererCalls.push('dispose'));
   }
   class FakeAnimationMixer {
@@ -193,6 +204,19 @@ describe('upAxisRotation', () => {
   it('tilts Blender exports onto their side and keeps Maya exports upright', () => {
     expect(upAxisRotation('blender')).toBe(-Math.PI / 2);
     expect(upAxisRotation('maya')).toBe(0);
+  });
+});
+
+describe('renderModelThumbnail', () => {
+  it('renders a mesh preview into a small square canvas', () => {
+    const callsBefore = mocks.rendererCalls.length;
+    const thumbnail = renderModelThumbnail(meshScene(), 40);
+    expect((thumbnail as unknown as FakeCanvas).width).toBe(40);
+    expect((thumbnail as unknown as FakeCanvas).height).toBe(40);
+    // The lazy shared renderer draws the model before the pixels are copied.
+    expect(mocks.rendererCalls.slice(callsBefore)).toContain('render');
+    // The readback waits for the GPU (finish) before copying the framebuffer.
+    expect(mocks.rendererCalls.slice(callsBefore)).toContain('finish');
   });
 });
 
@@ -398,7 +422,10 @@ describe('ModelViewport', () => {
     const mesh = model.children[0] as Mesh;
     const original = mesh.material;
     viewport.setNormalsView(true);
-    expect((mesh.material as MeshBasicMaterial).type).toBe('MeshNormalMaterial');
+    // The normals view showcases the actual normal map, not the mesh's vertex
+    // normals — the swap target is the normal-map sampling shader.
+    expect((mesh.material as ShaderMaterial).type).toBe('ShaderMaterial');
+    expect((mesh.material as ShaderMaterial).uniforms.uHasNormalMap.value).toBe(0);
     viewport.setNormalsView(false);
     expect(mesh.material).toBe(original);
 
@@ -407,6 +434,41 @@ describe('ModelViewport', () => {
     empty.setNormalsView(true);
     empty.setNormalsView(false);
     empty.dispose();
+    viewport.dispose();
+  });
+
+  it('setNormalMap feeds the normals-view shader and clears it', () => {
+    const viewport = new ModelViewport(host());
+    viewport.setModel(meshScene(), []);
+    viewport.setNormalsView(true);
+    const uniforms = (viewport as unknown as { normalMapMaterial: ShaderMaterial }).normalMapMaterial.uniforms;
+
+    viewport.setNormalMap({} as CanvasImageSource, 0.5, true);
+    expect(uniforms.uHasNormalMap.value).toBe(1);
+    expect(uniforms.uStrength.value).toBe(0.5);
+    expect(uniforms.uFlipY.value).toBe(1);
+    expect(uniforms.uNormalMap.value).not.toBeNull();
+
+    viewport.setNormalMap(null);
+    expect(uniforms.uHasNormalMap.value).toBe(0);
+    expect(uniforms.uNormalMap.value).toBeNull();
+    viewport.dispose();
+  });
+
+  it('setNormalStrength moves the showcase uniform without touching the texture', () => {
+    const viewport = new ModelViewport(host());
+    viewport.setModel(meshScene(), []);
+    viewport.setNormalsView(true);
+    viewport.setNormalMap({} as CanvasImageSource, 1, false);
+    const uniforms = (viewport as unknown as { normalMapMaterial: ShaderMaterial }).normalMapMaterial.uniforms;
+    const texture = uniforms.uNormalMap.value;
+
+    viewport.setNormalStrength(0.35);
+
+    expect(uniforms.uStrength.value).toBe(0.35);
+    // A full setNormalMap would have rebuilt the texture; the live strength
+    // update must leave it in place.
+    expect(uniforms.uNormalMap.value).toBe(texture);
     viewport.dispose();
   });
 
@@ -469,8 +531,9 @@ describe('ModelViewport', () => {
     viewport.setModel(meshScene(), [new AnimationClip('idle', 1, [])]);
     const rendersBefore = mocks.rendererCalls.filter((call) => call === 'render').length;
     flushRaf(16);
-    // The constructor renders once synchronously; each rAF tick adds exactly one.
-    expect(mocks.rendererCalls.filter((call) => call === 'render')).toHaveLength(rendersBefore + 1);
+    // The constructor renders synchronously; each rAF tick adds exactly two —
+    // the model scene plus the corner sun-axis gizmo.
+    expect(mocks.rendererCalls.filter((call) => call === 'render')).toHaveLength(rendersBefore + 2);
     expect(mocks.mixers[0].update).toHaveBeenCalled();
     viewport.dispose();
   });

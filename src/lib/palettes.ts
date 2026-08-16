@@ -3,7 +3,6 @@ export type PaletteCategory = typeof paletteCategories[number];
 
 export type Palette = {
   name: string;
-  description: string;
   category: PaletteCategory;
   colors: string[];
   attribution?: string;
@@ -16,7 +15,6 @@ export function isPalette(value: unknown): value is Palette {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<Palette>;
   return typeof candidate.name === 'string' && candidate.name.length > 0
-    && typeof candidate.description === 'string' && candidate.description.length > 0
     && paletteCategories.includes(candidate.category as PaletteCategory)
     && Array.isArray(candidate.colors) && candidate.colors.length >= 2 && candidate.colors.length <= 256
     && candidate.colors.every((color) => typeof color === 'string' && hexColor.test(color))

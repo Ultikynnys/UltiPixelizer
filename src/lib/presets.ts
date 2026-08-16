@@ -3,7 +3,7 @@ import type { DitherMode } from './dither';
 import { clamp01 } from './math';
 import { parseJsonFile, serializeJsonFile } from './storage';
 import { slugify } from './strings';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { NormalFormat } from './normal';
 import { DEFAULT_CAMERA_DIRECTION, DEFAULT_SUN_DIRECTION, type DirectionVector } from './sunDirection';
 import type { State } from './state';
@@ -100,7 +100,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'sunIntensity', path: ['sun', 'intensity'], default: DEFAULT_SUN_INTENSITY, migrateDefault: DEFAULT_SUN_INTENSITY, validate: inRange(0, 1) },
   { key: 'ambientColor', path: ['ambient', 'color'], default: '#ffffff', migrateDefault: '#ffffff', validate: isHex },
   { key: 'ambientIntensity', path: ['ambient', 'intensity'], default: DEFAULT_AMBIENT_INTENSITY, migrateDefault: DEFAULT_AMBIENT_INTENSITY, validate: inRange(0, 1) },
-  { key: 'normalStrength', path: ['normalStrength'], default: 1, migrateDefault: 1, validate: inRange(0, 1) },
+  { key: 'normalStrength', path: ['normalStrength'], default: DEFAULT_NORMAL_STRENGTH, migrateDefault: DEFAULT_NORMAL_STRENGTH, validate: inRange(0, 1) },
   { key: 'normalFormat', path: ['normalFormat'], default: 'opengl', migrateDefault: 'opengl', validate: isEnum(['opengl', 'directx']) },
   { key: 'sunDirection', path: ['sun', 'direction'], default: DEFAULT_SUN_DIRECTION, migrateDefault: DEFAULT_SUN_DIRECTION, validate: isDirectionVector },
   { key: 'cameraDirection', path: ['cameraDirection'], default: DEFAULT_CAMERA_DIRECTION, migrateDefault: DEFAULT_CAMERA_DIRECTION, validate: isDirectionVector },

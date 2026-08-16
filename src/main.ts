@@ -1,21 +1,22 @@
 import './style.css';
-import { createCanvas, createSampleTexture, downloadCanvas, downloadText, drawImageToCanvas, loadImageFile } from './lib/canvas';
+import { createCanvas, createSampleTexture, downloadCanvas, downloadText, drawImageToCanvas, loadImageFile, resizeNearest } from './lib/canvas';
 import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomPalettes, paletteFromImport, selectOrCreatePalette, serializeCustomPalette, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
 import type { DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
 import { createModelFileBundle, modelFormat, type ModelFileBundle, type WorldAxis } from './lib/modelFiles';
 import { collectModelTextures, type ExtractedModelTextures } from './lib/modelTextures';
-import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels } from './lib/modelScene';
+import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels, renderModelThumbnail } from './lib/modelScene';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
+import { computeAverageTexelDensity } from './lib/texelDensity';
 import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
 import { lightmapMatchesBaseColor } from './lib/lightmap';
 import type { NormalFormat } from './lib/normal';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './lib/defaults';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY } from './lib/defaults';
 import { createRenderer } from './lib/render';
 import { lightmapIsActive, type LightState, type PreviewMode, type PreviewViewMode, type SourceImage, type State, type TextureChannelId, type TextureSlot } from './lib/state';
-import { errorMessage, safeFileName } from './lib/strings';
+import { safeFileName } from './lib/strings';
 import { DEFAULT_CAMERA_DIRECTION, DEFAULT_SUN_DIRECTION, type DirectionVector } from './lib/sunDirection';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
 import exampleModelUrl from '../Example/Book.fbx?url';
@@ -26,12 +27,17 @@ const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string; bak
   { id: 'base', label: 'BaseColor' },
   { id: 'ao', label: 'AO', bake: true },
   { id: 'normal', label: 'Normal' },
-  { id: 'lightmap', label: 'Lightmap', bake: true },
+  { id: 'lightmap', label: 'Lightmap' },
 ];
 
-// Download-arrow icon shared by the palette import card and the texture slot
-// download buttons, so the markup lives in one place.
-const DOWNLOAD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v7M4.5 6.5L7 9l2.5-2.5M2.5 11.5h9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+// Download-arrow icon shared by the palette export card, the texture slot
+// download buttons, and the Export PNG button, so the markup lives in one place.
+const DOWNLOAD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v7M4.5 6.5L7 9l2.5-2.5M1 11.5h12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+// Import-arrow icon for the palette import card — the inverse of download:
+// the tray line stays at the bottom, but the arrowhead flips to the top of
+// the shaft so the arrow points up, out of storage into the app.
+const IMPORT_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 9v-7M4.5 4.5L7 2l2.5 2.5M1 11.5h12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('Application root not found.');
@@ -50,7 +56,7 @@ const textures: Record<TextureChannelId, TextureSlot> = {
 const sunOverlayMarkup = (): string => `
   <div class="sun-overlay" id="sunControl" hidden>
     <div class="sun-overlay-heading">
-      <span>Sun</span>
+      <span>Lighting controls</span>
     </div>
     <button class="orient-sun-button" id="orientSunWithCamera" type="button" title="Copy the Original 3D viewport angle to the sun">Orient Sun with Camera</button>
     <div class="orientation-readout" title="World-space direction (x, y, z)">
@@ -63,8 +69,9 @@ const sunOverlayMarkup = (): string => `
       <div class="light-section-title"><span>Ambient</span></div>
       <label class="light-color-control"><span>Color</span>${colorControl('#ffffff', 'Ambient light color', 'id="ambientColor"')}</label>
       ${rangeControl('ambientIntensity', 'Intensity', 0, 1, 0.01, DEFAULT_AMBIENT_INTENSITY)}
+      <div class="light-section-title"><span>Normals</span></div>
+      ${rangeControl('normalStrength', 'Strength', 0, 1, 0.01, DEFAULT_NORMAL_STRENGTH, '1.00', 'Normal-map influence on lighting')}
     </div>
-    <div class="lightmap-active-label" role="status">Lightmap Active</div>
   </div>
 `;
 
@@ -75,7 +82,7 @@ function defaultState(): State {
   const state = {} as State;
   state.paletteKey = 'desert';
   state.customColors = [];
-  state.paletteFilter = 'all';
+  state.paletteFilter = 'compact';
   state.uvMap = 'uv';
   state.lodLevel = 0;
   state.sun = { direction: { ...DEFAULT_SUN_DIRECTION }, color: defaults.sunColor as string, intensity: defaults.sunIntensity as number };
@@ -133,6 +140,7 @@ app.innerHTML = `
                 <button class="icon-button texture-slot-download" data-download-texture="${channel.id}" type="button" aria-label="Download ${channel.label}" title="Download ${channel.label}">${DOWNLOAD_ICON_SVG}</button>
                 <button class="icon-button texture-slot-clear" data-clear-texture="${channel.id}" type="button" aria-label="Clear ${channel.label}">×</button>
                 ${channel.bake ? `<button class="icon-button texture-slot-bake" data-bake-texture="${channel.id}" type="button" aria-label="Bake ${channel.label}">Bake</button>` : ''}
+                ${channel.id === 'normal' ? '<span class="texture-slot-format" role="group" aria-label="Normal map format"><button type="button" data-normal-format="opengl" title="OpenGL · +Y up">GL</button><button type="button" data-normal-format="directx" title="DirectX · −Y up">DX</button></span>' : ''}
               </div>
             `).join('')}
             <div class="texture-slot texture-slot-model" data-model-slot tabindex="0" aria-label="Model bundle slot">
@@ -146,10 +154,6 @@ app.innerHTML = `
           <div class="toolbar-actions">
             <label class="uv-control" id="uvControl" hidden><span>UV map</span><select class="select" id="uvMap" aria-label="Model UV map"></select></label>
             <label class="uv-control" id="lodControl" hidden><span>LOD</span><select class="select" id="lodMap" aria-label="Model LOD level"></select></label>
-            <label class="uv-control" id="worldAxisControl" hidden><span>World axis</span><select class="select" id="worldAxis" aria-label="Model world axis">
-              <option value="blender">Blender · Z-up</option>
-              <option value="maya">Maya · Y-up</option>
-            </select></label>
           </div>
         </div>
 
@@ -174,44 +178,44 @@ app.innerHTML = `
                   ${toggleControl('uvWireframe', 'Show UV island wireframes', true)}
                 </label>
                 <div class="preview-view-toggle" id="originalViewToggle" hidden role="group" aria-label="View mode">
-                  <button type="button" data-view="flat" class="active">Flat</button>
+                  <button type="button" data-view="flat" class="active">Combined</button>
+                  <button type="button" data-view="basecolor">BaseColor</button>
                   <button type="button" data-view="normals">Normals</button>
                   <button type="button" data-view="ao">AO</button>
                   <button type="button" data-view="lightmap">Lightmap</button>
+                  <button type="button" data-view="lightmap-ao">Lightmap+AO</button>
+                </div>
+                <div class="preview-view-toggle world-axis-toggle" id="worldAxisToggle" hidden role="group" aria-label="World axis">
+                  <button type="button" data-world-axis="blender" class="active" title="Blender · Z-up">Z-up</button>
+                  <button type="button" data-world-axis="maya" title="Maya · Y-up">Y-up</button>
                 </div>
               </div>
             </figure>
             <figure class="preview-pane processed-pane">
-              <figcaption><span>02</span> Dithered <span class="fig-dims" id="processedDimensions">128 × 92 PX</span></figcaption>
+              <figcaption><span>02</span> Dithered <span class="fig-dims" id="processedDimensions">128 × 92</span></figcaption>
               <div class="canvas-frame">
                 <canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas>
                 <div class="model-host" id="processedModelHost" hidden></div>
+                <div class="texel-density" id="processedTexelDensity" hidden title="Average texture pixels per world unit — UV face size compared with mesh face size in world space">
+                  <span>Texel density</span>
+                  <output id="processedTexelDensityValue">—</output>
+                </div>
                 <div class="preview-mode-toggle" id="processedPreviewToggle" hidden role="group" aria-label="Preview mode">
                   <button type="button" data-preview-mode="2d" class="active">2D</button>
                   <button type="button" data-preview-mode="3d">3D</button>
                 </div>
-                <div class="preview-view-toggle" id="processedViewToggle" hidden role="group" aria-label="View mode">
-                  <button type="button" data-view="flat" class="active">Flat</button>
-                  <button type="button" data-view="normals">Normals</button>
-                  <button type="button" data-view="ao">AO</button>
-                  <button type="button" data-view="lightmap">Lightmap</button>
-                </div>
+                <button class="button" id="exportButton" type="button" title="Export the dithered preview as PNG">Export PNG ${DOWNLOAD_ICON_SVG}</button>
               </div>
             </figure>
           </div>
         </div>
-
-        <footer class="preview-footer">
-          <button class="button" id="exportButton" type="button">Export PNG <span>↓</span></button>
-        </footer>
       </section>
 
       <aside class="control-column">
         <section class="panel">
           <div class="panel-heading compact"><div><p class="eyebrow">COLOR SYSTEM</p><h2>Palette library</h2></div><span class="catalog-count" id="paletteCount">${Object.keys(palettes).length} PRESETS</span></div>
           <div class="palette-filters" id="paletteFilters" role="group" aria-label="Filter palette library">
-            <button class="active" type="button" data-filter="all">All</button>
-            <button type="button" data-filter="compact">Compact</button>
+            <button class="active" type="button" data-filter="compact">Compact</button>
             <button type="button" data-filter="pixel-art">Pixel art</button>
             <button type="button" data-filter="hardware">Hardware</button>
             <button type="button" data-filter="themed">Themed</button>
@@ -219,20 +223,15 @@ app.innerHTML = `
             <button type="button" data-filter="custom">Custom</button>
           </div>
           <div class="palette-grid" id="paletteGrid"></div>
-          <div class="palette-detail">
-            <div><strong id="paletteName">PICO-8</strong><small id="paletteDescription">Punchy fantasy console</small></div>
-            <div class="swatch-strip" id="activeSwatches"></div>
-          </div>
-          <details class="custom-palette" open>
-            <summary>Custom palette editor <span>+</span></summary>
+          <div class="custom-palette">
+            <div class="custom-palette-title">Custom palette editor</div>
             <fieldset class="palette-editor" id="paletteEditor">
               <div class="palette-editor-fields">
                 <label><span>Name</span><input id="customPaletteName" maxlength="60" placeholder="Palette name" /></label>
-                <label><span>Description</span><input id="customPaletteDescription" maxlength="160" placeholder="Palette description" /></label>
               </div>
               <div id="customColors" class="custom-colors"></div>
             </fieldset>
-          </details>
+          </div>
           <input id="importCustomPalette" type="file" accept=".json,.hex,.txt,application/json" hidden />
         </section>
 
@@ -285,52 +284,43 @@ app.innerHTML = `
           ${rangeControl('aoDistance', 'Distance', 0.05, 3, 0.05, 2, '2.00×', 'Ray reach for generated AO')}
         </section>
 
-        <section class="panel normals-panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">SURFACE NORMALS</p><h2>Normals</h2></div></div>
-          ${rangeControl('normalStrength', 'Normal strength', 0, 100, 1, 100, '100%')}
-          <div class="control-row">
-            <label for="normalFormat"><span><strong>Format</strong><small>Green channel convention</small></span></label>
-            <select class="select normal-format-select" id="normalFormat" aria-label="Normal map format">
-              <option value="opengl">OpenGL · +Y up</option>
-              <option value="directx">DirectX · −Y up</option>
-            </select>
-          </div>
-          <div class="normal-status" id="normalStatus">No normal map loaded</div>
-        </section>
-
-        <section class="panel lightmap-panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTMAP BAKE</p><h2>Baked lighting</h2></div></div>
-          <div class="lightmap-status" id="lightmapStatus">No lightmap loaded</div>
-        </section>
       </aside>
     </main>
-    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="ao-bake-overlay" id="aoBakeOverlay" hidden role="status" aria-live="polite">
+      <div class="ao-bake-card">
+        <p class="ao-bake-title">Baking ambient occlusion</p>
+        <div class="ao-bake-track" aria-hidden="true"><div class="ao-bake-fill" id="aoBakeFill"></div></div>
+        <p class="ao-bake-percent" id="aoBakePercent">0%</p>
+      </div>
+    </div>
   </div>
 `;
 
 const previewCanvas = document.querySelector<HTMLCanvasElement>('#previewCanvas')!;
 const originalCanvas = document.querySelector<HTMLCanvasElement>('#originalCanvas')!;
+const aoBakeOverlay = document.querySelector<HTMLDivElement>('#aoBakeOverlay')!;
+const aoBakeFill = document.querySelector<HTMLDivElement>('#aoBakeFill')!;
+const aoBakePercent = document.querySelector<HTMLParagraphElement>('#aoBakePercent')!;
 const paletteGrid = document.querySelector<HTMLDivElement>('#paletteGrid')!;
 const paletteFilters = document.querySelector<HTMLDivElement>('#paletteFilters')!;
-const activeSwatches = document.querySelector<HTMLDivElement>('#activeSwatches')!;
+const customPaletteSection = document.querySelector<HTMLDivElement>('.custom-palette')!;
 const customColors = document.querySelector<HTMLDivElement>('#customColors')!;
 const customPaletteName = document.querySelector<HTMLInputElement>('#customPaletteName')!;
-const customPaletteDescription = document.querySelector<HTMLInputElement>('#customPaletteDescription')!;
 const paletteEditor = document.querySelector<HTMLFieldSetElement>('#paletteEditor')!;
 const originalModelHost = document.querySelector<HTMLDivElement>('#originalModelHost')!;
 const processedModelHost = document.querySelector<HTMLDivElement>('#processedModelHost')!;
+const processedTexelDensity = document.querySelector<HTMLDivElement>('#processedTexelDensity')!;
+const processedTexelDensityValue = document.querySelector<HTMLOutputElement>('#processedTexelDensityValue')!;
 const uvControl = document.querySelector<HTMLLabelElement>('#uvControl')!;
 const uvMapSelect = document.querySelector<HTMLSelectElement>('#uvMap')!;
 const lodControl = document.querySelector<HTMLLabelElement>('#lodControl')!;
 const lodMapSelect = document.querySelector<HTMLSelectElement>('#lodMap')!;
-const worldAxisControl = document.querySelector<HTMLLabelElement>('#worldAxisControl')!;
-const worldAxisSelect = document.querySelector<HTMLSelectElement>('#worldAxis')!;
+const worldAxisToggle = document.querySelector<HTMLElement>('#worldAxisToggle')!;
 const uvOverlapControl = document.querySelector<HTMLLabelElement>('#uvOverlapControl')!;
 const uvOverlapInput = document.querySelector<HTMLInputElement>('#uvOverlap')!;
 const uvWireframeControl = document.querySelector<HTMLLabelElement>('#uvWireframeControl')!;
 const uvWireframeInput = document.querySelector<HTMLInputElement>('#uvWireframe')!;
 const originalViewToggle = document.querySelector<HTMLDivElement>('#originalViewToggle')!;
-const processedViewToggle = document.querySelector<HTMLDivElement>('#processedViewToggle')!;
 type SunElements = {
   control: HTMLDivElement;
   orientWithCamera: HTMLButtonElement;
@@ -340,6 +330,8 @@ type SunElements = {
   ambientColor: HTMLInputElement;
   ambientIntensity: HTMLInputElement;
   ambientIntensityValue: HTMLOutputElement;
+  normalStrength: HTMLInputElement;
+  normalStrengthValue: HTMLOutputElement;
 };
 
 const sunControlElements: SunElements = {
@@ -351,6 +343,8 @@ const sunControlElements: SunElements = {
   ambientColor: document.querySelector<HTMLInputElement>('#ambientColor')!,
   ambientIntensity: document.querySelector<HTMLInputElement>('#ambientIntensity')!,
   ambientIntensityValue: document.querySelector<HTMLOutputElement>('#ambientIntensityValue')!,
+  normalStrength: document.querySelector<HTMLInputElement>('#normalStrength')!,
+  normalStrengthValue: document.querySelector<HTMLOutputElement>('#normalStrengthValue')!,
 };
 const sunDirectionValue = document.querySelector<HTMLOutputElement>('#sunDirectionValue')!;
 const cameraDirectionValue = document.querySelector<HTMLOutputElement>('#cameraDirectionValue')!;
@@ -362,7 +356,6 @@ const noiseScaleInput = document.querySelector<HTMLInputElement>('#noiseScale')!
 const noiseScaleValue = document.querySelector<HTMLOutputElement>('#noiseScaleValue')!;
 const seedInput = document.querySelector<HTMLInputElement>('#seed')!;
 const seedValue = document.querySelector<HTMLOutputElement>('#seedValue')!;
-const toast = document.querySelector<HTMLDivElement>('#toast')!;
 const loadConfigInput = document.querySelector<HTMLInputElement>('#loadConfigInput')!;
 const textureRibbon = document.querySelector<HTMLDivElement>('#textureRibbon')!;
 const textureInput = document.querySelector<HTMLInputElement>('#textureInput')!;
@@ -376,12 +369,7 @@ const aoDistanceInput = document.querySelector<HTMLInputElement>('#aoDistance')!
 const aoDistanceValue = document.querySelector<HTMLOutputElement>('#aoDistanceValue')!;
 const strengthInput = document.querySelector<HTMLInputElement>('#strength')!;
 const strengthValue = document.querySelector<HTMLOutputElement>('#strengthValue')!;
-const lightmapStatus = document.querySelector<HTMLDivElement>('#lightmapStatus')!;
-const bakeLightmapButton = document.querySelector<HTMLButtonElement>('[data-bake-texture="lightmap"]')!;
-const normalStrengthInput = document.querySelector<HTMLInputElement>('#normalStrength')!;
-const normalStrengthValue = document.querySelector<HTMLOutputElement>('#normalStrengthValue')!;
-const normalFormatSelect = document.querySelector<HTMLSelectElement>('#normalFormat')!;
-const normalStatus = document.querySelector<HTMLDivElement>('#normalStatus')!;
+const normalFormatToggle = document.querySelector<HTMLElement>('[data-texture="normal"] .texture-slot-format')!;
 let savedCustomPalettes: CustomPalette[] = [];
 try {
   savedCustomPalettes = loadCustomPalettes(localStorage);
@@ -389,7 +377,6 @@ try {
   console.error('Custom palettes could not be loaded from storage.', error);
 }
 let editingCustomKey: string | null = null;
-let toastTimer = 0;
 let modelBundle: ModelFileBundle | null = null;
 let originalPreviewMode: PreviewMode = '2d';
 let processedPreviewMode: PreviewMode = '2d';
@@ -403,23 +390,13 @@ function forEachViewport(callback: (viewport: ModelViewport) => void): void {
 let modelUVChannels: string[] = [];
 let modelLodLevels: number[] = [];
 let aoBakeScene: Object3D | null = null;
+// Retained clone of the loaded model used for the ribbon's mesh-slot
+// thumbnail — the loaded scene is disposed after the viewports take clones.
+let modelThumbScene: Object3D | null = null;
 let pendingTextureChannel: TextureChannelId | null = null;
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
-}
-
-function showToast(message: string): void {
-  toast.textContent = message;
-  toast.classList.add('visible');
-  window.clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => toast.classList.remove('visible'), 2400);
-}
-
-// Every catch handler that surfaces an error through a toast pairs
-// `showToast` with `errorMessage`, so the combo lives here once.
-function toastError(error: unknown, fallback: string): void {
-  showToast(errorMessage(error, fallback));
 }
 
 function customPaletteRecord(): Record<string, CustomPalette> {
@@ -456,60 +433,98 @@ function setPaletteKey(key: string): void {
 
 function dimensions(): { width: number; height: number } {
   const source = textures.base.image!;
-  const width = Math.min(state.resolution, source.width);
-  return { width, height: Math.max(1, Math.round(width * source.height / source.width)) };
+  // The pixel grid resamples the source to the requested width — smaller
+  // sources upscale (nearest-neighbor in the render pipeline), so 2k output
+  // is reachable regardless of the source size.
+  return { width: state.resolution, height: Math.max(1, Math.round(state.resolution * source.height / source.width)) };
 }
 
 function updatePreviewBadge(width?: number, height?: number): void {
   const badge = document.querySelector('#processedDimensions')!;
   if (modelBundle) {
     const format = modelFormat(modelBundle.primary.name)?.toUpperCase();
-    badge.textContent = `${format} · ${modelUVChannels.length} UV MAP${modelUVChannels.length === 1 ? '' : 'S'}`;
+    const dims = width && height ? ` · ${formatDimensions(width, height)}` : '';
+    badge.textContent = `${format} · ${modelUVChannels.length} UV MAP${modelUVChannels.length === 1 ? '' : 'S'}${dims}`;
   } else if (width && height) {
-    badge.textContent = `${width} × ${height} PX`;
+    badge.textContent = formatDimensions(width, height);
   }
 }
 
+const formatDimensions = (width: number, height: number): string => `${width} × ${height}`;
+// Texel density scales exponentially with resolution (UV area grows as the
+// texel count), so the decimals adapt: whole numbers at 100+, one at 10–100,
+// two below. World units are arbitrary (three.js units), hence px/u.
+const formatTexelDensity = (value: number): string => `${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2)} px/u`;
+
+// Top-left HUD chip on the dithered preview: average texels per world unit,
+// from the UV face size compared with the mesh face size in world space. The
+// AO bake scene always mirrors the current UV channel and LOD level, so it is
+// the measure source; the dithered output resolution sizes the texel count.
+// Hidden without a model or when no face carries a usable UV.
+function updateTexelDensity(): void {
+  if (!aoBakeScene) {
+    processedTexelDensity.hidden = true;
+    return;
+  }
+  const { width, height } = dimensions();
+  const density = computeAverageTexelDensity(aoBakeScene, width, height);
+  if (density === null) {
+    processedTexelDensity.hidden = true;
+    return;
+  }
+  processedTexelDensity.hidden = false;
+  processedTexelDensityValue.textContent = formatTexelDensity(density);
+}
 const formatPercent = (value: number): string => `${value}%`;
 const formatDegrees = (value: number): string => `${value}°`;
 const formatPixels = (value: number): string => `${value} px`;
 const formatPlain = (value: number): string => String(value);
 const formatSignedFixed2 = (value: number): string => `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
 const formatTimes2 = (value: number): string => `${value.toFixed(2)}×`;
+const formatFixed2 = (value: number): string => value.toFixed(2);
 const formatSignedInt = (value: number): string => `${value > 0 ? '+' : ''}${value}`;
 
 function renderLightmapControls(): void {
-  const lightmap = textures.lightmap.image;
-  lightmapStatus.textContent = lightmap
-    ? `${textures.lightmap.name} · ${lightmap.width} × ${lightmap.height}`
-    : 'No lightmap loaded';
-  bakeLightmapButton.disabled = aoBakeScene === null;
   renderViewToggle();
 }
 
-// Combined preview view enum (Flat / Normals / AO / Lightmap): one segmented
-// control per preview pane, each with its own selection. Both are visible in
-// 2D and 3D views; AO and Lightmap are only actionable while their texture
-// slot holds an image.
+// Combined preview view enum (Combined / BaseColor / Normals / AO / Lightmap /
+// Lightmap+AO): a single segmented control on the Original pane that drives
+// both preview panes. Normals / AO / Lightmap / Lightmap+AO are only
+// actionable while their texture slot holds an image (or the lightmap has a
+// live implicit bake; Lightmap+AO needs both).
 function renderViewToggle(): void {
   const aoDefined = textures.ao.image !== null;
-  const lightmapDefined = lightmapIsActive(textures);
+  const normalDefined = textures.normal.image !== null;
+  // The lightmap view option follows the slot: an explicit bake, or the live
+  // implicit lightmap baked from the current sun/ambient.
+  const lightmapDefined = lightmapIsActive(textures) || renderer.getImplicitLightmapCanvas() !== null;
+  const lightmapAoDefined = aoDefined && lightmapDefined;
   if (!aoDefined && state.viewModeOriginal === 'ao') state.viewModeOriginal = 'flat';
   if (!lightmapDefined && state.viewModeOriginal === 'lightmap') state.viewModeOriginal = 'flat';
+  if (!normalDefined && state.viewModeOriginal === 'normals') state.viewModeOriginal = 'flat';
+  if (!lightmapAoDefined && state.viewModeOriginal === 'lightmap-ao') state.viewModeOriginal = 'flat';
   if (!aoDefined && state.viewModeProcessed === 'ao') state.viewModeProcessed = 'flat';
   if (!lightmapDefined && state.viewModeProcessed === 'lightmap') state.viewModeProcessed = 'flat';
+  if (!normalDefined && state.viewModeProcessed === 'normals') state.viewModeProcessed = 'flat';
+  if (!lightmapAoDefined && state.viewModeProcessed === 'lightmap-ao') state.viewModeProcessed = 'flat';
   const hidden = modelBundle === null;
   originalViewToggle.hidden = hidden;
-  processedViewToggle.hidden = hidden;
-  syncViewToggle(originalViewToggle, state.viewModeOriginal, aoDefined, lightmapDefined);
-  syncViewToggle(processedViewToggle, state.viewModeProcessed, aoDefined, lightmapDefined);
+  syncViewToggle(originalViewToggle, state.viewModeOriginal, normalDefined, aoDefined, lightmapDefined, lightmapAoDefined);
+  // A view-mode fallback above (e.g. the normal map was removed) must reach the
+  // 3D viewports too — they render the Normals view via setNormalsView and
+  // would otherwise stay latched on the stale showcase.
+  applyViewNormals();
 }
 
-function syncViewToggle(toggle: HTMLDivElement, viewMode: PreviewViewMode, aoDefined: boolean, lightmapDefined: boolean): void {
+function syncViewToggle(toggle: HTMLDivElement, viewMode: PreviewViewMode, normalDefined: boolean, aoDefined: boolean, lightmapDefined: boolean, lightmapAoDefined: boolean): void {
   syncActiveButton(toggle, '[data-view]', (button) => button.dataset.view === viewMode);
   for (const button of toggle.querySelectorAll<HTMLButtonElement>('[data-view]')) {
     const view = button.dataset.view as PreviewViewMode;
-    button.disabled = (view === 'ao' && !aoDefined) || (view === 'lightmap' && !lightmapDefined);
+    button.disabled = (view === 'normals' && !normalDefined)
+      || (view === 'ao' && !aoDefined)
+      || (view === 'lightmap' && !lightmapDefined)
+      || (view === 'lightmap-ao' && !lightmapAoDefined);
   }
 }
 
@@ -518,17 +533,27 @@ function applyViewNormals(): void {
   processedViewport?.setNormalsView(state.viewModeProcessed === 'normals');
 }
 
-function renderNormalControls(): void {
-  const strength = Math.round(state.normalStrength * 100);
-  const lightmapActive = lightmapIsActive(textures);
-  syncRangeValue(normalStrengthInput, normalStrengthValue, strength, formatPercent);
-  normalStrengthInput.disabled = lightmapActive;
-  normalFormatSelect.value = state.normalFormat;
-  normalFormatSelect.disabled = lightmapActive;
+// Pushes the current normal-map texture (with the bake's strength / DirectX
+// green-flip decode) into the 3D viewports, so the Normals view showcases the
+// actual map rather than the mesh's vertex normals. The original viewport gets
+// the native-resolution map; the dithered viewport gets a nearest-neighbor
+// pixelized copy at the target resolution — normals can't be palette-dithered,
+// so pixelization is the processed analogue of the quantized base texture.
+function applyViewportNormalMap(): void {
   const image = textures.normal.image;
-  normalStatus.textContent = image
-    ? `${textures.normal.name} · ${image.width} × ${image.height}`
-    : 'No normal map loaded';
+  const strength = state.normalStrength;
+  const flipY = state.normalFormat === 'directx';
+  originalViewport?.setNormalMap(image, strength, flipY);
+  if (processedViewport) {
+    const { width, height } = dimensions();
+    processedViewport.setNormalMap(image ? resizeNearest(image, width, height) : null, strength, flipY);
+  }
+}
+
+function renderNormalControls(): void {
+  const lightmapActive = lightmapIsActive(textures);
+  syncActiveButton(normalFormatToggle, '[data-normal-format]', (button) => button.dataset.normalFormat === state.normalFormat);
+  normalFormatToggle.querySelectorAll<HTMLButtonElement>('[data-normal-format]').forEach((button) => { button.disabled = lightmapActive; });
 }
 
 function buildAOScene(source: Object3D): Object3D {
@@ -582,8 +607,8 @@ function renderLodControl(): void {
 
 function renderWorldAxisControl(): void {
   const supportsAxis = modelBundle !== null && (modelBundle.format === 'fbx' || modelBundle.format === 'obj');
-  worldAxisControl.hidden = !supportsAxis;
-  worldAxisSelect.value = state.worldAxis;
+  worldAxisToggle.hidden = !supportsAxis;
+  syncActiveButton(worldAxisToggle, '[data-world-axis]', (button) => button.dataset.worldAxis === state.worldAxis);
 }
 
 // Shared sync for every model-dependent control. The model load/close and reset
@@ -619,10 +644,7 @@ function syncLightControls(
   color: HTMLInputElement,
   intensity: HTMLInputElement,
   intensityValue: HTMLOutputElement,
-  lightmapActive: boolean,
 ): void {
-  color.disabled = lightmapActive;
-  intensity.disabled = lightmapActive;
   color.value = light.color;
   syncColorChip(color);
   intensity.value = String(light.intensity);
@@ -631,11 +653,10 @@ function syncLightControls(
 
 function renderSunControl(): void {
   sunControlElements.control.hidden = modelBundle === null || (originalPreviewMode !== '3d' && processedPreviewMode !== '3d');
-  const lightmapActive = lightmapIsActive(textures);
-  sunControlElements.control.classList.toggle('lightmap-active', lightmapActive);
-  sunControlElements.orientWithCamera.disabled = lightmapActive || originalPreviewMode !== '3d' || originalViewport === null;
-  syncLightControls(state.sun, sunControlElements.color, sunControlElements.intensity, sunControlElements.intensityValue, lightmapActive);
-  syncLightControls(state.ambient, sunControlElements.ambientColor, sunControlElements.ambientIntensity, sunControlElements.ambientIntensityValue, lightmapActive);
+  sunControlElements.orientWithCamera.disabled = originalPreviewMode !== '3d' || originalViewport === null;
+  syncLightControls(state.sun, sunControlElements.color, sunControlElements.intensity, sunControlElements.intensityValue);
+  syncLightControls(state.ambient, sunControlElements.ambientColor, sunControlElements.ambientIntensity, sunControlElements.ambientIntensityValue);
+  syncRangeValue(sunControlElements.normalStrength, sunControlElements.normalStrengthValue, state.normalStrength, formatFixed2);
 }
 
 function updatePatternControls(): void {
@@ -664,27 +685,40 @@ function renderTextureRibbon(): void {
   for (const channel of TEXTURE_CHANNELS) {
     const slotElement = document.querySelector<HTMLElement>(`[data-texture="${channel.id}"]`);
     if (!slotElement) continue;
-    const data = textures[channel.id];
+    // The lightmap slot previews the live implicit lightmap (auto-baked from
+    // the current sun/ambient) until an explicit bake is committed to it.
+    const data = channel.id === 'lightmap'
+      ? textures.lightmap.image ?? renderer.getImplicitLightmapCanvas()
+      : textures[channel.id].image;
     const preview = slotElement.querySelector<HTMLElement>('.texture-slot-preview');
     const label = slotElement.querySelector<HTMLElement>('.texture-slot-label');
-    slotElement.classList.toggle('filled', !!data.image);
+    slotElement.classList.toggle('filled', !!data);
     slotElement.classList.toggle('disabled', !modelBundle && channel.id !== 'base');
     if (preview) {
-      if (data.image) {
+      if (data) {
         const { canvas, context } = createCanvas(40, 34);
-        context?.drawImage(data.image, 0, 0, 40, 34);
+        context?.drawImage(data, 0, 0, 40, 34);
         preview.replaceChildren(canvas);
       } else {
         preview.innerHTML = '<span class="texture-slot-empty-mark">+</span>';
       }
     }
-    if (label) label.textContent = data.image ? channel.label : `+${channel.label}`;
+    if (label) label.textContent = data ? channel.label : `+${channel.label}`;
   }
   const modelSlot = document.querySelector<HTMLElement>('[data-model-slot]');
   if (modelSlot) {
+    const preview = modelSlot.querySelector<HTMLElement>('.texture-slot-preview');
     const label = modelSlot.querySelector<HTMLElement>('.texture-slot-label');
     modelSlot.classList.toggle('filled', !!modelBundle);
     if (label) label.textContent = modelBundle ? modelBundle.primary.name : '+Model';
+    if (preview) {
+      if (modelBundle && modelThumbScene) {
+        // Small rendered preview of the mesh replaces the empty-slot mark.
+        preview.replaceChildren(renderModelThumbnail(modelThumbScene, 40));
+      } else {
+        preview.innerHTML = '<span class="texture-slot-empty-mark">+</span>';
+      }
+    }
   }
   renderViewToggle();
 }
@@ -693,13 +727,10 @@ function applyModelUV(channel: string): void {
   if (channel !== state.uvMap && lightmapIsActive(textures)) clearLightmap();
   state.uvMap = channel;
   if (aoBakeScene) applyUVChannel(aoBakeScene, channel);
-  const originalStatus = originalViewport?.applyUV(channel);
+  originalViewport?.applyUV(channel);
   processedViewport?.applyUV(channel);
   refreshUVOverlap();
-  if (originalStatus) {
-    const notes = [originalStatus.fallbackMeshes ? `${originalStatus.fallbackMeshes} fallback` : '', originalStatus.missingMeshes ? `${originalStatus.missingMeshes} without UVs` : ''].filter(Boolean);
-    showToast(notes.length ? `UV ${channel} applied · ${notes.join(', ')}` : `UV ${channel} applied`);
-  }
+  updateTexelDensity();
 }
 
 function applyModelLod(level: number): void {
@@ -709,6 +740,7 @@ function applyModelLod(level: number): void {
   if (aoBakeScene) applyLodLevel(aoBakeScene, level);
   refreshUVOverlap();
   if (state.showUVOverlap) render();
+  updateTexelDensity();
 }
 
 // Sun/ambient state feeds the bake only — the 3D viewports never light the model
@@ -754,6 +786,10 @@ function closeModelPreview(): void {
   modelLodLevels = [];
   disposeAOScene(aoBakeScene);
   aoBakeScene = null;
+  if (modelThumbScene) {
+    disposeModel(modelThumbScene);
+    modelThumbScene = null;
+  }
   resetPreview();
   textures.lightmap.image = null;
   textures.lightmap.name = '';
@@ -764,6 +800,7 @@ function closeModelPreview(): void {
   processedPreviewMode = '2d';
   applyPreviewMode();
   renderModelControls();
+  updateTexelDensity();
 }
 
 async function setModel(files: File[]): Promise<void> {
@@ -783,6 +820,11 @@ async function setModel(files: File[]): Promise<void> {
     refreshUVWireframe();
     renderLightmapControls();
     applyExtractedModelTextures(collectModelTextures(loaded.scene), bundle.primary.name);
+    const missingReferences = bundle.manager.missing;
+    if (missingReferences.length) {
+      const fileLabel = missingReferences.length === 1 ? 'file' : 'files';
+      console.warn(`${bundle.primary.name} references ${missingReferences.length} ${fileLabel} not included with it — skipped`);
+    }
     originalViewport = new ModelViewport(originalModelHost);
     processedViewport = new ModelViewport(processedModelHost);
     originalViewport.onCameraChange = renderOrientationReadout;
@@ -791,6 +833,10 @@ async function setModel(files: File[]): Promise<void> {
     }
     forEachViewport((viewport) => viewport.applyLOD(state.lodLevel));
     applyViewNormals();
+    applyViewportNormalMap();
+    // Keep a clone for the ribbon's mesh thumbnail — the loaded scene is
+    // disposed once the viewports hold their own clones.
+    modelThumbScene = cloneModelScene(loaded.scene);
     disposeModel(loaded.scene);
     originalPreviewMode = '3d';
     processedPreviewMode = '3d';
@@ -800,13 +846,13 @@ async function setModel(files: File[]): Promise<void> {
     if (modelUVChannels.length) applyModelUV(state.uvMap);
     renderTextureRibbon();
     render();
+    updateTexelDensity();
     document.querySelector('#fileName')!.textContent = modelBundle.primary.name;
-    showToast(`Loaded ${modelBundle.primary.name}${lodPreparation.collidersRemoved ? ` · ${lodPreparation.collidersRemoved} colliders removed` : ''}`);
     bundle = null;
   } catch (error) {
     if (modelBundle === bundle) closeModelPreview();
     bundle?.revoke();
-    toastError(error, 'Could not load model.');
+    console.error('Could not load model.', error);
   }
 }
 
@@ -847,19 +893,19 @@ function activePaletteIsCustom(): boolean {
 
 function renderPalettes(): void {
   const catalog = paletteCatalog();
+  customPaletteSection.hidden = state.paletteFilter !== 'custom';
   document.querySelector('#paletteCount')!.textContent = `${Object.keys(catalog).length} PRESETS`;
-  const visiblePalettes = Object.entries(catalog).filter(([, palette]) => state.paletteFilter === 'all' || palette.category === state.paletteFilter);
+  const visiblePalettes = Object.entries(catalog).filter(([, palette]) => palette.category === state.paletteFilter);
   const customKeys = new Set(savedCustomPalettes.map((palette) => palette.key));
   paletteGrid.innerHTML = visiblePalettes.map(([key, palette]) => `
     <div class="palette-card ${key === state.paletteKey && state.customColors.length === 0 ? 'active' : ''}" data-palette="${escapeHtml(key)}" role="button" tabindex="0" aria-label="${escapeHtml(palette.name)}, ${palette.colors.length} colors">
       <span class="mini-swatches">${representativeColors(palette.colors).map((color) => `<i style="--swatch:${color}"></i>`).join('')}</span>
-      <span class="palette-card-label"><span>${escapeHtml(palette.name)}</span><b>${palette.colors.length}</b></span>
-      <span class="palette-card-actions">
+      <span class="palette-card-label"><span>${escapeHtml(palette.name)}</span><b>${palette.colors.length}</b><span class="palette-card-actions">
         <button type="button" class="icon-button palette-card-duplicate" data-duplicate-palette="${escapeHtml(key)}" aria-label="Duplicate ${escapeHtml(palette.name)}" title="Duplicate ${escapeHtml(palette.name)}"><svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"><rect x="5" y="5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="2" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
         ${customKeys.has(key) ? `
-          <button type="button" class="icon-button palette-card-export" data-export-palette="${escapeHtml(key)}" aria-label="Export ${escapeHtml(palette.name)}" title="Export ${escapeHtml(palette.name)}"><svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 12v-7M4.5 7.5L7 5l2.5 2.5M2.5 11.5h9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button type="button" class="icon-button palette-card-export" data-export-palette="${escapeHtml(key)}" aria-label="Export ${escapeHtml(palette.name)}" title="Export ${escapeHtml(palette.name)}">${DOWNLOAD_ICON_SVG}</button>
           <button type="button" class="icon-button palette-card-delete" data-delete-palette="${escapeHtml(key)}" aria-label="Delete ${escapeHtml(palette.name)}">×</button>` : ''}
-      </span>
+      </span></span>
     </div>
   `).join('') + (state.paletteFilter === 'custom' ? `
     <button type="button" class="palette-card palette-card-new" data-new-palette aria-label="Create new palette">
@@ -867,16 +913,11 @@ function renderPalettes(): void {
       <span class="palette-card-new-label">Create new palette</span>
     </button>
     <button type="button" class="palette-card palette-card-new" data-import-palette aria-label="Import palette">
-      <span class="palette-card-new-icon">${DOWNLOAD_ICON_SVG}</span>
+      <span class="palette-card-new-icon">${IMPORT_ICON_SVG}</span>
       <span class="palette-card-new-label">Import palette</span>
     </button>
   ` : '');
-  const palette = currentPalette();
   const selectedColors = currentColors();
-  const credit = palette.attribution ? ` · ${palette.attribution}${palette.source ? ` / ${palette.source}` : ''}` : '';
-  document.querySelector('#paletteName')!.textContent = state.customColors.length ? 'CUSTOM MIX' : palette.name.toUpperCase();
-  document.querySelector('#paletteDescription')!.textContent = state.customColors.length ? `${selectedColors.length} hand-picked colors` : `${palette.description} · ${palette.colors.length} colors${credit}`;
-  activeSwatches.innerHTML = representativeColors(selectedColors, 24).map((color) => `<span style="--swatch:${color}" title="${color}"></span>`).join('');
   customColors.innerHTML = selectedColors.map((color, index) => `
     <div class="custom-color">
       <label title="Edit ${color}">${colorControl(color, `Color ${index + 1}, ${color}`, `data-color-index="${index}"`)}</label>
@@ -926,21 +967,19 @@ function renderAdjustments(): void {
   ).join('');
 }
 
-function hydrateCustomDraft(name: string, description: string, colors: string[], key: string | null = null): void {
+function hydrateCustomDraft(name: string, colors: string[], key: string | null = null): void {
   editingCustomKey = key;
   customPaletteName.value = name;
-  customPaletteDescription.value = description;
   state.customColors = [...colors];
   state.paletteSnapshot = {
     name: name || 'Untitled Custom Palette',
-    description: description || 'Custom color palette',
     category: 'custom',
     colors: [...colors],
   };
 }
 
-function beginCustomDraft(name: string, description: string, colors: string[], key: string | null = null): void {
-  hydrateCustomDraft(name, description, colors, key);
+function beginCustomDraft(name: string, colors: string[], key: string | null = null): void {
+  hydrateCustomDraft(name, colors, key);
   renderPalettes();
   render();
 }
@@ -951,28 +990,28 @@ function beginCustomDraft(name: string, description: string, colors: string[], k
 function ensureCustomDraft(): void {
   if (state.customColors.length > 0) return;
   const selectedCustom = customPaletteByKey(state.paletteKey);
-  if (selectedCustom) hydrateCustomDraft(selectedCustom.name, selectedCustom.description, selectedCustom.colors, selectedCustom.key);
-  else hydrateCustomDraft(`${currentPalette().name} Copy`, `Custom copy of ${currentPalette().name}`, currentPalette().colors);
+  if (selectedCustom) hydrateCustomDraft(selectedCustom.name, selectedCustom.colors, selectedCustom.key);
+  else hydrateCustomDraft(`${currentPalette().name} Copy`, currentPalette().colors);
 }
 
 function persistCustomDraft(): void {
   try {
     const existing = customPaletteByKey(editingCustomKey);
     const palette = existing
-      ? updateCustomPalette(existing, customPaletteName.value, customPaletteDescription.value, currentColors())
-      : createCustomPalette(customPaletteName.value, customPaletteDescription.value, currentColors(), new Date(), editingCustomKey ?? undefined);
+      ? updateCustomPalette(existing, customPaletteName.value, currentColors())
+      : createCustomPalette(customPaletteName.value, currentColors(), new Date(), editingCustomKey ?? undefined);
     savedCustomPalettes = upsertCustomPalette(localStorage, palette);
     setPaletteKey(palette.key);
     hydrateEditorForSelection(palette.key, palette);
     renderPalettes();
     render();
   } catch (error) {
-    toastError(error, 'Could not save custom palette.');
+    console.error('Could not save custom palette.', error);
   }
 }
 
 function createNewPalette(): void {
-  beginCustomDraft('New Palette', 'Custom color palette', ['#000000', '#ffffff']);
+  beginCustomDraft('New Palette', ['#000000', '#ffffff']);
   persistCustomDraft();
 }
 
@@ -991,7 +1030,7 @@ function duplicatePaletteByKey(key: string): void {
   const source = paletteCatalog()[key];
   if (!source) return;
   const duplicate = duplicatePalette(source);
-  beginCustomDraft(duplicate.name, duplicate.description, duplicate.colors, duplicate.key);
+  beginCustomDraft(duplicate.name, duplicate.colors, duplicate.key);
   persistCustomDraft();
   if (state.paletteKey === duplicate.key) revealPalette(duplicate.key);
 }
@@ -1002,20 +1041,18 @@ function exportPaletteByKey(key: string): void {
     if (!palette) return;
     const safeName = safeFileName(palette.name, 'custom-palette');
     downloadText(serializeCustomPalette(palette), `${safeName}.palette.json`);
-    showToast(`Custom palette “${palette.name}” exported`);
   } catch (error) {
-    toastError(error, 'Could not export custom palette.');
+    console.error('Could not export custom palette.', error);
   }
 }
 
 // Shared editor-field sync for the currently selected palette: picks the
-// matching custom palette (if any) and hydrates the draft name/description,
-// falling back to the catalog palette's own values.
+// matching custom palette (if any) and hydrates the draft name, falling back
+// to the catalog palette's own value.
 function hydrateEditorForSelection(paletteKey: string, fallback: Palette): void {
   const selectedCustom = customPaletteByKey(paletteKey);
   editingCustomKey = selectedCustom?.key ?? null;
   customPaletteName.value = selectedCustom?.name ?? fallback.name;
-  customPaletteDescription.value = selectedCustom?.description ?? fallback.description;
 }
 
 function selectPalette(key: string): void {
@@ -1032,13 +1069,11 @@ function removeCustomPalette(key: string): void {
     if (state.paletteKey === key) {
       setPaletteKey('desert');
       customPaletteName.value = '';
-      customPaletteDescription.value = '';
     }
     renderPalettes();
     render();
-    showToast('Custom palette deleted');
   } catch (error) {
-    toastError(error, 'Could not delete custom palette.');
+    console.error('Could not delete custom palette.', error);
   }
 }
 
@@ -1047,7 +1082,6 @@ function activePaletteSnapshot() {
   return {
     ...base,
     name: state.customColors.length ? `${base.name} Custom` : base.name,
-    description: state.customColors.length ? `Custom colors based on ${base.name}` : base.description,
     colors: [...currentColors()],
   };
 }
@@ -1102,7 +1136,6 @@ function serializeConfig(): string {
 async function applyConfigFile(file: File): Promise<void> {
   if (file.size > 1_000_000) throw new Error('Settings file is too large.');
   await applyPreset(parsePreset(await file.text()));
-  showToast('Settings loaded');
 }
 
 function currentConfig() {
@@ -1126,10 +1159,9 @@ async function saveConfig(): Promise<void> {
     } else {
       downloadText(content, CONFIG_FILE_NAME);
     }
-    showToast('Settings saved');
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return;
-    toastError(error, 'Could not save settings.');
+    console.error('Could not save settings.', error);
   }
 }
 
@@ -1143,7 +1175,7 @@ async function loadConfig(): Promise<void> {
     }
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return;
-    toastError(error, 'Could not load settings.');
+    console.error('Could not load settings.', error);
   }
 }
 
@@ -1158,6 +1190,7 @@ async function applyPreset(preset: ConversionPreset): Promise<void> {
   const selectedPalette = paletteCatalog()[paletteKey];
   hydrateEditorForSelection(paletteKey, selectedPalette);
   syncControlsFromState();
+  applyViewportNormalMap();
   applySun();
   if (modelBundle) {
     forEachViewport((viewport) => viewport.setCameraForward(state.cameraDirection));
@@ -1183,11 +1216,11 @@ const renderer = createRenderer({
   dimensions,
   currentColors,
   updatePreviewBadge,
-  showToast,
   renderLightmapControls,
   renderNormalControls,
   renderTextureRibbon,
   applySun,
+  onAoProgress: setAoBakeProgress,
 });
 
 const {
@@ -1195,6 +1228,7 @@ const {
   generateAo,
   bakeLighting,
   clearLightmap,
+  reengageImplicitLightmap,
   scheduleImplicitLightmapBake,
   scheduleNormalAdjustedLighting,
   refreshUVWireframe,
@@ -1202,10 +1236,36 @@ const {
   resetPreview,
 } = renderer;
 
+// AO bakes rasterize the texture in worker bands — a centered progress card
+// keeps the wait visible while bands finish. The wrapper guarantees the
+// overlay hides on success AND failure.
+function setAoBakeProgress(percent: number): void {
+  aoBakeFill.style.width = `${percent}%`;
+  aoBakePercent.textContent = `${percent}%`;
+}
+
+function showAoBakeOverlay(): void {
+  setAoBakeProgress(0);
+  aoBakeOverlay.hidden = false;
+}
+
+function hideAoBakeOverlay(): void {
+  aoBakeOverlay.hidden = true;
+}
+
+async function generateAoWithProgress(): Promise<boolean> {
+  showAoBakeOverlay();
+  try {
+    return await generateAo();
+  } finally {
+    hideAoBakeOverlay();
+  }
+}
+
 // Single source of truth for which texture channels have a one-click bake and
 // the action behind it — used by the slot Bake buttons and the download path.
 const bakeActions: Partial<Record<TextureChannelId, () => Promise<boolean>>> = {
-  ao: generateAo,
+  ao: generateAoWithProgress,
   lightmap: bakeLighting,
 };
 
@@ -1220,6 +1280,9 @@ function updateResolution(value: number, immediate = false): void {
   // The dithered size drives the AO/lightmap bake size, so a change re-bakes
   // the implicit lightmap at the new resolution (debounced in the scheduler).
   scheduleImplicitLightmapBake();
+  // The processed viewport's normals view pixelizes the map to this size.
+  applyViewportNormalMap();
+  updateTexelDensity();
 }
 
 function textureLabel(channel: TextureChannelId): string {
@@ -1228,7 +1291,7 @@ function textureLabel(channel: TextureChannelId): string {
 
 function updateFileMeta(name: string, width: number, height: number, updateHeading = true): void {
   if (updateHeading) document.querySelector('#fileName')!.textContent = name;
-  document.querySelector('#sourceDimensions')!.textContent = `${width} × ${height}`;
+  document.querySelector('#sourceDimensions')!.textContent = formatDimensions(width, height);
 }
 
 function clearTexture(channel: TextureChannelId): void {
@@ -1238,8 +1301,11 @@ function clearTexture(channel: TextureChannelId): void {
     textures.base.name = 'sample-landscape.png';
     updateFileMeta(textures.base.name, sample.width, sample.height);
     refreshUVOverlap();
+    updateTexelDensity();
   } else if (channel === 'lightmap') {
-    clearLightmap();
+    // The slot X is a hard remove: drop the live implicit bake too and stay
+    // unlit (pure-white lightmap) until the user explicitly bakes or loads one.
+    clearLightmap(true);
     return;
   } else {
     textures[channel].image = null;
@@ -1251,6 +1317,7 @@ function clearTexture(channel: TextureChannelId): void {
     if (channel === 'normal') {
       renderNormalControls();
       scheduleNormalAdjustedLighting();
+      applyViewportNormalMap();
     }
   }
   renderTextureRibbon();
@@ -1264,12 +1331,10 @@ function clearModel(): void {
   updateFileMeta(textures.base.name, base.width, base.height);
   renderTextureRibbon();
   render();
-  showToast('Model cleared');
 }
 
 async function setTexture(channel: TextureChannelId, file: File): Promise<void> {
   if (!file.type.startsWith('image/')) {
-    showToast('Please choose an image file.');
     return;
   }
   try {
@@ -1287,6 +1352,7 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
     if (channel === 'base') {
       updateFileMeta(file.name, image.width, image.height, !modelBundle);
       refreshUVOverlap();
+      updateTexelDensity();
     }
     if (channel === 'lightmap') {
       renderLightmapControls();
@@ -1296,12 +1362,12 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
     if (channel === 'normal') {
       renderNormalControls();
       scheduleNormalAdjustedLighting();
+      applyViewportNormalMap();
     }
     renderTextureRibbon();
     render();
-    showToast(`${textureLabel(channel)} loaded`);
   } catch (error) {
-    toastError(error, 'Could not load image.');
+    console.error('Could not load image.', error);
   }
 }
 
@@ -1310,18 +1376,20 @@ function reset(): void {
   Object.assign(state, defaultState(), { paletteSnapshot: undefined });
   textures.lightmap.image = null;
   textures.lightmap.name = '';
+  // Full reset is a fresh start: re-engage the implicit lightmap preview and
+  // drop any cached render state.
+  resetPreview();
   renderTextureRibbon();
   editingCustomKey = null;
   customPaletteName.value = '';
-  customPaletteDescription.value = '';
   syncControlsFromState();
   scheduleNormalAdjustedLighting();
   applySun();
   refreshUVOverlap();
   renderModelControls();
   applyViewNormals();
+  applyViewportNormalMap();
   updateResolution(128, true);
-  showToast('Settings reset');
 }
 
 function bindAdjustmentEvents(): void {
@@ -1351,12 +1419,9 @@ async function loadExampleAssets(): Promise<void> {
       fetchExampleFile(exampleNormalUrl, 'Book_NormalMap.png', 'image/png'),
       fetchExampleFile(exampleModelUrl, 'Book.fbx', 'application/octet-stream'),
     ]);
-    await setTexture('base', baseColor);
-    await setTexture('normal', normal);
-    await setModel([model]);
+    await setModel([baseColor, normal, model]);
   } catch (error) {
     console.error('Example assets could not be loaded; using the sample texture.', error);
-    showToast('Example assets could not be loaded; using the sample texture.');
   }
 }
 
@@ -1411,18 +1476,13 @@ bindRange({
   format: formatTimes2,
   apply: (value) => { state.aoDistance = value; },
 });
-bindRange({
-  input: normalStrengthInput,
-  output: normalStrengthValue,
-  format: formatPercent,
-  apply: (value) => {
-    state.normalStrength = value / 100;
-    scheduleNormalAdjustedLighting();
-  },
-});
-normalFormatSelect.addEventListener('change', () => {
-  state.normalFormat = normalFormatSelect.value as NormalFormat;
+normalFormatToggle.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-normal-format]');
+  if (!button?.dataset.normalFormat || button.disabled) return;
+  state.normalFormat = button.dataset.normalFormat as NormalFormat;
+  syncActiveButton(normalFormatToggle, '[data-normal-format]', (candidate) => candidate.dataset.normalFormat === state.normalFormat);
   scheduleNormalAdjustedLighting();
+  applyViewportNormalMap();
 });
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.addEventListener('click', () => {
   state.mode = button.dataset.mode as DitherMode;
@@ -1433,7 +1493,7 @@ document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => 
 paletteFilters.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-filter]');
   if (!button?.dataset.filter) return;
-  state.paletteFilter = button.dataset.filter as PaletteCategory | 'all';
+  state.paletteFilter = button.dataset.filter as PaletteCategory;
   syncActiveButton(paletteFilters, 'button', (item) => item === button);
   renderPalettes();
 });
@@ -1473,7 +1533,7 @@ paletteGrid.addEventListener('keydown', (event) => {
   event.preventDefault();
   selectPalette(card.dataset.palette);
 });
-customColors.addEventListener('input', (event) => {
+customColors.addEventListener('change', (event) => {
   const input = (event.target as HTMLElement).closest<HTMLInputElement>('input[type="color"]');
   if (!input) return;
   ensureCustomDraft();
@@ -1481,17 +1541,13 @@ customColors.addEventListener('input', (event) => {
   syncColorChip(input);
   input.setAttribute('aria-label', `Color ${Number(input.dataset.colorIndex) + 1}, ${input.value}`);
   state.paletteSnapshot = activePaletteSnapshot();
-  render();
-});
-customColors.addEventListener('change', (event) => {
-  const input = (event.target as HTMLElement).closest<HTMLInputElement>('input[type="color"]');
-  if (input) persistCustomDraft();
+  persistCustomDraft();
 });
 customColors.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
   if (target.closest<HTMLButtonElement>('[data-add-color]')) {
     ensureCustomDraft();
-    if (state.customColors.length >= 256) return showToast('Palette limit reached');
+    if (state.customColors.length >= 256) return;
     state.customColors.push('#ffffff');
     state.paletteSnapshot = activePaletteSnapshot();
     persistCustomDraft();
@@ -1500,13 +1556,12 @@ customColors.addEventListener('click', (event) => {
   const button = target.closest<HTMLButtonElement>('[data-remove-color]');
   if (!button) return;
   ensureCustomDraft();
-  if (state.customColors.length <= 2) return showToast('A palette needs at least two colors.');
+  if (state.customColors.length <= 2) return;
   state.customColors.splice(Number(button.dataset.removeColor), 1);
   state.paletteSnapshot = activePaletteSnapshot();
   persistCustomDraft();
 });
 customPaletteName.addEventListener('change', persistCustomDraft);
-customPaletteDescription.addEventListener('change', persistCustomDraft);
 
 const importCustomPaletteInput = document.querySelector<HTMLInputElement>('#importCustomPalette')!;
 importCustomPaletteInput.addEventListener('change', async () => {
@@ -1517,10 +1572,9 @@ importCustomPaletteInput.addEventListener('change', async () => {
     const palette = paletteFromImport(await file.text(), file.name);
     savedCustomPalettes = upsertCustomPalette(localStorage, palette);
     state.paletteKey = palette.key;
-    beginCustomDraft(palette.name, palette.description, palette.colors, palette.key);
-    showToast(`Imported palette “${palette.name}”`);
+    beginCustomDraft(palette.name, palette.colors, palette.key);
   } catch (error) {
-    toastError(error, 'Could not import palette.');
+    console.error('Could not import palette.', error);
   } finally {
     importCustomPaletteInput.value = '';
   }
@@ -1528,7 +1582,6 @@ importCustomPaletteInput.addEventListener('change', async () => {
 
 function pickTextureFromSlot(slot: HTMLElement): void {
   if (slot.classList.contains('disabled')) {
-    showToast('Load a model to enable model texture maps.');
     return;
   }
   pendingTextureChannel = slot.dataset.texture as TextureChannelId;
@@ -1547,22 +1600,17 @@ function downloadSlotImage(channel: TextureChannelId): void {
   const name = `${safeFileName(textureLabel(channel))}.png`;
   if (data.image) {
     saveSlotImage(data.image, name);
-    showToast(`Downloaded ${textureLabel(channel)}`);
     return;
   }
   // AO and lightmap can be generated in-app — bake on demand, then download.
-  // The bake path surfaces its own failure toast, so a false result is a no-op.
+  // The bake path reports its own failures, so a false result is a no-op.
   const baked = bakeActions[channel]?.() ?? null;
-  if (!baked) {
-    showToast(`No ${textureLabel(channel)} image to download`);
-    return;
-  }
+  if (!baked) return;
   void baked.then((ok) => {
     if (!ok) return;
     const image = textures[channel].image;
     if (!image) return;
     saveSlotImage(image, name);
-    showToast(`Downloaded ${textureLabel(channel)}`);
   });
 }
 
@@ -1587,6 +1635,7 @@ textureRibbon.addEventListener('click', (event) => {
     bakeActions[bakeButton.dataset.bakeTexture as TextureChannelId]?.();
     return;
   }
+  if (target.closest('[data-normal-format]')) return;
   if (target.closest('[data-model-slot]')) {
     modelInput.click();
     return;
@@ -1660,8 +1709,11 @@ bindPreviewToggle(originalPreviewToggle, (mode) => { originalPreviewMode = mode;
 bindPreviewToggle(processedPreviewToggle, (mode) => { processedPreviewMode = mode; });
 uvMapSelect.addEventListener('change', () => applyModelUV(uvMapSelect.value));
 lodMapSelect.addEventListener('change', () => applyModelLod(Number(lodMapSelect.value)));
-worldAxisSelect.addEventListener('change', () => {
-  state.worldAxis = worldAxisSelect.value as WorldAxis;
+worldAxisToggle.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-world-axis]');
+  if (!button?.dataset.worldAxis) return;
+  state.worldAxis = button.dataset.worldAxis as WorldAxis;
+  syncActiveButton(worldAxisToggle, '[data-world-axis]', (candidate) => candidate.dataset.worldAxis === state.worldAxis);
   applyWorldAxis();
 });
 uvOverlapInput.addEventListener('change', () => {
@@ -1679,7 +1731,15 @@ function bindSunControl(): void {
   sunControlElements.orientWithCamera.addEventListener('click', () => {
     if (!originalViewport || originalPreviewMode !== '3d') return;
     state.sun.direction = originalViewport.getCameraForward();
-    applySun();
+    // Orient-with-camera always (re)generates a lightmap: re-engage the live
+    // implicit bake after a slot clear, or re-bake an explicit lightmap so it
+    // follows the new direction.
+    if (lightmapIsActive(textures)) {
+      void bakeLighting();
+    } else {
+      reengageImplicitLightmap();
+      applySun();
+    }
   });
   const bindLightColor = (input: HTMLInputElement, target: LightState): void => {
     input.addEventListener('input', () => {
@@ -1698,13 +1758,27 @@ function bindSunControl(): void {
   bindLightIntensity(sunControlElements.intensity, state.sun);
   bindLightColor(sunControlElements.ambientColor, state.ambient);
   bindLightIntensity(sunControlElements.ambientIntensity, state.ambient);
+  // Normal-map strength is part of the lighting bake — the same path as the
+  // ribbon's GL/DX toggle — so a change re-bakes the implicit lightmap and
+  // live-updates the Normals-view showcase uniform (no texture rebuild).
+  bindRange({
+    input: sunControlElements.normalStrength,
+    output: sunControlElements.normalStrengthValue,
+    format: formatFixed2,
+    apply: (value) => {
+      state.normalStrength = Math.round(value * 100) / 100;
+      scheduleNormalAdjustedLighting();
+      originalViewport?.setNormalStrength(state.normalStrength);
+      processedViewport?.setNormalStrength(state.normalStrength);
+    },
+  });
 }
 
 bindSunControl();
 
-// Preview view enum (Flat / Normals / AO / Lightmap) — one segmented control
-// per preview pane, each with its own selection. Normals drives that pane's
-// 3D viewport; AO/Lightmap swap the source in that pane's preview.
+// Preview view enum (Combined / BaseColor / Normals / AO / Lightmap) — a single segmented
+// control on the Original pane that drives both preview panes. Normals drives
+// each pane's 3D viewport; AO/Lightmap swap the source in both previews.
 function bindViewToggle(toggle: HTMLDivElement, getView: () => PreviewViewMode, setView: (view: PreviewViewMode) => void): void {
   toggle.addEventListener('click', (event) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-view]');
@@ -1720,8 +1794,10 @@ function applyViewMode(): void {
   applyViewNormals();
   render();
 }
-bindViewToggle(originalViewToggle, () => state.viewModeOriginal, (view) => { state.viewModeOriginal = view; });
-bindViewToggle(processedViewToggle, () => state.viewModeProcessed, (view) => { state.viewModeProcessed = view; });
+bindViewToggle(originalViewToggle, () => state.viewModeOriginal, (view) => {
+  state.viewModeOriginal = view;
+  state.viewModeProcessed = view;
+});
 const dropZone = document.querySelector<HTMLDivElement>('#dropZone')!;
 bindSlotDragState(dropZone);
 dropZone.addEventListener('drop', (event) => {
@@ -1736,15 +1812,32 @@ loadConfigInput.addEventListener('change', async () => {
   try {
     await applyConfigFile(file);
   } catch (error) {
-    toastError(error, 'Could not load settings.');
+    console.error('Could not load settings.', error);
   }
 });
 document.querySelector('#saveButton')!.addEventListener('click', saveConfig);
 document.querySelector('#loadButton')!.addEventListener('click', loadConfig);
 document.querySelector('#resetButton')!.addEventListener('click', reset);
+// Export filenames end with the current view mode, spelled for filenames:
+// Combined / BaseColor / Normal / AO / Lightmap / LightmapAO — same vocabulary
+// as the view toggle, minus its punctuation.
+const EXPORT_VIEW_SUFFIX: Record<PreviewViewMode, string> = {
+  flat: 'Combined',
+  basecolor: 'BaseColor',
+  normals: 'Normal',
+  ao: 'AO',
+  lightmap: 'Lightmap',
+  'lightmap-ao': 'LightmapAO',
+};
 document.querySelector('#exportButton')!.addEventListener('click', () => {
-  const safeName = safeFileName(textures.base.name.replace(/\.[^.]+$/, ''));
+  // Flush the debounced render first so the export always matches what the
+  // processed pane currently shows for the selected view mode.
+  renderScheduler.flush();
+  // <model base name without suffix>_<view mode>.png — the model's name when a
+  // model is loaded, otherwise the base texture's name (both sans extension).
+  const stem = modelBundle
+    ? modelBundle.primary.name.replace(/\.[^.]+$/, '')
+    : textures.base.name.replace(/\.[^.]+$/, '');
   const rendered = renderer.getRenderedCanvas();
-  downloadCanvas(rendered, `${safeName}-dithered.png`);
-  showToast(`Exported ${rendered.width} × ${rendered.height} PNG`);
+  downloadCanvas(rendered, `${safeFileName(stem)}_${EXPORT_VIEW_SUFFIX[state.viewModeProcessed]}.png`);
 });

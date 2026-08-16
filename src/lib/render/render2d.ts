@@ -1,5 +1,5 @@
 import { applyAO, imageAOFactors } from '../ao';
-import { drawImageToCanvas, imagePixels, processLitImageData } from '../canvas';
+import { drawImageToCanvas, imagePixels, pixelsToCanvas, processLitImageData, resizeNearest } from '../canvas';
 import { processImageData } from '../dither';
 import { applyLightmap } from '../lightmap';
 import type { PreviewViewMode, SourceImage } from '../state';
@@ -57,35 +57,86 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
 
   function render(): void {
     const { width, height } = dimensions();
+    // Lightmap+AO inspection shows the raw combined map — AO visibility
+    // multiplied into the lightmap on white, staged at the target resolution
+    // (same math the lighting pass applies: visibility × lightmap).
+    const lightmapCanvas = textures.lightmap.image ?? shared.implicitLightmapCanvas;
+    const lightmapAoSelected = state.viewModeOriginal === 'lightmap-ao' || state.viewModeProcessed === 'lightmap-ao';
+    let lightmapAoSource: SourceImage | null = null;
+    if (lightmapAoSelected && textures.ao.image && lightmapCanvas) {
+      const aoFactors = imageAOFactors(textures.ao.image, width, height);
+      const lightmapPixels = imagePixels(lightmapCanvas, width, height);
+      const combined = new Uint8ClampedArray(width * height * 4);
+      for (let i = 0; i < width * height; i += 1) {
+        const offset = i * 4;
+        const visibility = aoFactors[i] / 255;
+        combined[offset] = lightmapPixels[offset] * visibility;
+        combined[offset + 1] = lightmapPixels[offset + 1] * visibility;
+        combined[offset + 2] = lightmapPixels[offset + 2] * visibility;
+        combined[offset + 3] = 255;
+      }
+      lightmapAoSource = pixelsToCanvas(combined, width, height);
+    }
     // Per-pane inspection enum: each preview pane picks its own source, so the
     // original can show the raw AO while the dithered pane quantizes the base.
-    // Lighting (AO + lightmap multiply) is skipped for whichever pane inspects
-    // a raw map, since lighting the map being inspected would alter it.
+    // BaseColor shows the base texture with no lighting; AO/lightmap show the
+    // raw map; Normals shows the raw normal map; Lightmap+AO shows the raw
+    // combined AO×lightmap. Lighting (AO + lightmap multiply) is skipped for
+    // whichever pane inspects a raw map, since lighting the map being
+    // inspected would alter it.
     const inspectionSource = (viewMode: PreviewViewMode): SourceImage | null =>
-      viewMode === 'ao' ? textures.ao.image
-      : viewMode === 'lightmap' ? (textures.lightmap.image ?? shared.implicitLightmapCanvas)
+      viewMode === 'basecolor' ? textures.base.image
+      : viewMode === 'normals' ? textures.normal.image
+      : viewMode === 'ao' ? textures.ao.image
+      : viewMode === 'lightmap' ? lightmapCanvas
+      : viewMode === 'lightmap-ao' ? lightmapAoSource
       : null;
     const originalOnlySource = inspectionSource(state.viewModeOriginal);
     const processedOnlySource = inspectionSource(state.viewModeProcessed);
 
-    // Dithered pane: quantize the processed pane's chosen source.
+    // Dithered pane: quantize the processed pane's chosen source. Normals are
+    // the exception — a normal map can't be palette-dithered, so it's
+    // pixelized with nearest-neighbor at the target resolution instead (the
+    // same map the 3D processed viewport displays).
     const processedSource = processedOnlySource ?? textures.base.image!;
-    const { canvas: nextCanvas, context: renderContext } = drawImageToCanvas(processedSource, width, height);
+    const normalsInspection = state.viewModeProcessed === 'normals' && processedOnlySource !== null;
+    let nextCanvas: HTMLCanvasElement;
+    let renderContext: CanvasRenderingContext2D | null;
+    if (normalsInspection) {
+      nextCanvas = resizeNearest(processedSource, width, height);
+      renderContext = nextCanvas.getContext('2d');
+    } else {
+      // Upscaling (grid finer than the source) must stay crisp — the browser's
+      // smoothed resample would blur source pixels before dithering. Only
+      // downscales keep the filtered drawImage path.
+      if (width > processedSource.width) {
+        nextCanvas = resizeNearest(processedSource, width, height);
+        renderContext = nextCanvas.getContext('2d');
+      } else {
+        const staged = drawImageToCanvas(processedSource, width, height);
+        nextCanvas = staged.canvas;
+        renderContext = staged.context;
+      }
+    }
     shared.renderedCanvas = nextCanvas;
     if (!renderContext) return;
-    const sourceData = renderContext.getImageData(0, 0, width, height);
+    // The pixelized normals map is already final — the dither pass would
+    // corrupt it.
+    if (!normalsInspection) {
+      const sourceData = renderContext.getImageData(0, 0, width, height);
 
-    const processedOptions = {
-      palette: currentColors(), mode: state.mode, strength: state.strength,
-      brightness: state.brightness, contrast: state.contrast, saturation: state.saturation,
-      stripeAngle: state.stripeAngle, noiseScale: state.noiseScale, seed: state.seed,
-    };
-    const { processed: processedData } = processLitImageData(
-      sourceData,
-      processedOnlySource ? skipLighting : applyLighting,
-      (lit) => processImageData(lit, processedOptions),
-    );
-    renderContext.putImageData(processedData, 0, 0);
+      const processedOptions = {
+        palette: currentColors(), mode: state.mode, strength: state.strength,
+        brightness: state.brightness, contrast: state.contrast, saturation: state.saturation,
+        stripeAngle: state.stripeAngle, noiseScale: state.noiseScale, seed: state.seed,
+      };
+      const { processed: processedData } = processLitImageData(
+        sourceData,
+        processedOnlySource ? skipLighting : applyLighting,
+        (lit) => processImageData(lit, processedOptions),
+      );
+      renderContext.putImageData(processedData, 0, 0);
+    }
 
     previewCanvas.width = width;
     previewCanvas.height = height;

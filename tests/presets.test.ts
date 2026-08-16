@@ -46,7 +46,6 @@ describe('conversion presets', () => {
     expect(parsed).toEqual(preset);
     expect(parsed.palette.colors).toEqual(palettes.pico8.colors);
     expect(parsed.palette.name).toBe('PICO-8');
-    expect(parsed.palette.description).toBe('Punchy fantasy console');
     expect(parsed.uvMap).toBe('uv2');
     expect(parsed.id).toBe('1767323045000-my-texture');
   });

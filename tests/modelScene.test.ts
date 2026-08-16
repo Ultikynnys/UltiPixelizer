@@ -41,7 +41,7 @@ describe('model scene processing', () => {
     const single = mesh(['uv']);
     const multiple = mesh(['uv'], 2);
     const sourceMaterials = multiple.material as MeshBasicMaterial[];
-    const texture = new Texture();
+    const texture = new Texture({ width: 1, height: 1 });
     (single.material as MeshBasicMaterial).map = texture;
     sourceMaterials.forEach((material) => { material.map = texture; });
     root.add(single, multiple);
@@ -56,6 +56,29 @@ describe('model scene processing', () => {
     expect((clonedSingle.material as MeshBasicMaterial).map).not.toBe(texture);
     expect(clonedMaterials[0].map).not.toBe(texture);
     expect(clonedMaterials[0].map).toBe(clonedMaterials[1].map);
+  });
+
+  it('drops image-less placeholder textures from clones instead of cloning them', () => {
+    // Loaders leave `new Texture()` placeholders when a model references a
+    // texture that is missing or has an undefined filename. Cloning such a
+    // texture bumps its version while the image stays null, so the renderer
+    // warns "Texture marked for update but no image data found" on every
+    // frame. The clone must drop the slot instead.
+    const root = new Object3D();
+    const item = mesh(['uv']);
+    const placeholder = new Texture(); // image null — never decoded
+    const valid = new Texture({ width: 1, height: 1 });
+    const material = new MeshLambertMaterial();
+    material.map = placeholder;
+    material.normalMap = valid;
+    item.material = material;
+    root.add(item);
+
+    const clone = cloneModelScene(root);
+    const clonedMaterial = (clone.children[0] as Mesh).material as MeshLambertMaterial;
+    expect(clonedMaterial.map).toBeNull();
+    expect(clonedMaterial.normalMap).not.toBe(valid);
+    expect(clonedMaterial.normalMap?.image).toEqual({ width: 1, height: 1 });
   });
 
   it('fits cameras for populated and empty objects', () => {

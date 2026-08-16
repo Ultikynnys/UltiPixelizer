@@ -20,21 +20,20 @@ describe('createRenderer wiring', () => {
 
     // The rendered canvas is a fresh document canvas shared with the pipeline.
     expect(api.getRenderedCanvas()).toBeDefined();
+    // No lightmap is baked yet, so the implicit slot preview is empty.
+    expect(api.getImplicitLightmapCanvas()).toBeNull();
 
     api.render();
     expect(deps.previewCanvas.context.pixels.length).toBe(16);
     expect(deps.updatePreviewBadge).toHaveBeenCalledWith(2, 2);
 
     api.generateAo();
-    expect(deps.showToast).toHaveBeenCalledWith('Load a model to generate AO');
-
     api.bakeLighting();
-    expect(deps.showToast).toHaveBeenCalledWith('Load a model to bake lighting');
-
     api.clearLightmap();
     expect(deps.renderTextureRibbon).toHaveBeenCalled();
 
     api.scheduleImplicitLightmapBake();
+    api.reengageImplicitLightmap();
     api.scheduleNormalAdjustedLighting();
     api.refreshUVWireframe();
     api.refreshUVOverlap();

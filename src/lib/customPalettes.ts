@@ -19,19 +19,18 @@ export function isCustomPalette(value: unknown): value is CustomPalette {
   if (!isPalette(value) || value.category !== 'custom') return false;
   const candidate = value as Partial<CustomPalette>;
   return candidate.version === CUSTOM_PALETTE_VERSION
-    && value.name.length <= 60 && value.description.length <= 160
+    && value.name.length <= 60
     && typeof candidate.key === 'string' && /^custom-[a-z0-9][a-z0-9-]{0,55}$/i.test(candidate.key)
     && typeof candidate.createdAt === 'string' && !Number.isNaN(Date.parse(candidate.createdAt))
     && typeof candidate.updatedAt === 'string' && !Number.isNaN(Date.parse(candidate.updatedAt));
 }
 
-export function createCustomPalette(name: string, description: string, colors: string[], now = new Date(), key?: string): CustomPalette {
+export function createCustomPalette(name: string, colors: string[], now = new Date(), key?: string): CustomPalette {
   const normalizedName = name.trim();
   const palette: CustomPalette = {
     version: CUSTOM_PALETTE_VERSION,
     key: key ?? `custom-${now.getTime()}-${slugify(normalizedName, 'palette', 40)}`,
     name: normalizedName,
-    description: description.trim() || 'Custom color palette',
     category: 'custom',
     colors: [...colors],
     createdAt: now.toISOString(),
@@ -42,11 +41,11 @@ export function createCustomPalette(name: string, description: string, colors: s
 }
 
 export function duplicatePalette(source: Palette, now = new Date()): CustomPalette {
-  return createCustomPalette(`${source.name} Copy`, `Custom copy of ${source.name}`, source.colors, now);
+  return createCustomPalette(`${source.name} Copy`, source.colors, now);
 }
 
-export function updateCustomPalette(source: CustomPalette, name: string, description: string, colors: string[], now = new Date()): CustomPalette {
-  const updated = createCustomPalette(name, description, colors, now, source.key);
+export function updateCustomPalette(source: CustomPalette, name: string, colors: string[], now = new Date()): CustomPalette {
+  const updated = createCustomPalette(name, colors, now, source.key);
   updated.createdAt = source.createdAt;
   if (!isCustomPalette(updated)) throw new Error('Custom palette update is invalid.');
   return updated;
@@ -124,9 +123,7 @@ export function paletteFromImport(text: string, fileName?: string): CustomPalett
         }
         if (colors.length < 2 || colors.length > 256) throw new Error('Palette file has no valid colors.');
         const name = (typeof record.name === 'string' && record.name.trim() ? record.name : paletteNameFromFile(fileName)).slice(0, 60);
-        const author = typeof record.author === 'string' && record.author.trim() ? ` · ${record.author.trim()}` : '';
-        const description = `Imported palette${author}`.slice(0, 160);
-        return createCustomPalette(name, description, colors);
+        return createCustomPalette(name, colors);
       }
     }
     throw new Error('Palette file has invalid or unsupported data.');
@@ -134,7 +131,7 @@ export function paletteFromImport(text: string, fileName?: string): CustomPalett
 
   const colors = extractHexColors(trimmed);
   if (colors.length < 2 || colors.length > 256) throw new Error('Palette file has no valid colors.');
-  return createCustomPalette(paletteNameFromFile(fileName).slice(0, 60), 'Imported from hex file', colors);
+  return createCustomPalette(paletteNameFromFile(fileName).slice(0, 60), colors);
 }
 
 export function matchingPaletteKey(catalog: Record<string, Palette>, colors: string[], preferredKey?: string): string | null {
@@ -152,7 +149,7 @@ export function selectOrCreatePalette(
 ): { key: string; customPalettes: CustomPalette[]; created: boolean } {
   const match = matchingPaletteKey(catalog, embedded.colors, preferredKey);
   if (match) return { key: match, customPalettes: loadCustomPalettes(storage), created: false };
-  const imported = createCustomPalette(embedded.name.slice(0, 60), embedded.description.slice(0, 160), embedded.colors);
+  const imported = createCustomPalette(embedded.name.slice(0, 60), embedded.colors);
   return { key: imported.key, customPalettes: upsertCustomPalette(storage, imported), created: true };
 }
 

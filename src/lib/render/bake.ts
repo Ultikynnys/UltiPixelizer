@@ -1,6 +1,5 @@
 import { bakeMeshAOAsync } from '../aoBake';
 import { factorsToCanvas, pixelsToCanvas } from '../canvas';
-import { errorMessage } from '../strings';
 import { bakeMeshLightmap, type BakeLightmapOptions } from '../lightmapBake';
 import { imageNormalMapPixels } from '../normal';
 import { lightmapIsActive } from '../state';
@@ -12,7 +11,8 @@ const AO_BAKE_SAMPLES = 128;
 export interface BakeApi {
   generateAo: () => Promise<boolean>;
   bakeLighting: () => Promise<boolean>;
-  clearLightmap: () => void;
+  clearLightmap: (suppressImplicit?: boolean) => void;
+  reengageImplicitLightmap: () => void;
   scheduleImplicitLightmapBake: () => void;
   scheduleNormalAdjustedLighting: () => void;
   reset: () => void;
@@ -23,12 +23,12 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     state,
     textures,
     getAOScene,
-    showToast,
     renderLightmapControls,
     renderNormalControls,
     renderTextureRibbon,
     applySun,
     dimensions,
+    onAoProgress,
   } = deps;
 
   function normalMapOptions() {
@@ -71,44 +71,25 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
       return false;
     }
     const { width, height } = dimensions();
-    const factors = await bakeMeshAOAsync(
-      scene,
-      width,
-      height,
-      { samples: AO_BAKE_SAMPLES, distance: state.aoDistance },
-      (percent) => showToast(`Generating AO… ${percent}%`),
-    );
+    const factors = await bakeMeshAOAsync(scene, width, height, { samples: AO_BAKE_SAMPLES, distance: state.aoDistance }, onAoProgress);
     textures.ao.image = factorsToCanvas(factors, width, height);
     textures.ao.name = 'Generated AO';
     return true;
   }
 
-  // Shared async-bake runner: scene guard, progress toast, deferred try/catch.
-  // Resolves true when the bake completed, false on early exit or failure (the
-  // relevant toast is already shown in both cases) — callers that need the
-  // result, like the texture-slot download button, can await it.
-  function runBakeTask(
-    noSceneMessage: string,
-    progressMessage: string,
-    failureMessage: string,
-    successMessage: string,
-    work: () => boolean | Promise<boolean>,
-  ): Promise<boolean> {
-    if (!getAOScene()) {
-      showToast(noSceneMessage);
-      return Promise.resolve(false);
-    }
-    showToast(progressMessage);
+  // Shared async-bake runner: scene guard, deferred try/catch. Resolves true
+  // when the bake completed, false on early exit or failure (failures are
+  // logged to the console) — callers that need the result, like the
+  // texture-slot download button, can await it.
+  function runBakeTask(failureMessage: string, work: () => boolean | Promise<boolean>): Promise<boolean> {
+    if (!getAOScene()) return Promise.resolve(false);
     return new Promise((resolve) => {
       window.setTimeout(() => {
         Promise.resolve()
           .then(work)
-          .then((completed) => {
-            if (completed) showToast(successMessage);
-            resolve(completed);
-          })
+          .then(resolve)
           .catch((error) => {
-            showToast(errorMessage(error, failureMessage));
+            console.error(failureMessage, error);
             resolve(false);
           });
       }, 30);
@@ -116,7 +97,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   }
 
   function generateAo(): Promise<boolean> {
-    return runBakeTask('Load a model to generate AO', 'Generating AO…', 'Could not generate ambient occlusion.', 'Ambient occlusion generated', async () => {
+    return runBakeTask('Could not generate ambient occlusion.', async () => {
       const completed = await computeAO();
       if (!completed) return false;
       renderTextureRibbon();
@@ -126,14 +107,13 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   }
 
   function bakeLighting(): Promise<boolean> {
-    return runBakeTask('Load a model to bake lighting', 'Baking lighting…', 'Could not bake lighting.', 'Lighting baked', () => {
+    return runBakeTask('Could not bake lighting.', () => {
       const canvas = bakeLightmapCanvas();
-      if (!canvas) {
-        showToast('Load a base texture to bake lighting');
-        return false;
-      }
+      if (!canvas) return false;
       textures.lightmap.image = canvas;
       textures.lightmap.name = 'Baked lighting';
+      // An explicit bake re-engages the live implicit preview for future edits.
+      shared.lightmapCleared = false;
       renderLightmapControls();
       renderNormalControls();
       renderTextureRibbon();
@@ -143,9 +123,19 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     });
   }
 
-  function clearLightmap(): void {
+  function clearLightmap(suppressImplicit = false): void {
     textures.lightmap.image = null;
     textures.lightmap.name = '';
+    // The slot previews the live implicit bake, so removing the lightmap must
+    // also drop that canvas and cancel any pending re-bake — otherwise the
+    // preview (and the render) keep the lightmap alive and X appears to do
+    // nothing. `suppressImplicit` (the slot X button) additionally stops the
+    // implicit bake from restarting: no lightmap means a pure-white multiply,
+    // i.e. unlit, until the user explicitly bakes or loads one.
+    shared.implicitLightmapCanvas = null;
+    if (shared.implicitLightmapTimer) window.clearTimeout(shared.implicitLightmapTimer);
+    shared.implicitLightmapTimer = 0;
+    if (suppressImplicit) shared.lightmapCleared = true;
     if (state.viewModeOriginal === 'lightmap') state.viewModeOriginal = 'flat';
     if (state.viewModeProcessed === 'lightmap') state.viewModeProcessed = 'flat';
     renderLightmapControls();
@@ -155,24 +145,36 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     render2d.render();
   }
 
+  /** Re-engages the live implicit bake after the user cleared the lightmap
+   * slot — explicit actions (e.g. orient sun with camera) must still produce
+   * a lightmap. */
+  function reengageImplicitLightmap(): void {
+    shared.lightmapCleared = false;
+  }
+
   function bakeImplicitLightmap(): void {
-    if (!getAOScene() || !textures.base.image || lightmapIsActive(textures)) {
+    if (!getAOScene() || !textures.base.image || lightmapIsActive(textures) || shared.lightmapCleared) {
       shared.implicitLightmapCanvas = null;
+      renderTextureRibbon();
       return;
     }
     try {
       shared.implicitLightmapCanvas = bakeLightmapCanvas();
       render2d.render();
+      // The lightmap slot previews the implicit bake, so the ribbon needs a
+      // refresh when the canvas lands (or disappears on failure).
+      renderTextureRibbon();
     } catch (error) {
       shared.implicitLightmapCanvas = null;
       console.error('Implicit lightmap bake failed.', error);
+      renderTextureRibbon();
     }
   }
 
   function scheduleImplicitLightmapBake(): void {
     if (shared.implicitLightmapTimer) window.clearTimeout(shared.implicitLightmapTimer);
     shared.implicitLightmapTimer = 0;
-    if (lightmapIsActive(textures) || getAOScene() === null) return;
+    if (lightmapIsActive(textures) || getAOScene() === null || shared.lightmapCleared) return;
     shared.implicitLightmapTimer = window.setTimeout(() => {
       shared.implicitLightmapTimer = 0;
       bakeImplicitLightmap();
@@ -187,12 +189,15 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     shared.implicitLightmapCanvas = null;
     if (shared.implicitLightmapTimer) window.clearTimeout(shared.implicitLightmapTimer);
     shared.implicitLightmapTimer = 0;
+    // Fresh state (model close / full reset) re-engages the live preview.
+    shared.lightmapCleared = false;
   }
 
   return {
     generateAo,
     bakeLighting,
     clearLightmap,
+    reengageImplicitLightmap,
     scheduleImplicitLightmapBake,
     scheduleNormalAdjustedLighting,
     reset,

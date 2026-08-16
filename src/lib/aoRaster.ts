@@ -135,8 +135,20 @@ export function rasterizeAOBand(
   const { vertices, triangleUVs, triangleVerts, kernel, samples, epsilon, maxDistance } = input;
   const triangleCount = triangleVerts.length / 3;
   const bandHeight = yEnd - yStart;
+  // Progress counts UNIQUE rows touched in this band, not (triangle, row)
+  // visits — the raster is triangle-major, so overlapping triangles would
+  // otherwise overcount rows and push the reported percent past 100.
+  const rowTouched = new Uint8Array(bandHeight);
   const reportEvery = Math.max(1, Math.floor(bandHeight / 128));
   let rowsDone = 0;
+  let lastReported = 0;
+  const reportProgress = (): void => {
+    if (!onRowsComplete) return;
+    if (rowsDone - lastReported >= reportEvery) {
+      lastReported = rowsDone;
+      onRowsComplete(rowsDone);
+    }
+  };
 
   for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex += 1) {
     const uvOffset = triangleIndex * 6;
@@ -161,7 +173,13 @@ export function rasterizeAOBand(
     const v2 = triangleVerts[vertOffset + 2] * 6;
 
     for (let py = minY; py <= maxY; py += 1) {
-      const rowOffset = (py - yStart) * width;
+      const bandRow = py - yStart;
+      if (!rowTouched[bandRow]) {
+        rowTouched[bandRow] = 1;
+        rowsDone += 1;
+        reportProgress();
+      }
+      const rowOffset = bandRow * width;
       for (let px = minX; px <= maxX; px += 1) {
         const x = px + 0.5;
         const y = py + 0.5;
@@ -173,11 +191,9 @@ export function rasterizeAOBand(
         written[index] = 1;
         factors[index] = shadeAOTexel(vertices, v0, v1, v2, w0, w1, w2, kernel, samples, bvh, epsilon, maxDistance);
       }
-      rowsDone += 1;
-      if (onRowsComplete && rowsDone % reportEvery === 0) onRowsComplete(rowsDone);
     }
   }
-  if (onRowsComplete) onRowsComplete(rowsDone);
+  if (onRowsComplete && rowsDone > lastReported) onRowsComplete(rowsDone);
 }
 
 /**

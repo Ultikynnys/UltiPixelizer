@@ -30,7 +30,7 @@ beforeEach(() => { storage = new MemoryStorage(); });
 
 describe('custom palettes', () => {
   it('creates and round-trips complete portable palettes', () => {
-    const palette = createCustomPalette('My Colors', 'For stone', ['#000000', '#ffffff'], new Date('2026-01-02T03:04:05Z'));
+    const palette = createCustomPalette('My Colors', ['#000000', '#ffffff'], new Date('2026-01-02T03:04:05Z'));
     expect(parseCustomPalette(serializeCustomPalette(palette))).toEqual(palette);
     expect(palette.key).toBe('custom-1767323045000-my-colors');
     expect(isCustomPalette(palette)).toBe(true);
@@ -40,19 +40,19 @@ describe('custom palettes', () => {
     const duplicate = duplicatePalette(palettes.pico8, new Date('2026-01-01'));
     duplicate.colors[0] = '#123456';
     expect(palettes.pico8.colors[0]).not.toBe('#123456');
-    const updated = updateCustomPalette(duplicate, 'Edited', 'Changed', ['#111111', '#eeeeee'], new Date('2026-01-02'));
+    const updated = updateCustomPalette(duplicate, 'Edited', ['#111111', '#eeeeee'], new Date('2026-01-02'));
     expect(updated.key).toBe(duplicate.key);
     expect(updated.createdAt).toBe(duplicate.createdAt);
     expect(updated.name).toBe('Edited');
   });
 
   it('rejects invalid names, color counts, malformed JSON, and invalid exports', () => {
-    expect(() => createCustomPalette('', '', ['#000000', '#ffffff'])).toThrow('2–256');
-    expect(() => createCustomPalette('Bad', '', ['#000000'])).toThrow('2–256');
-    expect(() => createCustomPalette('Bad', '', Array(257).fill('#000000'))).toThrow('2–256');
+    expect(() => createCustomPalette('', ['#000000', '#ffffff'])).toThrow('2–256');
+    expect(() => createCustomPalette('Bad', ['#000000'])).toThrow('2–256');
+    expect(() => createCustomPalette('Bad', Array(257).fill('#000000'))).toThrow('2–256');
     expect(() => parseCustomPalette('{bad')).toThrow('not valid JSON');
     expect(() => parseCustomPalette('{}')).toThrow('invalid or unsupported');
-    expect(() => createCustomPalette('x'.repeat(61), '', ['#000000', '#ffffff'])).toThrow('2–256');
+    expect(() => createCustomPalette('x'.repeat(61), ['#000000', '#ffffff'])).toThrow('2–256');
     expect(() => serializeCustomPalette({} as never)).toThrow('invalid');
   });
 
@@ -69,7 +69,7 @@ describe('custom palettes', () => {
   });
 
   it('selects a matching preset or persists an unmatched embedded palette', () => {
-    const existing = createCustomPalette('Existing', '', ['#112233', '#445566'], new Date('2026-01-01'));
+    const existing = createCustomPalette('Existing', ['#112233', '#445566'], new Date('2026-01-01'));
     upsertCustomPalette(storage, existing);
     const catalog = { pico8: palettes.pico8, [existing.key]: existing };
     const selected = selectOrCreatePalette(storage, catalog, { ...palettes.pico8, colors: ['#112233', '#445566'] });
@@ -78,20 +78,18 @@ describe('custom palettes', () => {
     const created = selectOrCreatePalette(storage, catalog, {
       ...palettes.pico8,
       name: 'N'.repeat(80),
-      description: 'D'.repeat(200),
       colors: ['#abcdef', '#123456'],
     });
     expect(created.created).toBe(true);
     expect(created.customPalettes).toHaveLength(2);
     expect(created.customPalettes[0].key).toBe(created.key);
     expect(created.customPalettes[0].name).toHaveLength(60);
-    expect(created.customPalettes[0].description).toHaveLength(160);
   });
 
   it('persists, updates, and deletes by stable key', () => {
-    const first = createCustomPalette('One', '', ['#000000', '#ffffff']);
+    const first = createCustomPalette('One', ['#000000', '#ffffff']);
     expect(upsertCustomPalette(storage, first)).toHaveLength(1);
-    const updated = updateCustomPalette(first, 'One Updated', '', ['#111111', '#eeeeee']);
+    const updated = updateCustomPalette(first, 'One Updated', ['#111111', '#eeeeee']);
     expect(upsertCustomPalette(storage, updated)[0].name).toBe('One Updated');
     expect(deleteCustomPalette(storage, first.key)).toEqual([]);
     expect(storage.data.has(CUSTOM_PALETTE_STORAGE_KEY)).toBe(true);
@@ -109,7 +107,7 @@ describe('custom palettes', () => {
   });
 
   it('drops invalid entries and keeps valid ones', () => {
-    const valid = createCustomPalette('Valid', '', ['#000000', '#ffffff']);
+    const valid = createCustomPalette('Valid', ['#000000', '#ffffff']);
     storage.data.set(CUSTOM_PALETTE_STORAGE_KEY, JSON.stringify([{}, valid]));
     expect(loadCustomPalettes(storage)).toEqual([valid]);
   });
@@ -126,7 +124,6 @@ describe('palette import', () => {
   it('imports a plain-text Lospec .hex list, naming the palette from the file', () => {
     const palette = paletteFromImport('1a1c2c\n5d275d\nb13e53\n', 'sweetie-16.hex');
     expect(palette.name).toBe('sweetie-16');
-    expect(palette.description).toBe('Imported from hex file');
     expect(palette.colors).toEqual(['#1A1C2C', '#5D275D', '#B13E53']);
     expect(isCustomPalette(palette)).toBe(true);
   });
@@ -176,7 +173,6 @@ a18a64
 7a5d45`;
     const palette = paletteFromImport(hex, 'custom.hex');
     expect(palette.name).toBe('custom');
-    expect(palette.description).toBe('Imported from hex file');
     expect(palette.colors).toHaveLength(41);
     expect(palette.colors[0]).toBe('#1C1C1F');
     expect(palette.colors[40]).toBe('#7A5D45');
@@ -186,11 +182,11 @@ a18a64
 
   it('imports a Lospec .json payload with name and author', () => {
     expect(paletteFromImport('{"name":"Sweetie 16","author":"","colors":["1a1c2c","5d275d"]}').name).toBe('Sweetie 16');
-    expect(paletteFromImport('{"name":"Apollo","author":"AdamCYounis","colors":["172038","253a5e"]}').description).toBe('Imported palette · AdamCYounis');
+    expect(paletteFromImport('{"name":"Apollo","author":"AdamCYounis","colors":["172038","253a5e"]}').name).toBe('Apollo');
   });
 
   it('round-trips the app own .palette.json format', () => {
-    const original = createCustomPalette('My Colors', 'For stone', ['#000000', '#ffffff'], new Date('2026-01-02T03:04:05Z'));
+    const original = createCustomPalette('My Colors', ['#000000', '#ffffff'], new Date('2026-01-02T03:04:05Z'));
     expect(paletteFromImport(serializeCustomPalette(original))).toEqual(original);
   });
 

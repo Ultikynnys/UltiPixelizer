@@ -12,7 +12,7 @@ import {
  * AO bake worker: builds an occluder BVH from the transferred world positions,
  * rasterizes one row band of the UV map, and posts the band's factor + written
  * slices back with their buffers transferred (zero-copy). Progress posts keep
- * the UI toast alive during long bakes.
+ * the main thread informed as bands complete.
  *
  * The DOM lib is used project-wide, so the dedicated-worker globals are
  * reached through a narrow cast instead of the webworker lib.

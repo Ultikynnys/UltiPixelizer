@@ -37,9 +37,10 @@ describe('model file bundles', () => {
     expect(bundle.primaryUrl).toBe('blob:1');
     expect(bundle.manager.resolveURL('./buffers/model.bin')).toBe('blob:2');
     expect(bundle.manager.resolveURL('textures%2Falbedo.png')).toBe('blob:3');
-    expect(bundle.manager.resolveURL('missing.png')).toMatch(/^data:image\/png;base64,/);
-    expect(bundle.manager.resolveURL('blob:https://example.test/textures/missing.png')).toMatch(/^data:image\/png;base64,/);
-    expect(bundle.manager.resolveURL('https://127.0.0.1/private')).toBe('data:application/octet-stream;base64,');
+    expect(bundle.manager.resolveURL('missing.png')).toBe('missing.png');
+    expect(bundle.manager.resolveURL('blob:https://example.test/textures/missing.png')).toBe('blob:https://example.test/textures/missing.png');
+    expect(bundle.manager.resolveURL('https://127.0.0.1/private')).toBe('https://127.0.0.1/private');
+    expect(bundle.manager.missing).toEqual(['missing.png', 'blob:https://example.test/textures/missing.png', 'https://127.0.0.1/private']);
     expect(bundle.manager.resolveURL('data:image/png;base64,AA==')).toBe('data:image/png;base64,AA==');
     expect(bundle.manager.resolveURL(bundle.primaryUrl)).toBe(bundle.primaryUrl);
     bundle.revoke();
@@ -52,9 +53,10 @@ describe('model file bundles', () => {
     // Binary FBX Video.Content and GLB bufferView images load through blob
     // object URLs created by the loaders (blob:<origin>/<uuid>); those must
     // survive resolveURL, unlike unresolved relative references which carry a
-    // file extension and still map to the placeholder.
+    // file extension and fail loudly (recorded in `missing`).
     expect(bundle.manager.resolveURL('blob:https://example.test/3f2a4b5c-6d7e-8f90-abcd-1234567890ef')).toBe('blob:https://example.test/3f2a4b5c-6d7e-8f90-abcd-1234567890ef');
-    expect(bundle.manager.resolveURL('blob:https://example.test/textures/missing.png')).toMatch(/^data:image\/png;base64,/);
+    expect(bundle.manager.resolveURL('blob:https://example.test/textures/missing.png')).toBe('blob:https://example.test/textures/missing.png');
+    expect(bundle.manager.missing).toEqual(['blob:https://example.test/textures/missing.png']);
     bundle.revoke();
   });
 

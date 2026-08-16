@@ -1,4 +1,5 @@
 import {
+  AmbientLight,
   Box3,
   BufferAttribute,
   BufferGeometry,
@@ -12,14 +13,17 @@ import {
   NearestFilter,
   Object3D,
   PerspectiveCamera,
+  Scene,
   ShaderMaterial,
   SRGBColorSpace,
   Texture,
   Vector2,
   Vector3,
+  WebGLRenderer,
   type NormalMapTypes,
 } from 'three';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
+import { pixelsToCanvas } from './canvas';
 import { DEFAULT_SMOOTH_ANGLE } from './defaults';
 
 const uvPattern = /^uv(\d*)$/;
@@ -273,6 +277,15 @@ export function cloneModelScene(source: Object3D): Object3D {
     const material = sourceMaterial.clone();
     for (const [property, value] of Object.entries(material)) {
       if (!(value instanceof Texture)) continue;
+      if (value.image == null) {
+        // Loader placeholder — the texture never decoded (missing file or
+        // undefined filename). Cloning it would bump its version while the
+        // image stays null, so the renderer would warn
+        // "Texture marked for update but no image data found" every frame.
+        // A material slot without a map is the correct rendering for it.
+        (material as unknown as Record<string, unknown>)[property] = null;
+        continue;
+      }
       let texture = textures.get(value);
       if (!texture) {
         texture = value.clone();
@@ -437,4 +450,66 @@ export function disposeModel(object: Object3D): void {
     });
   });
   textures.forEach((texture) => texture.dispose());
+}
+
+// Lazy singleton renderer shared by every mesh-slot thumbnail — one offscreen
+// WebGL context for all small previews instead of one per model or per render.
+let thumbnailRenderer: WebGLRenderer | null = null;
+let thumbnailCamera: PerspectiveCamera | null = null;
+
+/** Renders a model into a small square canvas for the ribbon's mesh slot. The
+ * Lambert materials the pipeline converts to need a light to be visible, so the
+ * model renders under a full-white ambient — the same lighting the viewports
+ * use. The renderer's canvas is never composited (it stays offscreen), so the
+ * pixels are read straight out of the GL drawing buffer: `finish()` waits for
+ * the frame to complete, then `readPixels` copies it (rows flipped, since GL
+ * is bottom-up) into the returned canvas. */
+export function renderModelThumbnail(model: Object3D, size = 40): HTMLCanvasElement {
+  let renderer = thumbnailRenderer;
+  if (!renderer) {
+    renderer = new WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    renderer.setClearColor(0x000000, 0);
+    thumbnailRenderer = renderer;
+    thumbnailCamera = new PerspectiveCamera(45, 1, 0.01, 1000);
+  }
+  // Renderer and camera are created together, so a cached renderer implies a
+  // cached camera.
+  const camera = thumbnailCamera!;
+  camera.aspect = 1;
+  camera.updateProjectionMatrix();
+  // Fit the framing (center / near / far), then aim the camera at the classic
+  // 3/4 portrait angle — 45° above the horizon and 45° around, looking down at
+  // the model from its front-right — so the thumbnail always reads as a
+  // three-quarter view instead of a straight-on or top-down shot.
+  const center = fitCameraToObject(camera, model, 1);
+  const distance = camera.position.distanceTo(center);
+  const elevation = Math.PI / 4;
+  const azimuth = Math.PI / 4;
+  camera.position.copy(center).add(new Vector3(
+    Math.cos(elevation) * Math.sin(azimuth) * distance,
+    Math.sin(elevation) * distance,
+    Math.cos(elevation) * Math.cos(azimuth) * distance,
+  ));
+  camera.lookAt(center);
+  camera.updateProjectionMatrix();
+  const scene = new Scene();
+  scene.add(model, new AmbientLight(0xffffff, Math.PI));
+  renderer.setPixelRatio(1);
+  renderer.setSize(size, size, false);
+  renderer.render(scene, camera);
+  scene.remove(model);
+  const gl = renderer.getContext();
+  // Block until the GPU has finished drawing, then read the framebuffer
+  // directly — drawing the canvas element instead can return an untouched
+  // (white) bitmap, since the offscreen canvas is never presented.
+  gl.finish();
+  const raw = new Uint8Array(size * size * 4);
+  gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, raw);
+  const pixels = new Uint8ClampedArray(raw.buffer);
+  const flipped = new Uint8ClampedArray(size * size * 4);
+  const rowBytes = size * 4;
+  for (let y = 0; y < size; y += 1) {
+    flipped.set(pixels.subarray(y * rowBytes, (y + 1) * rowBytes), (size - 1 - y) * rowBytes);
+  }
+  return pixelsToCanvas(flipped, size, size);
 }
