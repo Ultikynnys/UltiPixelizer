@@ -131,6 +131,59 @@ describe('palette import', () => {
     expect(isCustomPalette(palette)).toBe(true);
   });
 
+  it('imports a bare 6-digit hex list with one color per line', () => {
+    // Real-world payload: 41 colors, no "#" prefix, no separators beyond newlines.
+    const hex = `1c1c1f
+232636
+4d6378
+72939e
+a2bdba
+c1d6cc
+a8b3ad
+7c8e8f
+637178
+4e5e69
+2f3c4d
+37585c
+458575
+6eb88f
+aad9a5
+dce3cc
+c3ccdb
+99a3c2
+72709e
+5c5078
+50395c
+2b2336
+6d4f73
+9c7090
+c299a4
+d6c2bf
+f0e4e1
+dba9a2
+c78189
+9e555e
+70384c
+2e1e29
+452a34
+573539
+8c6253
+b58d79
+d9c5a5
+f0ecc7
+c4bd93
+a18a64
+7a5d45`;
+    const palette = paletteFromImport(hex, 'custom.hex');
+    expect(palette.name).toBe('custom');
+    expect(palette.description).toBe('Imported from hex file');
+    expect(palette.colors).toHaveLength(41);
+    expect(palette.colors[0]).toBe('#1C1C1F');
+    expect(palette.colors[40]).toBe('#7A5D45');
+    expect(new Set(palette.colors).size).toBe(41);
+    expect(isCustomPalette(palette)).toBe(true);
+  });
+
   it('imports a Lospec .json payload with name and author', () => {
     expect(paletteFromImport('{"name":"Sweetie 16","author":"","colors":["1a1c2c","5d275d"]}').name).toBe('Sweetie 16');
     expect(paletteFromImport('{"name":"Apollo","author":"AdamCYounis","colors":["172038","253a5e"]}').description).toBe('Imported palette · AdamCYounis');
