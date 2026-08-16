@@ -83,7 +83,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'noiseScale', path: ['noiseScale'], default: 1, migrateDefault: 1, validate: inRange(1, 32) },
   { key: 'seed', path: ['seed'], default: 1, migrateDefault: 1, validate: inRange(0, 9999) },
   { key: 'aoBias', path: ['aoBias'], default: 0, migrateDefault: 0, validate: inRange(-1, 1) },
-  { key: 'aoScale', path: ['aoScale'], default: 1, migrateDefault: 1, validate: inRange(0, 2) },
+  { key: 'aoScale', path: ['aoScale'], default: 0.2, migrateDefault: 0.2, validate: inRange(0, 2) },
   { key: 'aoDistance', path: ['aoDistance'], default: 2, migrateDefault: 2, validate: inRange(0.05, 3) },
   { key: 'sunColor', path: ['sun', 'color'], default: '#ffffff', migrateDefault: '#ffffff', validate: isHex },
   { key: 'sunIntensity', path: ['sun', 'intensity'], default: DEFAULT_SUN_INTENSITY, migrateDefault: DEFAULT_SUN_INTENSITY, validate: inRange(0, 1) },
@@ -168,7 +168,7 @@ function migratePreset(value: unknown): unknown {
   let preset = value as Record<string, unknown>;
   if (preset.version === 1) {
     const { aoIntensity, ...rest } = preset;
-    preset = { ...rest, version: 2, aoBias: 0, aoScale: typeof aoIntensity === 'number' ? aoIntensity : 1 };
+    preset = { ...rest, version: 2, aoBias: 0, aoScale: typeof aoIntensity === 'number' ? aoIntensity : 0.2 };
   }
   if (preset.version === 2) preset = { ...preset, version: 3 };
   if (preset.version === 3) preset = { ...preset, version: 4 };

@@ -184,7 +184,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       noiseScale: 1,
       seed: 1,
       aoBias: 0,
-      aoScale: 1,
+      aoScale: 0.2,
       aoDistance: 2,
       sunColor: '#ffffff',
       sunIntensity: 1,
