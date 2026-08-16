@@ -1,7 +1,7 @@
-export type ModelFormat = 'fbx' | 'obj' | 'gltf' | 'glb';
+export type ModelFormat = 'fbx' | 'obj' | 'gltf' | 'glb' | 'usdz';
 export type WorldAxis = 'blender' | 'maya';
 
-const modelExtensions = new Set<ModelFormat>(['fbx', 'obj', 'gltf', 'glb']);
+const modelExtensions = new Set<ModelFormat>(['fbx', 'obj', 'gltf', 'glb', 'usdz']);
 const imageResourcePattern = /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
 const missingImageUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 const missingResourceUrl = 'data:application/octet-stream;base64,';
@@ -25,7 +25,7 @@ export function modelFormat(name: string): ModelFormat | null {
 
 export function findPrimaryModel(files: Iterable<Pick<File, 'name'>>): Pick<File, 'name'> {
   const models = Array.from(files).filter((file) => modelFormat(file.name));
-  if (models.length === 0) throw new Error('Choose an FBX, OBJ, glTF, or GLB model.');
+  if (models.length === 0) throw new Error('Choose an FBX, OBJ, glTF, GLB, or USDZ model.');
   if (models.length > 1) throw new Error('Choose one primary model at a time.');
   return models[0];
 }

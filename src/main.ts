@@ -179,7 +179,7 @@ app.innerHTML = `
             <button class="texture-slot-clear" data-clear-model type="button" aria-label="Clear model">×</button>
           </div>
           <input id="textureInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
-          <input id="modelInput" type="file" multiple accept=".fbx,.obj,.mtl,.gltf,.glb,.bin,image/*" hidden />
+          <input id="modelInput" type="file" multiple accept=".fbx,.obj,.mtl,.gltf,.glb,.bin,.usdz,image/*" hidden />
         </div>
 
         <div class="canvas-stage" id="dropZone">
@@ -218,7 +218,7 @@ app.innerHTML = `
 
       <aside class="control-column">
         <section class="panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">COLOR SYSTEM / 02</p><h2>Palette library</h2></div><span class="catalog-count" id="paletteCount">${Object.keys(palettes).length} PRESETS</span></div>
+          <div class="panel-heading compact"><div><p class="eyebrow">COLOR SYSTEM</p><h2>Palette library</h2></div><span class="catalog-count" id="paletteCount">${Object.keys(palettes).length} PRESETS</span></div>
           <div class="palette-filters" id="paletteFilters" role="group" aria-label="Filter palette library">
             <button class="active" type="button" data-filter="all">All</button>
             <button type="button" data-filter="compact">Compact</button>
@@ -247,7 +247,7 @@ app.innerHTML = `
         </section>
 
         <section class="panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">DITHER MATRIX / 03</p><h2>Pattern</h2></div></div>
+          <div class="panel-heading compact"><div><p class="eyebrow">DITHER MATRIX</p><h2>Pattern</h2></div></div>
           <div class="mode-grid" role="group" aria-label="Dithering algorithm">
             <button class="mode-button active" data-mode="floyd" type="button"><span class="pattern pattern-noise"></span><strong>Floyd–Steinberg</strong><small>Organic grain</small></button>
             <button class="mode-button" data-mode="atkinson" type="button"><span class="pattern pattern-atkinson"></span><strong>Atkinson</strong><small>Crisp contrast</small></button>
@@ -274,7 +274,7 @@ app.innerHTML = `
 
         <section class="panel adjustments">
           <div class="panel-heading compact">
-            <div><p class="eyebrow">RESOLUTION + TONE / 01</p><h2>Adjustments</h2></div>
+            <div><p class="eyebrow">RESOLUTION + TONE</p><h2>Adjustments</h2></div>
             <output class="value-pill" id="resolutionValue">128 px</output>
           </div>
           <div class="resolution-block">
@@ -293,7 +293,7 @@ app.innerHTML = `
         </section>
 
         <section class="panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING / 04</p><h2>Ambient occlusion</h2></div></div>
+          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING</p><h2>Ambient occlusion</h2></div></div>
           <label class="control-row"><span><strong>Bias</strong><small>Shift occlusion baseline</small></span><output id="aoBiasValue">+0.00</output></label>
           <input class="range" id="aoBias" type="range" min="-1" max="1" step="0.01" value="0" aria-label="Ambient occlusion bias" />
           <label class="control-row"><span><strong>Scale</strong><small>Occlusion strength</small></span><output id="aoScaleValue">1.00×</output></label>
@@ -304,7 +304,7 @@ app.innerHTML = `
         </section>
 
         <section class="panel normals-panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">SURFACE NORMALS / 05</p><h2>Normals</h2></div></div>
+          <div class="panel-heading compact"><div><p class="eyebrow">SURFACE NORMALS</p><h2>Normals</h2></div></div>
           ${rangeControl('smoothAngle', 'Smooth angle', 0, 180, 1, DEFAULT_SMOOTH_ANGLE, `${DEFAULT_SMOOTH_ANGLE}°`)}
           ${rangeControl('tessellation', 'Tessellation', 1, 4, 1, DEFAULT_TESSELLATION, 'Off')}
           ${rangeControl('normalStrength', 'Normal strength', 0, 100, 1, 100, '100%')}
@@ -317,7 +317,7 @@ app.innerHTML = `
         </section>
 
         <section class="panel lightmap-panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTMAP BAKE / 06</p><h2>Baked lighting</h2></div></div>
+          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTMAP BAKE</p><h2>Baked lighting</h2></div></div>
           <div class="lightmap-status" id="lightmapStatus">No lightmap loaded</div>
           <button class="button button-secondary button-full" id="bakeLightmapButton" type="button">Generate Lighting</button>
         </section>

@@ -30,6 +30,7 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { USDLoader } from 'three/addons/loaders/USDLoader.js';
 import { createCanvas } from './canvas';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
@@ -88,6 +89,12 @@ export async function loadModel(
     const result = await new GLTFLoader(manager).loadAsync(bundle.primaryUrl);
     scene = result.scene;
     animations = result.animations;
+  } else if (bundle.format === 'usdz') {
+    // USDLoader parses the USDZ archive in-process (embedded textures included)
+    // and converts Z-up to Y-up itself, so like glTF no world-axis rotation applies.
+    const loaded = await new USDLoader(manager).loadAsync(bundle.primaryUrl);
+    scene = loaded;
+    animations = loaded.animations ?? [];
   } else if (bundle.format === 'fbx') {
     const loaded = await new FBXLoader(manager).loadAsync(bundle.primaryUrl);
     orientToWorldAxis(loaded, worldAxis);

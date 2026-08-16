@@ -16,7 +16,7 @@ beforeEach(() => {
 describe('model file bundles', () => {
   it('detects supported extensions case-insensitively', () => {
     expect(fileExtension('thing.MODEL.GLB')).toBe('glb');
-    expect(['fbx', 'obj', 'gltf', 'glb'].map((extension) => modelFormat(`mesh.${extension}`))).toEqual(['fbx', 'obj', 'gltf', 'glb']);
+    expect(['fbx', 'obj', 'gltf', 'glb', 'usdz'].map((extension) => modelFormat(`mesh.${extension}`))).toEqual(['fbx', 'obj', 'gltf', 'glb', 'usdz']);
     expect(modelFormat('mesh.stl')).toBeNull();
   });
 

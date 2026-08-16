@@ -194,7 +194,7 @@ function shadeAOTexel(
   w0: number,
   w1: number,
   w2: number,
-  kernel: Float32Array,
+  kernel: Float64Array,
   samples: number,
   bvh: MeshBVH,
   epsilon: number,

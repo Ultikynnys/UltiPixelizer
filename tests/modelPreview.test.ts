@@ -107,6 +107,22 @@ vi.mock('three/addons/loaders/FBXLoader.js', async () => {
   };
 });
 
+vi.mock('three/addons/loaders/USDLoader.js', async () => {
+  const { Object3D } = await import('three');
+  return {
+    USDLoader: class {
+      constructor(public manager: { resolveURL?: (url: string) => string }) {}
+      loadAsync = vi.fn(async () => {
+        this.manager?.resolveURL?.('relative.bin');
+        if (mocks.failWith) throw new Error(mocks.failWith);
+        const object = mocks.scene ?? new Object3D();
+        (object as unknown as { animations?: unknown }).animations = mocks.animations ?? [];
+        return object;
+      });
+    },
+  };
+});
+
 vi.mock('three/addons/loaders/OBJLoader.js', async () => {
   const { Object3D } = await import('three');
   return {
@@ -200,6 +216,15 @@ describe('loadModel', () => {
     expect(blender.scene.rotation.x).toBe(-Math.PI / 2);
     const maya = await loadModel(bundle('fbx'), [], 'maya');
     expect(maya.scene.rotation.x).toBe(0);
+  });
+
+  it('loads USDZ without rotation and passes animations through', async () => {
+    mocks.scene = meshScene();
+    mocks.animations = [new AnimationClip('idle', 1, [])];
+    const result = await loadModel(bundle('usdz'), [], 'maya');
+    expect(result.scene.children).toHaveLength(1);
+    expect(result.scene.rotation.x).toBe(0);
+    expect(result.animations).toHaveLength(1);
   });
 
   it('loads OBJ with an MTL companion, resolving and revoking its blob URL', async () => {
