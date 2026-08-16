@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   scene: null as Object3D | null,
   animations: [] as AnimationClip[],
   failWith: null as string | null,
+  deferTextureItem: false,
+  releaseTextureItem: null as (() => void) | null,
   rendererCalls: [] as string[],
   mixers: [] as Array<{ actions: Array<{ play: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }>; update: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }>,
   controls: [] as Array<{
@@ -99,6 +101,11 @@ vi.mock('three/addons/loaders/FBXLoader.js', async () => {
       loadAsync = vi.fn(async () => {
         this.manager?.resolveURL?.('relative.bin');
         if (mocks.failWith) throw new Error(mocks.failWith);
+        if (mocks.deferTextureItem) {
+          const manager = this.manager as { itemStart?: (url: string) => void; itemEnd?: (url: string) => void };
+          manager.itemStart?.('embedded.png');
+          mocks.releaseTextureItem = () => manager.itemEnd?.('embedded.png');
+        }
         const object = mocks.scene ?? new Object3D();
         (object as unknown as { animations?: unknown }).animations = mocks.animations ?? [];
         return object;
@@ -169,6 +176,8 @@ beforeEach(() => {
   mocks.scene = null;
   mocks.animations = [];
   mocks.failWith = null;
+  mocks.deferTextureItem = false;
+  mocks.releaseTextureItem = null;
   mocks.rendererCalls.length = 0;
   mocks.mixers.length = 0;
   mocks.controls.length = 0;
@@ -216,6 +225,23 @@ describe('loadModel', () => {
     expect(blender.scene.rotation.x).toBe(-Math.PI / 2);
     const maya = await loadModel(bundle('fbx'), [], 'maya');
     expect(maya.scene.rotation.x).toBe(0);
+  });
+
+  it('waits for FBX texture loads to finish before resolving', async () => {
+    mocks.scene = meshScene();
+    mocks.deferTextureItem = true;
+    let resolved = false;
+    const pending = loadModel(bundle('fbx'), [], 'maya').then(() => {
+      resolved = true;
+    });
+    // The FBX mock starts a manager item for an embedded texture; loadModel
+    // must stay pending until that item ends, so texture extraction sees a
+    // decoded image rather than a placeholder.
+    await flushRaf();
+    expect(resolved).toBe(false);
+    mocks.releaseTextureItem?.();
+    await pending;
+    expect(resolved).toBe(true);
   });
 
   it('loads USDZ without rotation and passes animations through', async () => {

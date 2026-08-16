@@ -96,8 +96,23 @@ export async function loadModel(
     scene = loaded;
     animations = loaded.animations ?? [];
   } else if (bundle.format === 'fbx') {
+    // FBXLoader parses synchronously and starts texture loads (embedded or
+    // companion files) asynchronously through the shared LoadingManager, so
+    // loadAsync resolves before the texture images decode. Wait until the
+    // manager reports all items complete (textures included) so callers like
+    // collectModelTextures see decoded images, not placeholders.
+    let textureLoadsStarted = false;
+    let resolveIdle: () => void = () => {};
+    const idle = new Promise<void>((resolve) => {
+      resolveIdle = resolve;
+    });
+    manager.onStart = () => {
+      textureLoadsStarted = true;
+    };
+    manager.onLoad = () => resolveIdle();
     const loaded = await new FBXLoader(manager).loadAsync(bundle.primaryUrl);
     orientToWorldAxis(loaded, worldAxis);
+    if (textureLoadsStarted) await idle;
     scene = loaded;
     animations = loaded.animations;
   } else {

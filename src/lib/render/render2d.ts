@@ -57,11 +57,10 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
   function render(): void {
     const { width, height } = dimensions();
     // Inspection modes swap the base color for the raw AO or lightmap in both
-    // previews so the map can be inspected (and dithered) on its own. The two
-    // toggles are mutually exclusive in the UI; AO takes precedence if both
-    // somehow end up set.
-    const aoOnlySource = state.showAOOnly ? textures.ao.image : null;
-    const lightmapOnlySource = state.showLightmapOnly ? (textures.lightmap.image ?? shared.implicitLightmapCanvas) : null;
+    // previews so the map can be inspected (and dithered) on its own. viewMode
+    // is a single mutually-exclusive enum ('flat' | 'normals' | 'ao' | 'lightmap').
+    const aoOnlySource = state.viewMode === 'ao' ? textures.ao.image : null;
+    const lightmapOnlySource = state.viewMode === 'lightmap' ? (textures.lightmap.image ?? shared.implicitLightmapCanvas) : null;
     const onlySource = aoOnlySource ?? lightmapOnlySource;
     const source = onlySource ?? textures.base.image!;
     const { canvas: nextCanvas, context: renderContext } = drawImageToCanvas(source, width, height);

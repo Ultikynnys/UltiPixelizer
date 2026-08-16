@@ -14,7 +14,7 @@ import { lightmapMatchesBaseColor } from './lib/lightmap';
 import type { NormalFormat } from './lib/normal';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY, DEFAULT_TESSELLATION } from './lib/defaults';
 import { createRenderer } from './lib/render';
-import { lightmapIsActive, type LightState, type PreviewMode, type SourceImage, type State, type TextureChannelId, type TextureSlot } from './lib/state';
+import { lightmapIsActive, type LightState, type PreviewMode, type PreviewViewMode, type SourceImage, type State, type TextureChannelId, type TextureSlot } from './lib/state';
 import { errorMessage, safeFileName } from './lib/strings';
 import { DEFAULT_CAMERA_DIRECTION, DEFAULT_SUN_DIRECTION, type DirectionVector } from './lib/sunDirection';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
@@ -87,9 +87,7 @@ function defaultState(): State {
   state.cameraDirection = { ...DEFAULT_CAMERA_DIRECTION };
   state.showUVOverlap = false;
   state.showUVWireframe = true;
-  state.showNormals = false;
-  state.showAOOnly = false;
-  state.showLightmapOnly = false;
+  state.viewMode = 'flat';
   applyConfigValues(state, defaults);
   return state;
 }
@@ -140,18 +138,6 @@ app.innerHTML = `
               <span>Source normals</span>
               ${toggleControl('useSourceNormals', 'Use source normals')}
             </label>
-            <label class="uv-overlap-control" id="normalsViewControl" hidden title="Render the model with normals as color to inspect normal direction">
-              <span>Normals</span>
-              ${toggleControl('showNormals', 'Show normals as color')}
-            </label>
-            <label class="uv-overlap-control" id="aoOnlyControl" title="Show just the AO map in both previews">
-              <span>AO only</span>
-              ${toggleControl('showAOOnly', 'Visualize just the AO map', false, 'label', 'Visualize just the AO map in the Original and Dithered previews')}
-            </label>
-            <label class="uv-overlap-control" id="lightmapOnlyControl" title="Show just the lightmap in both previews">
-              <span>Lightmap only</span>
-              ${toggleControl('showLightmapOnly', 'Visualize just the lightmap', false, 'label', 'Visualize just the lightmap in the Original and Dithered previews')}
-            </label>
 
           </div>
         </div>
@@ -194,6 +180,12 @@ app.innerHTML = `
                   <span>UV islands</span>
                   ${toggleControl('uvWireframe', 'Show UV island wireframes', true)}
                 </label>
+                <div class="preview-view-toggle" id="previewViewToggle" hidden role="group" aria-label="View mode">
+                  <button type="button" data-view="flat" class="active">Flat</button>
+                  <button type="button" data-view="normals">Normals</button>
+                  <button type="button" data-view="ao">AO</button>
+                  <button type="button" data-view="lightmap">Lightmap</button>
+                </div>
               </div>
             </figure>
             <figure class="preview-pane processed-pane">
@@ -350,8 +342,7 @@ const uvWireframeControl = document.querySelector<HTMLLabelElement>('#uvWirefram
 const uvWireframeInput = document.querySelector<HTMLInputElement>('#uvWireframe')!;
 const normalsControl = document.querySelector<HTMLLabelElement>('#normalsControl')!;
 const useSourceNormalsInput = document.querySelector<HTMLInputElement>('#useSourceNormals')!;
-const normalsViewControl = document.querySelector<HTMLLabelElement>('#normalsViewControl')!;
-const showNormalsInput = document.querySelector<HTMLInputElement>('#showNormals')!;
+const previewViewToggle = document.querySelector<HTMLDivElement>('#previewViewToggle')!;
 type SunElements = {
   control: HTMLDivElement;
   orientWithCamera: HTMLButtonElement;
@@ -375,10 +366,6 @@ const sunControlElements: SunElements = {
 };
 const sunDirectionValue = document.querySelector<HTMLOutputElement>('#sunDirectionValue')!;
 const cameraDirectionValue = document.querySelector<HTMLOutputElement>('#cameraDirectionValue')!;
-const aoOnlyControl = document.querySelector<HTMLLabelElement>('#aoOnlyControl')!;
-const lightmapOnlyControl = document.querySelector<HTMLLabelElement>('#lightmapOnlyControl')!;
-const aoOnlyInput = document.querySelector<HTMLInputElement>('#showAOOnly')!;
-const lightmapOnlyInput = document.querySelector<HTMLInputElement>('#showLightmapOnly')!;
 const stripeAngleControl = document.querySelector<HTMLDivElement>('#stripeAngleControl')!;
 const stripeAngleInput = document.querySelector<HTMLInputElement>('#stripeAngle')!;
 const stripeAngleValue = document.querySelector<HTMLOutputElement>('#stripeAngleValue')!;
@@ -516,22 +503,23 @@ function renderLightmapControls(): void {
     ? `${textures.lightmap.name} · ${lightmap.width} × ${lightmap.height}`
     : 'No lightmap loaded';
   bakeLightmapButton.disabled = aoBakeScene === null;
-  renderOnlyToggles();
+  renderViewToggle();
 }
 
-// AO-only / lightmap-only inspection toggles: always visible in the preview
-// toolbar, but only actionable while the inspected texture slot holds an image.
-function renderOnlyToggles(): void {
+// Combined preview view enum (Flat / Normals / AO / Lightmap): one segmented
+// control on the preview canvas, visible in both 2D and 3D views. AO and
+// Lightmap are only actionable while their texture slot holds an image.
+function renderViewToggle(): void {
   const aoDefined = textures.ao.image !== null;
   const lightmapDefined = lightmapIsActive(textures);
-  if (!aoDefined && state.showAOOnly) state.showAOOnly = false;
-  if (!lightmapDefined && state.showLightmapOnly) state.showLightmapOnly = false;
-  aoOnlyInput.checked = state.showAOOnly;
-  lightmapOnlyInput.checked = state.showLightmapOnly;
-  aoOnlyControl.classList.toggle('is-disabled', !aoDefined);
-  lightmapOnlyControl.classList.toggle('is-disabled', !lightmapDefined);
-  aoOnlyInput.disabled = !aoDefined;
-  lightmapOnlyInput.disabled = !lightmapDefined;
+  if (!aoDefined && state.viewMode === 'ao') state.viewMode = 'flat';
+  if (!lightmapDefined && state.viewMode === 'lightmap') state.viewMode = 'flat';
+  previewViewToggle.hidden = modelBundle === null;
+  syncActiveButton(previewViewToggle, '[data-view]', (button) => button.dataset.view === state.viewMode);
+  for (const button of previewViewToggle.querySelectorAll<HTMLButtonElement>('[data-view]')) {
+    const view = button.dataset.view as PreviewViewMode;
+    button.disabled = (view === 'ao' && !aoDefined) || (view === 'lightmap' && !lightmapDefined);
+  }
 }
 
 function renderNormalControls(): void {
@@ -608,9 +596,6 @@ function renderNormalsControl(): void {
   syncCheckboxControl(normalsControl, useSourceNormalsInput, modelBundle !== null, state.useSourceNormals);
 }
 
-function renderNormalsViewControl(): void {
-  syncCheckboxControl(normalsViewControl, showNormalsInput, modelBundle !== null, state.showNormals);
-}
 
 // Shared sync for every model-dependent control. The model load/close and reset
 // paths re-render the same cluster, so the group lives here once.
@@ -623,7 +608,7 @@ function renderModelControls(): void {
   renderOrientationReadout();
   renderWorldAxisControl();
   renderNormalsControl();
-  renderNormalsViewControl();
+  renderViewToggle();
 }
 
 function formatDirection(vector: DirectionVector): string {
@@ -713,7 +698,7 @@ function renderTextureRibbon(): void {
     modelSlot.classList.toggle('filled', !!modelBundle);
     if (label) label.textContent = modelBundle ? modelBundle.primary.name : '+Model';
   }
-  renderOnlyToggles();
+  renderViewToggle();
 }
 
 function applyModelUV(channel: string): void {
@@ -808,7 +793,7 @@ function closeModelPreview(): void {
   resetPreview();
   textures.lightmap.image = null;
   textures.lightmap.name = '';
-  state.showLightmapOnly = false;
+  state.viewMode = 'flat';
   renderLightmapControls();
   originalPreviewMode = '2d';
   processedPreviewMode = '2d';
@@ -842,7 +827,7 @@ async function setModel(files: File[]): Promise<void> {
     }
     forEachViewport((viewport) => {
       viewport.applyLOD(state.lodLevel);
-      viewport.setNormalsView(state.showNormals);
+      viewport.setNormalsView(state.viewMode === 'normals');
     });
     disposeModel(loaded.scene);
     originalPreviewMode = '3d';
@@ -1299,7 +1284,7 @@ function clearTexture(channel: TextureChannelId): void {
   } else {
     textures[channel].image = null;
     textures[channel].name = '';
-    if (channel === 'ao') state.showAOOnly = false;
+    if (channel === 'ao' && state.viewMode === 'ao') state.viewMode = 'flat';
     if (channel === 'normal') {
       renderNormalControls();
       scheduleNormalAdjustedLighting();
@@ -1371,7 +1356,7 @@ function reset(): void {
   applySun();
   refreshUVOverlap();
   renderModelControls();
-  forEachViewport((viewport) => viewport.setNormalsView(state.showNormals));
+  forEachViewport((viewport) => viewport.setNormalsView(state.viewMode === 'normals'));
   updateResolution(128, true);
   showToast('Settings reset');
 }
@@ -1751,7 +1736,7 @@ useSourceNormalsInput.addEventListener('change', async () => {
       if (!viewport) return;
       viewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
       viewport.applyLOD(state.lodLevel);
-      viewport.setNormalsView(state.showNormals);
+      viewport.setNormalsView(state.viewMode === 'normals');
       const captured = cameraStates[index];
       if (captured) viewport.restoreCamera(captured);
     });
@@ -1767,11 +1752,6 @@ useSourceNormalsInput.addEventListener('change', async () => {
     renderNormalsControl();
     toastError(error, 'Could not reload model.');
   }
-});
-showNormalsInput.addEventListener('change', () => {
-  state.showNormals = showNormalsInput.checked;
-  renderNormalsViewControl();
-  forEachViewport((viewport) => viewport.setNormalsView(state.showNormals));
 });
 smoothAngleInput.addEventListener('input', () => {
   const angle = Number(smoothAngleInput.value);
@@ -1810,16 +1790,17 @@ function bindSunControl(): void {
 
 bindSunControl();
 
-// AO-only and lightmap-only inspection modes are mutually exclusive — enabling
-// one clears the other so the previews never show a mixed source.
-aoOnlyInput.addEventListener('change', () => {
-  state.showAOOnly = aoOnlyInput.checked;
-  if (state.showAOOnly) state.showLightmapOnly = false;
-  render();
-});
-lightmapOnlyInput.addEventListener('change', () => {
-  state.showLightmapOnly = lightmapOnlyInput.checked;
-  if (state.showLightmapOnly) state.showAOOnly = false;
+// Preview view enum (Flat / Normals / AO / Lightmap) — single segmented control
+// on the preview canvas. Normals drives the 3D viewport; AO/Lightmap swap the
+// source in both previews.
+previewViewToggle.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-view]');
+  if (!button?.dataset.view) return;
+  const view = button.dataset.view as PreviewViewMode;
+  if (state.viewMode === view) return;
+  state.viewMode = view;
+  renderViewToggle();
+  forEachViewport((viewport) => viewport.setNormalsView(view === 'normals'));
   render();
 });
 const dropZone = document.querySelector<HTMLDivElement>('#dropZone')!;

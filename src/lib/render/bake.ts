@@ -146,7 +146,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   function clearLightmap(): void {
     textures.lightmap.image = null;
     textures.lightmap.name = '';
-    state.showLightmapOnly = false;
+    if (state.viewMode === 'lightmap') state.viewMode = 'flat';
     renderLightmapControls();
     renderNormalControls();
     renderTextureRibbon();

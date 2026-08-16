@@ -69,6 +69,15 @@ export function createModelFileBundle(filesInput: FileList | File[]): ModelFileB
     manager: {
       resolveURL(url: string): string {
         if (/^data:/i.test(url) || createdUrls.has(url)) return url;
+        // Loader-created object URLs for embedded texture data (binary FBX
+        // Video.Content, GLB bufferView images) are blob:<origin>/<uuid> with
+        // no file extension — pass them through untouched. Blob URLs carrying
+        // a path with an extension are unresolved relative references to
+        // companion files and fall through to the lookup/placeholder logic.
+        if (/^blob:/i.test(url)) {
+          const basename = url.split(/[?#]/)[0].split('/').pop()!;
+          if (!/\.[^./]+$/.test(basename)) return url;
+        }
         const decoded = safelyDecodeURIComponent(url).replace(/\\/g, '/');
         const basename = decoded.split('/').pop()!;
         const uploadedResource = urls.get(decoded.toLowerCase()) ?? urls.get(basename.toLowerCase());

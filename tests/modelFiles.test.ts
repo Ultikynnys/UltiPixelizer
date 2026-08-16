@@ -47,6 +47,17 @@ describe('model file bundles', () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(3);
   });
 
+  it('passes loader-created blob URLs for embedded textures through untouched', () => {
+    const bundle = createModelFileBundle([file('model.fbx')]);
+    // Binary FBX Video.Content and GLB bufferView images load through blob
+    // object URLs created by the loaders (blob:<origin>/<uuid>); those must
+    // survive resolveURL, unlike unresolved relative references which carry a
+    // file extension and still map to the placeholder.
+    expect(bundle.manager.resolveURL('blob:https://example.test/3f2a4b5c-6d7e-8f90-abcd-1234567890ef')).toBe('blob:https://example.test/3f2a4b5c-6d7e-8f90-abcd-1234567890ef');
+    expect(bundle.manager.resolveURL('blob:https://example.test/textures/missing.png')).toMatch(/^data:image\/png;base64,/);
+    bundle.revoke();
+  });
+
   it('handles literal percent characters in uploaded and referenced file names', () => {
     const bundle = createModelFileBundle([file('model.fbx'), file('Book 100%.png')]);
     expect(bundle.manager.resolveURL('textures/Book 100%.png')).toBe('blob:2');

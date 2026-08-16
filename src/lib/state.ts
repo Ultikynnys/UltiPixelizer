@@ -10,6 +10,8 @@ export type TextureChannelId = 'base' | 'ao' | 'normal' | 'lightmap';
 
 export type PreviewMode = '2d' | '3d';
 
+export type PreviewViewMode = 'flat' | 'normals' | 'ao' | 'lightmap';
+
 export type TextureSlot = { image: SourceImage | null; name: string };
 
 export type LightState = { color: string; intensity: number };
@@ -45,9 +47,7 @@ export type State = {
   normalFormat: NormalFormat;
   showUVOverlap: boolean;
   showUVWireframe: boolean;
-  showNormals: boolean;
-  showAOOnly: boolean;
-  showLightmapOnly: boolean;
+  viewMode: PreviewViewMode;
 };
 
 /** True when a lightmap is loaded (the lightmap slot holds an image). Shared by

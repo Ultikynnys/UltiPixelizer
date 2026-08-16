@@ -75,7 +75,7 @@ describe('createRender2D render pipeline', () => {
   it('shows the raw lightmap in both panes when lightmap-only mode is on', () => {
     const lightmap = solidTexture([200, 200, 200, 255]);
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: lightmap, name: '' } } });
-    deps.state.showLightmapOnly = true;
+    deps.state.viewMode = 'lightmap';
     const shared = sharedState();
     createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
 
@@ -88,7 +88,7 @@ describe('createRender2D render pipeline', () => {
   it('shows the raw AO map in both panes when AO-only mode is on', () => {
     const ao = solidTexture([200, 200, 200, 255]);
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
-    deps.state.showAOOnly = true;
+    deps.state.viewMode = 'ao';
     const shared = sharedState();
     createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
 
