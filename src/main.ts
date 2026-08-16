@@ -111,9 +111,9 @@ app.innerHTML = `
         </a>
       </div>
       <div class="topbar-actions">
-        <button class="button button-secondary" id="saveButton" type="button">Save</button>
-        <button class="button button-secondary" id="loadButton" type="button">Load</button>
-        <button class="button button-secondary" id="resetButton" type="button">Reset settings</button>
+        <button class="button" id="saveButton" type="button">Save</button>
+        <button class="button" id="loadButton" type="button">Load</button>
+        <button class="button" id="resetButton" type="button">Reset settings</button>
         <input id="loadConfigInput" type="file" accept=".json,application/json" hidden />
       </div>
     </header>
@@ -125,6 +125,24 @@ app.innerHTML = `
             <p class="eyebrow">TEXTURE PREVIEW</p>
             <h1 id="fileName">${textures.base.name}</h1>
           </div>
+          <div class="texture-ribbon" id="textureRibbon" aria-label="Texture sources">
+            ${TEXTURE_CHANNELS.map((channel) => `
+              <div class="texture-slot" data-texture="${channel.id}" tabindex="0" aria-label="${channel.label} texture slot">
+                <span class="texture-slot-preview"><span class="texture-slot-empty-mark">+</span></span>
+                <span class="texture-slot-label">+${channel.label}</span>
+                <button class="icon-button texture-slot-download" data-download-texture="${channel.id}" type="button" aria-label="Download ${channel.label}" title="Download ${channel.label}">${DOWNLOAD_ICON_SVG}</button>
+                <button class="icon-button texture-slot-clear" data-clear-texture="${channel.id}" type="button" aria-label="Clear ${channel.label}">×</button>
+                ${channel.bake ? `<button class="icon-button texture-slot-bake" data-bake-texture="${channel.id}" type="button" aria-label="Bake ${channel.label}">Bake</button>` : ''}
+              </div>
+            `).join('')}
+            <div class="texture-slot texture-slot-model" data-model-slot tabindex="0" aria-label="Model bundle slot">
+              <span class="texture-slot-preview"><span class="texture-slot-empty-mark">+</span></span>
+              <span class="texture-slot-label">+Model</span>
+              <button class="icon-button texture-slot-clear" data-clear-model type="button" aria-label="Clear model">×</button>
+            </div>
+            <input id="textureInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
+            <input id="modelInput" type="file" multiple accept=".fbx,.obj,.mtl,.gltf,.glb,.bin,.usdz,image/*" hidden />
+          </div>
           <div class="toolbar-actions">
             <label class="uv-control" id="uvControl" hidden><span>UV map</span><select class="select" id="uvMap" aria-label="Model UV map"></select></label>
             <label class="uv-control" id="lodControl" hidden><span>LOD</span><select class="select" id="lodMap" aria-label="Model LOD level"></select></label>
@@ -133,25 +151,6 @@ app.innerHTML = `
               <option value="maya">Maya · Y-up</option>
             </select></label>
           </div>
-        </div>
-
-        <div class="texture-ribbon" id="textureRibbon" aria-label="Texture sources">
-          ${TEXTURE_CHANNELS.map((channel) => `
-            <div class="texture-slot" data-texture="${channel.id}" tabindex="0" aria-label="${channel.label} texture slot">
-              <span class="texture-slot-preview"><span class="texture-slot-empty-mark">+</span></span>
-              <span class="texture-slot-label">+${channel.label}</span>
-              <button class="icon-button texture-slot-download" data-download-texture="${channel.id}" type="button" aria-label="Download ${channel.label}" title="Download ${channel.label}">${DOWNLOAD_ICON_SVG}</button>
-              <button class="icon-button texture-slot-clear" data-clear-texture="${channel.id}" type="button" aria-label="Clear ${channel.label}">×</button>
-              ${channel.bake ? `<button class="icon-button texture-slot-bake" data-bake-texture="${channel.id}" type="button" aria-label="Bake ${channel.label}">Bake</button>` : ''}
-            </div>
-          `).join('')}
-          <div class="texture-slot texture-slot-model" data-model-slot tabindex="0" aria-label="Model bundle slot">
-            <span class="texture-slot-preview"><span class="texture-slot-empty-mark">+</span></span>
-            <span class="texture-slot-label">+Model</span>
-            <button class="icon-button texture-slot-clear" data-clear-model type="button" aria-label="Clear model">×</button>
-          </div>
-          <input id="textureInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
-          <input id="modelInput" type="file" multiple accept=".fbx,.obj,.mtl,.gltf,.glb,.bin,.usdz,image/*" hidden />
         </div>
 
         <div class="canvas-stage" id="dropZone">
@@ -203,7 +202,7 @@ app.innerHTML = `
         </div>
 
         <footer class="preview-footer">
-          <button class="button button-primary" id="exportButton" type="button">Export PNG <span>↓</span></button>
+          <button class="button" id="exportButton" type="button">Export PNG <span>↓</span></button>
         </footer>
       </section>
 

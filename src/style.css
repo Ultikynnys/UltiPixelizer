@@ -74,16 +74,12 @@ button { color: inherit; }
 .circle-kofi { color: var(--accent); }
 .circle-kofi:hover, .circle-kofi:focus-visible { color: var(--accent-hover); }
 .circle-kofi:active { color: var(--paper); }
-.button-primary { background: var(--accent); color: var(--on-accent); }
-.button-primary:hover { background: var(--accent-hover); }
-.button-secondary { background: var(--raised); border: 1px solid var(--line-bright); color: var(--paper); }
-.button-secondary:hover { background: var(--line); }
 .button:disabled { cursor: not-allowed; opacity: .35; }
 .icon-button { align-items: center; background: var(--chip); color: var(--paper-soft); cursor: pointer; display: flex; justify-content: center; padding: 0; }
 .icon-button:hover, .icon-button:focus-visible { background: var(--accent); color: var(--on-accent); }
 
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 410px; grid-template-rows: minmax(0, 1fr); height: calc(100vh - 72px); overflow: hidden; }
-.preview-column { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; overflow: hidden; }
+.preview-column { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; overflow: hidden; }
 .preview-toolbar { align-items: center; display: flex; justify-content: space-between; min-height: 86px; padding: 18px 28px; }
 .eyebrow { color: var(--accent); font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500; letter-spacing: .15em; margin: 0 0 7px; }
 .preview-toolbar h1 { font-size: 14px; font-weight: 600; margin: 0; max-width: 45vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -91,8 +87,8 @@ button { color: inherit; }
 .value-pill { background: var(--card); color: var(--paper-dim); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .08em; padding: 9px 11px; }
 .uv-control { align-items: center; display: flex; gap: 6px; }
 .uv-control span { color: var(--muted); font: 500 8px 'DM Mono', monospace; text-transform: uppercase; }
-.select { background: var(--surface); border: none; color: var(--paper); font: 500 9px 'DM Mono', monospace; padding: 7px 8px; }
-select option { background: var(--surface); color: var(--paper); }
+.select { background: var(--card); border: none; color: var(--paper); font: 500 9px 'DM Mono', monospace; padding: 7px 8px; }
+select option { background: var(--card); color: var(--paper); }
 .uv-overlap-control { align-items: center; display: flex; gap: 6px; }
 .uv-overlap-control > span:first-child { color: var(--muted); font: 500 8px 'DM Mono', monospace; text-transform: uppercase; }
 .sun-overlay {
@@ -180,7 +176,7 @@ select option { background: var(--surface); color: var(--paper); }
 .preview-view-toggle button:disabled { cursor: not-allowed; opacity: .35; }
 .preview-footer { align-items: center; display: flex; gap: 12px; justify-content: flex-end; min-height: 82px; padding: 15px 28px; }
 
-.texture-ribbon { align-items: center; display: flex; gap: 10px; padding: 12px 28px; }
+.texture-ribbon { align-items: center; display: flex; gap: 10px; }
 .texture-slot { align-items: center; background: var(--stage); cursor: pointer; display: flex; flex-direction: column; gap: 5px; height: 66px; justify-content: center; min-width: 82px; padding: 6px 8px; position: relative; }
 .texture-slot:hover, .palette-card-new:hover, .custom-color-add:hover { color: var(--paper); }
 .texture-slot:focus-visible { background: var(--raised); }
@@ -291,8 +287,6 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
 .brand:hover, .brand:focus-visible { color: var(--accent); }
 .custom-palette summary:hover { color: var(--paper); }
 .button-quiet:focus-visible { color: var(--paper); }
-.button-primary:focus-visible { background: var(--accent-hover); }
-.button-secondary:focus-visible { background: var(--line); }
 .preview-mode-toggle button:focus-visible { color: var(--paper); }
 .preview-view-toggle button:focus-visible { color: var(--paper); }
 .palette-card-new:focus-visible, .custom-color-add:focus-visible { color: var(--paper); }
@@ -304,7 +298,7 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
   html, body, #app { height: auto; min-height: 100%; }
   body { overflow: auto; }
   .workspace { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; overflow: visible; }
-  .preview-column { grid-template-rows: auto auto auto auto; overflow: visible; }
+  .preview-column { grid-template-rows: auto auto auto; overflow: visible; }
   .control-column { max-height: none; }
   .canvas-stage { padding: 20px; }
   .preview-pane canvas { max-height: 48vh; }
