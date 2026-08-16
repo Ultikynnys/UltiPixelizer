@@ -51,10 +51,11 @@ function combineLight(
 }
 
 /**
- * Builds an orthonormal tangent/bitangent/normal basis for a triangle from its
- * world-space positions and UVs (MikkTSpace-style). The geometric normal is the
- * triangle face normal; tangent and bitangent follow the UV gradients and are
- * re-orthogonalized against the normal.
+ * Builds an orthonormal tangent/bitangent basis for a triangle from its
+ * world-space positions and UVs (MikkTSpace-style). Tangent and bitangent follow
+ * the UV gradients and are re-orthogonalized against the triangle face normal;
+ * the shading normal is interpolated from per-vertex normals by the caller, so
+ * the sun respects source / smoothed normals rather than the flat face normal.
  */
 function computeTangentBasis(
   p0: Vector3,
@@ -63,7 +64,7 @@ function computeTangentBasis(
   uv0: UvPair,
   uv1: UvPair,
   uv2: UvPair,
-): [Vector3, Vector3, Vector3] {
+): [Vector3, Vector3] {
   const e1 = new Vector3().subVectors(p1, p0);
   const e2 = new Vector3().subVectors(p2, p0);
   const normal = triangleNormal(p0, p1, p2, new Vector3());
@@ -95,7 +96,7 @@ function computeTangentBasis(
   bitangent.addScaledVector(normal, -bitangent.dot(normal));
   if (bitangent.lengthSq() === 0) bitangent.set(0, 1, 0);
   bitangent.normalize();
-  return [tangent, bitangent, normal];
+  return [tangent, bitangent];
 }
 
 /**
@@ -127,7 +128,7 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
   }
 
   const tangentBases = normalMap
-    ? new Map<BakeTriangle, [Vector3, Vector3, Vector3]>(triangles.map((triangle) => [triangle, computeTangentBasis(
+    ? new Map<BakeTriangle, [Vector3, Vector3]>(triangles.map((triangle) => [triangle, computeTangentBasis(
       vertices[triangle.verts[0]].position,
       vertices[triangle.verts[1]].position,
       vertices[triangle.verts[2]].position,
@@ -143,11 +144,18 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
       const u = w0 * uva[0] + w1 * uvb[0] + w2 * uvc[0];
       const v = w0 * uva[1] + w1 * uvb[1] + w2 * uvc[1];
       const [tx, ty, tz] = sampleNormalMap(normalMap, u, v, normalStrength, normalFlipY);
-      const [tangent, bitangent, normal] = basis;
+      const [tangent, bitangent] = basis;
+      const na = vertices[triangle.verts[0]].normal;
+      const nb = vertices[triangle.verts[1]].normal;
+      const nc = vertices[triangle.verts[2]].normal;
+      const nx = w0 * na.x + w1 * nb.x + w2 * nc.x;
+      const ny = w0 * na.y + w1 * nb.y + w2 * nc.y;
+      const nz = w0 * na.z + w1 * nb.z + w2 * nc.z;
+      const length = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
       mapped.set(
-        tangent.x * tx + bitangent.x * ty + normal.x * tz,
-        tangent.y * tx + bitangent.y * ty + normal.y * tz,
-        tangent.z * tx + bitangent.z * ty + normal.z * tz,
+        tangent.x * tx + bitangent.x * ty + (nx / length) * tz,
+        tangent.y * tx + bitangent.y * ty + (ny / length) * tz,
+        tangent.z * tx + bitangent.z * ty + (nz / length) * tz,
       ).normalize();
       const lambert = lambertFactor(mapped, towardSun);
       const sunVisibility = w0 * visibility[triangle.verts[0]]

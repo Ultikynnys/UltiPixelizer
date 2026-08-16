@@ -142,6 +142,25 @@ describe('bakeMeshLightmap', () => {
     expect(centerRGB(tilted)[0]).toBeLessThan(centerRGB(flatResult)[0]);
   });
 
+  it('perturbs the interpolated vertex normal, not the flat face normal', () => {
+    const scene = new Scene();
+    const plane = new PlaneGeometry(1, 1);
+    // Tilt every vertex normal toward +Y so the smoothed normal no longer matches
+    // the +Z face normal — the sun must use this, not the geometric normal.
+    const tilt = 1 / Math.SQRT2;
+    const normals: number[] = [];
+    for (let i = 0; i < plane.getAttribute('normal').count; i += 1) normals.push(0, tilt, tilt);
+    plane.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    scene.add(new Mesh(plane, new MeshBasicMaterial()));
+    // A flat normal map leaves the shading normal as the interpolated vertex
+    // normal. The sun faces +Z, so lambert = tilt (~0.707) rather than 1.
+    const flat = { data: new Uint8ClampedArray([128, 128, 255, 255]), width: 1, height: 1 };
+    const rgb = centerRGB(bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ffffff', normalMap: flat }));
+    expect(rgb[0]).toBeCloseTo(tilt * 255, 0);
+    expect(rgb[1]).toBeCloseTo(tilt * 255, 0);
+    expect(rgb[2]).toBeCloseTo(tilt * 255, 0);
+  });
+
   it('keeps a full-strength sun at white regardless of ambient', () => {
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
