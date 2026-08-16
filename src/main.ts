@@ -20,8 +20,8 @@ import { safeFileName } from './lib/strings';
 import { DEFAULT_SUN_DIRECTION, type DirectionVector } from './lib/sunDirection';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
 import exampleModelUrl from '../Example/Book.fbx?url';
-import exampleBaseColorUrl from '../Example/BaseColorExample.png?url';
-import exampleNormalUrl from '../Example/NormalExample.png?url';
+import exampleBaseColorUrl from '../Example/Book_BaseColor.png?url';
+import exampleNormalUrl from '../Example/Book_NormalMap.png?url';
 
 type SourceImage = CanvasImageSource & { width: number; height: number };
 
@@ -1680,8 +1680,8 @@ async function fetchExampleFile(url: string, name: string, type: string): Promis
 async function loadExampleAssets(): Promise<void> {
   try {
     const [baseColor, normal, model] = await Promise.all([
-      fetchExampleFile(exampleBaseColorUrl, 'BaseColorExample.png', 'image/png'),
-      fetchExampleFile(exampleNormalUrl, 'NormalExample.png', 'image/png'),
+      fetchExampleFile(exampleBaseColorUrl, 'Book_BaseColor.png', 'image/png'),
+      fetchExampleFile(exampleNormalUrl, 'Book_NormalMap.png', 'image/png'),
       fetchExampleFile(exampleModelUrl, 'Book.fbx', 'application/octet-stream'),
     ]);
     await setTexture('base', baseColor);
