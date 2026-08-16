@@ -334,6 +334,22 @@ describe('ModelViewport', () => {
     viewport.dispose();
   });
 
+  it('applyTessellation re-tessellates from the pristine base and no-ops without a model', () => {
+    const viewport = new ModelViewport(host());
+    viewport.applyTessellation(2, 30, 'uv'); // no model → no-op
+
+    const model = meshScene(); // single triangle, 3 vertices
+    viewport.setModel(model, []);
+    viewport.applyTessellation(2, 30, 'uv');
+    const geometry = (model.children[0] as Mesh).geometry;
+    // 1 triangle × 2² subtriangles × 3 corners = 12 vertices.
+    expect(geometry.getAttribute('position').count).toBe(12);
+    const normal = geometry.getAttribute('normal');
+    expect(normal).toBeDefined();
+    expect(normal.getZ(0)).toBeCloseTo(1);
+    viewport.dispose();
+  });
+
   it('setNormalsView swaps materials and restores the originals', () => {
     const viewport = new ModelViewport(host());
     const model = meshScene();
