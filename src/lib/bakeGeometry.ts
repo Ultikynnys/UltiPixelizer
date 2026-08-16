@@ -1,13 +1,15 @@
 import {
   BufferAttribute,
   BufferGeometry,
+  DoubleSide,
   Matrix3,
   Mesh,
   Object3D,
+  Ray,
   Vector3,
 } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
-import { computeSmoothNormals } from './modelScene';
+import { computeSmoothNormals, forEachTriangle } from './modelScene';
 
 export type UvPair = [number, number];
 export type BakeVertex = { position: Vector3; normal: Vector3 };
@@ -66,14 +68,8 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
     const position = geometry.getAttribute('position') as BufferAttribute;
     const world = child.matrixWorld;
     normalMatrix.getNormalMatrix(world);
-    const index = geometry.getIndex();
-    const triangleCount = index ? index.count / 3 : position.count / 3;
 
-    for (let tri = 0; tri < triangleCount; tri += 1) {
-      const ia = index ? index.getX(tri * 3) : tri * 3;
-      const ib = index ? index.getX(tri * 3 + 1) : tri * 3 + 1;
-      const ic = index ? index.getX(tri * 3 + 2) : tri * 3 + 2;
-
+    forEachTriangle(geometry, (ia, ib, ic) => {
       // Occluder triangles (world space) — every mesh contributes.
       for (const vi of [ia, ib, ic]) {
         v.fromBufferAttribute(position, vi).applyMatrix4(world);
@@ -99,18 +95,40 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
           verts,
         });
       }
-    }
+    });
   });
 
   const occluder = new BufferGeometry();
   occluder.setAttribute('position', new BufferAttribute(new Float32Array(worldPositions), 3));
   occluder.computeBoundingSphere();
-  const radius = occluder.boundingSphere?.radius ?? 1;
+  const radius = occluder.boundingSphere!.radius;
   const maxDistance = radius * distance;
   const epsilon = Math.max(radius * 1e-3, 1e-4);
   const bvh = worldPositions.length ? new MeshBVH(occluder) : null;
 
   return { vertices, triangles, bvh, epsilon, radius, maxDistance };
+}
+
+const _occlusionRay = new Ray();
+
+/**
+ * Occluder raycast shared by the AO and lightmap bakes: offsets the ray origin
+ * along the surface normal by `epsilon` (avoiding self-intersection) and tests
+ * against the bake BVH. Reuses a module-level Ray so hot bake loops don't
+ * allocate. `near`/`far` keep each caller's intersection bounds.
+ */
+export function castBakeRay(
+  bvh: MeshBVH,
+  position: Vector3,
+  normal: Vector3,
+  direction: Vector3,
+  epsilon: number,
+  near = 0,
+  far = Number.POSITIVE_INFINITY,
+): boolean {
+  _occlusionRay.origin.copy(position).addScaledVector(normal, epsilon);
+  _occlusionRay.direction.copy(direction);
+  return bvh.raycastFirst(_occlusionRay, DoubleSide, near, far) !== null;
 }
 
 /**

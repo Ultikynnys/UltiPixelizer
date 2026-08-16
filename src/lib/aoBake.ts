@@ -1,5 +1,5 @@
-import { DoubleSide, Object3D, Ray, Vector3 } from 'three';
-import { collectBakeScene, rasterizeBakedPixels } from './bakeGeometry';
+import { Object3D, Vector3 } from 'three';
+import { castBakeRay, collectBakeScene, rasterizeBakedPixels } from './bakeGeometry';
 
 export type BakeAOMLOptions = {
   /** Hemisphere samples per vertex. Odd counts round up for paired symmetry. Default 128. */
@@ -8,7 +8,6 @@ export type BakeAOMLOptions = {
   distance?: number;
 };
 
-const _ray = new Ray();
 const _direction = new Vector3();
 
 function symmetricHemisphereKernel(samples: number): Vector3[] {
@@ -67,9 +66,7 @@ export function bakeMeshAO(scene: Object3D, width: number, height: number, optio
           .addScaledVector(bitangent, sample.y)
           .addScaledVector(vertex.normal, sample.z)
           .normalize();
-        _ray.origin.copy(vertex.position).addScaledVector(vertex.normal, epsilon);
-        _ray.direction.copy(_direction);
-        if (bvh.raycastFirst(_ray, DoubleSide, 0, maxDistance)) occluded += 1;
+        if (castBakeRay(bvh, vertex.position, vertex.normal, _direction, epsilon, 0, maxDistance)) occluded += 1;
       }
       ao[i] = (samples - occluded) / samples;
     }

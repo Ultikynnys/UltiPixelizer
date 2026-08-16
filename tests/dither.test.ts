@@ -1,25 +1,14 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { adjustColor, nearestColor, patternThreshold, processImageData, type DitherMode } from '../src/lib/dither';
 import { hexToRgb, palettes } from '../src/lib/palettes';
-
-class TestImageData {
-  readonly data: Uint8ClampedArray;
-  readonly width: number;
-  readonly height: number;
-
-  constructor(data: Uint8ClampedArray, width: number, height: number) {
-    this.data = data;
-    this.width = width;
-    this.height = height;
-  }
-}
+import { FakeImageData, installDomStubs } from './helpers/domStubs';
 
 beforeAll(() => {
-  Object.assign(globalThis, { ImageData: TestImageData });
+  installDomStubs();
 });
 
 function imageData(pixels: number[][], width: number): ImageData {
-  return new TestImageData(new Uint8ClampedArray(pixels.flat()), width, pixels.length / width) as ImageData;
+  return new FakeImageData(new Uint8ClampedArray(pixels.flat()), width, pixels.length / width) as ImageData;
 }
 
 const options = (mode: DitherMode) => ({
@@ -68,8 +57,8 @@ describe('color adjustment and matching', () => {
     expect(nearestColor([20, 20, 20], [[0, 0, 0], [255, 255, 255]])).toEqual([0, 0, 0]);
   });
 
-  it('falls back to black for an empty palette', () => {
-    expect(nearestColor([128, 128, 128], [])).toEqual([0, 0, 0]);
+  it('throws for an empty palette', () => {
+    expect(() => nearestColor([128, 128, 128], [])).toThrow('non-empty palette');
   });
 
   it('keeps adjusted channels in byte range and changes tone', () => {

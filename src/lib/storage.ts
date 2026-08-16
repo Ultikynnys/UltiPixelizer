@@ -62,16 +62,32 @@ export function createStoredCollection<T>(options: StoredCollectionOptions<T>): 
   } = options;
 
   function load(storage: StorageLike): T[] {
+    let raw: string | null;
     try {
-      const raw = storage.getItem(storageKey);
-      if (!raw) return [];
-      const value: unknown = JSON.parse(raw);
-      if (!Array.isArray(value)) return [];
-      const entries = value.map((entry) => (migrate ? migrate(entry) : entry)).filter(validate);
-      return clone ? entries.map(clone) : entries;
-    } catch {
-      return [];
+      raw = storage.getItem(storageKey);
+    } catch (error) {
+      throw new Error(`Reading stored data for "${storageKey}" failed.`, { cause: error });
     }
+    if (!raw) return [];
+
+    let value: unknown;
+    try {
+      value = JSON.parse(raw);
+    } catch (error) {
+      throw new Error(`Stored data for "${storageKey}" is corrupt JSON.`, { cause: error });
+    }
+    if (!Array.isArray(value)) {
+      throw new Error(`Stored data for "${storageKey}" is not an array.`);
+    }
+
+    const entries = value
+      .map((entry) => (migrate ? migrate(entry) : entry))
+      .filter((entry) => {
+        if (validate(entry)) return true;
+        console.warn(`Dropping an invalid entry from "${storageKey}".`, entry);
+        return false;
+      });
+    return clone ? entries.map(clone) : entries;
   }
 
   function save(storage: StorageLike, entries: T[]): void {

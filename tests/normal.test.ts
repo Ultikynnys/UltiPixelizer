@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { sampleNormalMap, type NormalMapSource } from '../src/lib/normal';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { imageNormalMapPixels, sampleNormalMap, type NormalMapSource } from '../src/lib/normal';
+import { asSourceImage, FakeCanvas, installDomStubs } from './helpers/domStubs';
+
+beforeAll(() => {
+  installDomStubs();
+});
 
 function source(rgb: [number, number, number]): NormalMapSource {
   return { data: new Uint8ClampedArray([rgb[0], rgb[1], rgb[2], 255]), width: 1, height: 1 };
@@ -45,5 +50,18 @@ describe('sampleNormalMap', () => {
   it('clamps UV coordinates to the source bounds', () => {
     const [x] = sampleNormalMap(source([255, 128, 128]), 99, 99, 1, false);
     expect(x).toBeCloseTo(1, 2);
+  });
+});
+
+describe('imageNormalMapPixels', () => {
+  it('reads an image at its native resolution into a PixelSource', () => {
+    const canvas = new FakeCanvas();
+    canvas.width = 2;
+    canvas.height = 1;
+    canvas.context.pixels.set([128, 255, 255, 255, 128, 0, 128, 255]);
+    const pixels = imageNormalMapPixels(asSourceImage(canvas));
+    expect(pixels.width).toBe(2);
+    expect(pixels.height).toBe(1);
+    expect(Array.from(pixels.data)).toEqual([128, 255, 255, 255, 128, 0, 128, 255]);
   });
 });

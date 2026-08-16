@@ -1,7 +1,7 @@
-import { DoubleSide, Object3D, Ray, Vector3 } from 'three';
+import { Object3D, Vector3 } from 'three';
 import { hexToRgb, isHexColor } from './palettes';
 import { directionToSun, type DirectionVector } from './sunDirection';
-import { collectBakeScene, rasterizeBakedPixels, type BakeTriangle, type UvPair } from './bakeGeometry';
+import { castBakeRay, collectBakeScene, rasterizeBakedPixels, type BakeTriangle, type UvPair } from './bakeGeometry';
 import { AMBIENT_FLOOR } from './defaults';
 import { clamp01 } from './math';
 import { triangleNormal } from './modelScene';
@@ -21,8 +21,6 @@ export type BakeLightmapOptions = {
 };
 
 type RGB = [number, number, number];
-
-const _ray = new Ray();
 
 function parseColor(color: string): RGB {
   if (!isHexColor(color)) throw new Error(`Invalid light color: ${color}`);
@@ -125,11 +123,7 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
     const vertex = vertices[i];
     const lambert = lambertFactor(vertex.normal, towardSun);
     let sunVisibility = lambert > 0 && sunScale > 0 ? 1 : 0;
-    if (sunVisibility && bvh) {
-      _ray.origin.copy(vertex.position).addScaledVector(vertex.normal, epsilon);
-      _ray.direction.copy(towardSun);
-      if (bvh.raycastFirst(_ray, DoubleSide, epsilon)) sunVisibility = 0;
-    }
+    if (sunVisibility && bvh && castBakeRay(bvh, vertex.position, vertex.normal, towardSun, epsilon, epsilon)) sunVisibility = 0;
     visibility[i] = sunVisibility;
     lights[i] = combineLight(ambientColor, sunColor, ambientScale, sunScale, lambert, sunVisibility);
   }

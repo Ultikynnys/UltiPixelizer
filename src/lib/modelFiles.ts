@@ -32,7 +32,7 @@ export function findPrimaryModel(files: Iterable<Pick<File, 'name'>>): Pick<File
 
 function normalizedResourceKeys(name: string): string[] {
   const clean = name.replace(/\\/g, '/').replace(/^\.\//, '');
-  const basename = clean.split('/').pop() ?? clean;
+  const basename = clean.split('/').pop()!;
   return Array.from(new Set([clean, basename, safelyDecodeURIComponent(clean), safelyDecodeURIComponent(basename)])).map((key) => key.toLowerCase());
 }
 
@@ -70,7 +70,7 @@ export function createModelFileBundle(filesInput: FileList | File[]): ModelFileB
       resolveURL(url: string): string {
         if (/^data:/i.test(url) || createdUrls.has(url)) return url;
         const decoded = safelyDecodeURIComponent(url).replace(/\\/g, '/');
-        const basename = decoded.split('/').pop() ?? decoded;
+        const basename = decoded.split('/').pop()!;
         const uploadedResource = urls.get(decoded.toLowerCase()) ?? urls.get(basename.toLowerCase());
         if (uploadedResource) return uploadedResource;
         return imageResourcePattern.test(decoded) ? missingImageUrl : missingResourceUrl;

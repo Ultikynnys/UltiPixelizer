@@ -1,5 +1,6 @@
 import { BufferAttribute, Mesh, Object3D } from 'three';
 import { rasterizeBake } from './bakeGeometry';
+import { forEachTriangle } from './modelScene';
 
 /** Shared label text for the UV-overlap highlight in both the 2D and 3D views. */
 export const UV_OVERLAP_LABEL = 'UV OVERLAP';
@@ -40,14 +41,7 @@ export function collectUVTriangles(scene: Object3D): UVTriangle[] {
 
     const uv = child.geometry.getAttribute('uv') as BufferAttribute | undefined;
     if (!uv) return;
-    const index = child.geometry.getIndex();
-    const position = child.geometry.getAttribute('position') as BufferAttribute | undefined;
-    const triangleCount = index ? index.count / 3 : position ? position.count / 3 : 0;
-
-    for (let tri = 0; tri < triangleCount; tri += 1) {
-      const ia = index ? index.getX(tri * 3) : tri * 3;
-      const ib = index ? index.getX(tri * 3 + 1) : tri * 3 + 1;
-      const ic = index ? index.getX(tri * 3 + 2) : tri * 3 + 2;
+    forEachTriangle(child.geometry, (ia, ib, ic, tri) => {
       triangles.push({
         meshIndex: currentMeshIndex,
         triangleIndex: tri,
@@ -57,7 +51,7 @@ export function collectUVTriangles(scene: Object3D): UVTriangle[] {
           [uv.getX(ic), uv.getY(ic)],
         ],
       });
-    }
+    });
   });
   return triangles;
 }

@@ -81,6 +81,34 @@ export function triangleNormal(pA: Vector3, pB: Vector3, pC: Vector3, target: Ve
   return target.subVectors(pB, pA).cross(_faceEdge);
 }
 
+/** Resolves the three vertex indices of triangle `tri` in `geometry`'s index
+ * buffer, or the sequential indices for non-indexed geometry. */
+export function triangleIndices(geometry: BufferGeometry, tri: number): [number, number, number] {
+  const index = geometry.getIndex();
+  return [
+    index ? index.getX(tri * 3) : tri * 3,
+    index ? index.getX(tri * 3 + 1) : tri * 3 + 1,
+    index ? index.getX(tri * 3 + 2) : tri * 3 + 2,
+  ];
+}
+
+/** Iterates every triangle of `geometry` (indexed or not), passing the three
+ * vertex indices and the triangle ordinal. Shared by the bake scene collector,
+ * UV overlap detector, and the overlap highlight. */
+export function forEachTriangle(
+  geometry: BufferGeometry,
+  callback: (ia: number, ib: number, ic: number, triangleIndex: number) => void,
+): void {
+  const position = geometry.getAttribute('position') as BufferAttribute | undefined;
+  if (!position) return;
+  const index = geometry.getIndex();
+  const triangleCount = index ? index.count / 3 : position.count / 3;
+  for (let tri = 0; tri < triangleCount; tri += 1) {
+    const [ia, ib, ic] = triangleIndices(geometry, tri);
+    callback(ia, ib, ic, tri);
+  }
+}
+
 /** Recomputes vertex normals with angle-based smoothing, discarding any existing
  * normal attribute. Adjacent faces sharing an edge are smoothed (share a normal)
  * only when the angle between their face normals is below `angleDeg`; otherwise

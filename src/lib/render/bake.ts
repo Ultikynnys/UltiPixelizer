@@ -76,49 +76,55 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     textures.ao.name = 'Generated AO';
   }
 
-  function generateAo(): void {
+  // Shared async-bake runner: scene guard, progress toast, deferred try/catch.
+  // `work` returns false to signal a non-fatal early exit (its own toast already
+  // shown) and true to publish the success toast.
+  function runBakeTask(
+    noSceneMessage: string,
+    progressMessage: string,
+    failureMessage: string,
+    successMessage: string,
+    work: () => boolean,
+  ): void {
     if (!getAOScene()) {
-      showToast('Load a model to generate AO');
+      showToast(noSceneMessage);
       return;
     }
-    showToast('Generating AO…');
+    showToast(progressMessage);
     window.setTimeout(() => {
       try {
-        computeAO();
-        renderTextureRibbon();
-        render2d.render();
-        showToast('Ambient occlusion generated');
+        if (work()) showToast(successMessage);
       } catch (error) {
-        showToast(errorMessage(error, 'Could not generate ambient occlusion.'));
+        showToast(errorMessage(error, failureMessage));
       }
     }, 30);
   }
 
+  function generateAo(): void {
+    runBakeTask('Load a model to generate AO', 'Generating AO…', 'Could not generate ambient occlusion.', 'Ambient occlusion generated', () => {
+      computeAO();
+      renderTextureRibbon();
+      render2d.render();
+      return true;
+    });
+  }
+
   function bakeLighting(): void {
-    if (!getAOScene()) {
-      showToast('Load a model to bake lighting');
-      return;
-    }
-    showToast('Baking lighting…');
-    window.setTimeout(() => {
-      try {
-        const canvas = bakeLightmapCanvas();
-        if (!canvas) {
-          showToast('Load a base texture to bake lighting');
-          return;
-        }
-        textures.lightmap.image = canvas;
-        textures.lightmap.name = 'Baked lighting';
-        renderLightmapControls();
-        renderNormalControls();
-        renderTextureRibbon();
-        applySun();
-        render2d.render();
-        showToast('Lighting baked');
-      } catch (error) {
-        showToast(errorMessage(error, 'Could not bake lighting.'));
+    runBakeTask('Load a model to bake lighting', 'Baking lighting…', 'Could not bake lighting.', 'Lighting baked', () => {
+      const canvas = bakeLightmapCanvas();
+      if (!canvas) {
+        showToast('Load a base texture to bake lighting');
+        return false;
       }
-    }, 30);
+      textures.lightmap.image = canvas;
+      textures.lightmap.name = 'Baked lighting';
+      renderLightmapControls();
+      renderNormalControls();
+      renderTextureRibbon();
+      applySun();
+      render2d.render();
+      return true;
+    });
   }
 
   function clearLightmap(): void {
@@ -139,8 +145,9 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     try {
       shared.implicitLightmapCanvas = bakeLightmapCanvas();
       render2d.render();
-    } catch {
+    } catch (error) {
       shared.implicitLightmapCanvas = null;
+      console.error('Implicit lightmap bake failed.', error);
     }
   }
 

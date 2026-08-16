@@ -58,7 +58,8 @@ export function patternThreshold(mode: DitherMode, x: number, y: number, stripeA
 }
 
 export function nearestColor(color: RGB, palette: RGB[]): RGB {
-  let best = palette[0] ?? [0, 0, 0];
+  if (palette.length === 0) throw new Error('nearestColor requires a non-empty palette.');
+  let best = palette[0];
   let bestDistance = Number.POSITIVE_INFINITY;
 
   for (const candidate of palette) {

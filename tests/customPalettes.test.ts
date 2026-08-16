@@ -96,14 +96,18 @@ describe('custom palettes', () => {
     expect(storage.data.has(CUSTOM_PALETTE_STORAGE_KEY)).toBe(true);
   });
 
-  it('tolerates blocked, corrupt, non-array, and partially invalid storage', () => {
-    storage.shouldThrow = true;
+  it('returns nothing for absent storage and throws for blocked, corrupt, or non-array data', () => {
     expect(loadCustomPalettes(storage)).toEqual([]);
+    storage.shouldThrow = true;
+    expect(() => loadCustomPalettes(storage)).toThrow('Reading stored data');
     storage.shouldThrow = false;
     storage.data.set(CUSTOM_PALETTE_STORAGE_KEY, '{bad');
-    expect(loadCustomPalettes(storage)).toEqual([]);
+    expect(() => loadCustomPalettes(storage)).toThrow('corrupt JSON');
     storage.data.set(CUSTOM_PALETTE_STORAGE_KEY, '{}');
-    expect(loadCustomPalettes(storage)).toEqual([]);
+    expect(() => loadCustomPalettes(storage)).toThrow('not an array');
+  });
+
+  it('drops invalid entries and keeps valid ones', () => {
     const valid = createCustomPalette('Valid', '', ['#000000', '#ffffff']);
     storage.data.set(CUSTOM_PALETTE_STORAGE_KEY, JSON.stringify([{}, valid]));
     expect(loadCustomPalettes(storage)).toEqual([valid]);

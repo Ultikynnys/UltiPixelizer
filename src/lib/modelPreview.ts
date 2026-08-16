@@ -33,7 +33,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
-import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, materialsOf, recomputeVertexNormals } from './modelScene';
+import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, materialsOf, recomputeVertexNormals, triangleIndices } from './modelScene';
 import { cameraForwardFromQuaternion, directionToSun, type DirectionVector } from './sunDirection';
 import { UV_OVERLAP_LABEL } from './uvOverlap';
 
@@ -255,17 +255,14 @@ export class ModelViewport {
     let meshIndex = 0;
     this.model.traverse((child) => {
       if (!(child instanceof Mesh)) return;
-      const triangleIndices = overlapping.get(meshIndex);
+      const meshTriangleIndices = overlapping.get(meshIndex);
       meshIndex += 1;
-      if (!triangleIndices || triangleIndices.length === 0) return;
+      if (!meshTriangleIndices || meshTriangleIndices.length === 0) return;
 
       const position = child.geometry.getAttribute('position');
       if (!position) return;
-      const index = child.geometry.getIndex();
-      for (const triangleIndex of triangleIndices) {
-        const ia = index ? index.getX(triangleIndex * 3) : triangleIndex * 3;
-        const ib = index ? index.getX(triangleIndex * 3 + 1) : triangleIndex * 3 + 1;
-        const ic = index ? index.getX(triangleIndex * 3 + 2) : triangleIndex * 3 + 2;
+      for (const triangleIndex of meshTriangleIndices) {
+        const [ia, ib, ic] = triangleIndices(child.geometry, triangleIndex);
         for (const vertexIndex of [ia, ib, ic]) {
           v.fromBufferAttribute(position, vertexIndex).applyMatrix4(child.matrixWorld);
           positions.push(v.x, v.y, v.z);

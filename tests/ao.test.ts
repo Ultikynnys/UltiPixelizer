@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { applyAO, redChannelFactors } from '../src/lib/ao';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { applyAO, imageAOFactors, redChannelFactors } from '../src/lib/ao';
+import { FakeCanvas, installDomStubs } from './helpers/domStubs';
+
+beforeAll(() => {
+  installDomStubs();
+});
 
 function frame(pixels: Array<[number, number, number, number]>): Uint8ClampedArray {
   const data = new Uint8ClampedArray(pixels.length * 4);
@@ -51,5 +56,25 @@ describe('ambient occlusion factors', () => {
     applyAO(data, new Uint8ClampedArray([0, 255]), -1, 4);
     expect(Array.from(data.slice(0, 3))).toEqual([0, 0, 0]);
     expect(Array.from(data.slice(4, 7))).toEqual([100, 100, 100]);
+  });
+});
+
+describe('image AO factors', () => {
+  function pixelCanvas(rgba: number[]): CanvasImageSource {
+    const canvas = new FakeCanvas();
+    canvas.width = 1;
+    canvas.height = 1;
+    canvas.context.pixels.set(rgba);
+    return canvas as unknown as CanvasImageSource;
+  }
+
+  it('reads the red channel of a drawn image as visibility', () => {
+    const factors = imageAOFactors(pixelCanvas([200, 10, 10, 255]), 1, 1);
+    expect(Array.from(factors)).toEqual([200]);
+  });
+
+  it('inverts the red channel for ORM-packed maps', () => {
+    const factors = imageAOFactors(pixelCanvas([200, 10, 10, 255]), 1, 1, true);
+    expect(Array.from(factors)).toEqual([55]);
   });
 });

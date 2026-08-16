@@ -163,12 +163,15 @@ describe('conversion presets', () => {
     expect(storage.data.has(PRESET_STORAGE_KEY)).toBe(true);
   });
 
-  it('tolerates absent, corrupt, non-array, and partially invalid stored libraries', () => {
+  it('returns nothing for absent storage and throws for corrupt or non-array data', () => {
     expect(loadPresetLibrary(storage)).toEqual([]);
     storage.data.set(PRESET_STORAGE_KEY, '{bad');
-    expect(loadPresetLibrary(storage)).toEqual([]);
+    expect(() => loadPresetLibrary(storage)).toThrow('corrupt JSON');
     storage.data.set(PRESET_STORAGE_KEY, '{}');
-    expect(loadPresetLibrary(storage)).toEqual([]);
+    expect(() => loadPresetLibrary(storage)).toThrow('not an array');
+  });
+
+  it('drops invalid entries and keeps valid ones', () => {
     const valid = createPreset('Valid', '', config);
     storage.data.set(PRESET_STORAGE_KEY, JSON.stringify([{}, valid]));
     expect(loadPresetLibrary(storage)).toEqual([valid]);

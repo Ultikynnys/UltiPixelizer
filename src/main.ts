@@ -396,7 +396,12 @@ const normalFormatSelect = document.querySelector<HTMLSelectElement>('#normalFor
 const normalStatus = document.querySelector<HTMLDivElement>('#normalStatus')!;
 const smoothAngleInput = document.querySelector<HTMLInputElement>('#smoothAngle')!;
 const smoothAngleValue = document.querySelector<HTMLOutputElement>('#smoothAngleValue')!;
-let savedCustomPalettes = loadCustomPalettes(localStorage);
+let savedCustomPalettes: CustomPalette[] = [];
+try {
+  savedCustomPalettes = loadCustomPalettes(localStorage);
+} catch (error) {
+  console.error('Custom palettes could not be loaded from storage.', error);
+}
 let editingCustomKey: string | null = null;
 let toastTimer = 0;
 let modelBundle: ModelFileBundle | null = null;
@@ -426,6 +431,12 @@ function showToast(message: string): void {
   toastTimer = window.setTimeout(() => toast.classList.remove('visible'), 2400);
 }
 
+// Every catch handler that surfaces an error through a toast pairs
+// `showToast` with `errorMessage`, so the combo lives here once.
+function toastError(error: unknown, fallback: string): void {
+  showToast(errorMessage(error, fallback));
+}
+
 function customPaletteRecord(): Record<string, CustomPalette> {
   return Object.fromEntries(savedCustomPalettes.map((palette) => [palette.key, palette]));
 }
@@ -435,7 +446,10 @@ function paletteCatalog(): Record<string, Palette> {
 }
 
 function currentPalette(): Palette {
-  return state.paletteSnapshot ?? paletteCatalog()[state.paletteKey] ?? palettes.pico8;
+  if (state.paletteSnapshot) return state.paletteSnapshot;
+  const palette = paletteCatalog()[state.paletteKey];
+  if (!palette) throw new Error(`Unknown palette key "${state.paletteKey}".`);
+  return palette;
 }
 
 function currentColors(): string[] {
@@ -469,8 +483,7 @@ const formatSignedInt = (value: number): string => `${value > 0 ? '+' : ''}${val
 function renderLightmapControls(): void {
   const active = textures.lightmap.image !== null;
   const contribution = Math.round(state.lightmapContribution * 100);
-  lightmapContributionInput.value = String(contribution);
-  lightmapContributionValue.textContent = formatPercent(contribution);
+  syncRangeValue(lightmapContributionInput, lightmapContributionValue, contribution, formatPercent);
   lightmapStatus.textContent = active && textures.lightmap.image
     ? `${textures.lightmap.name} · ${textures.lightmap.image.width} × ${textures.lightmap.image.height}`
     : 'No lightmap loaded';
@@ -480,13 +493,11 @@ function renderLightmapControls(): void {
 function renderNormalControls(): void {
   const strength = Math.round(state.normalStrength * 100);
   const lightmapActive = textures.lightmap.image !== null;
-  normalStrengthInput.value = String(strength);
+  syncRangeValue(normalStrengthInput, normalStrengthValue, strength, formatPercent);
   normalStrengthInput.disabled = lightmapActive;
-  normalStrengthValue.textContent = formatPercent(strength);
   normalFormatSelect.value = state.normalFormat;
   normalFormatSelect.disabled = lightmapActive;
-  smoothAngleInput.value = String(state.smoothAngle);
-  smoothAngleValue.textContent = formatDegrees(state.smoothAngle);
+  syncRangeValue(smoothAngleInput, smoothAngleValue, state.smoothAngle, formatDegrees);
   smoothAngleInput.disabled = state.useSourceNormals;
   const image = textures.normal.image;
   normalStatus.textContent = image
@@ -557,6 +568,20 @@ function renderNormalsViewControl(): void {
   syncCheckboxControl(normalsViewControl, showNormalsInput, modelBundle !== null, state.showNormals);
 }
 
+// Shared sync for every model-dependent control. The model load/close and reset
+// paths re-render the same cluster, so the group lives here once.
+function renderModelControls(): void {
+  renderUVControl();
+  renderUVOverlapControl();
+  renderUVWireframeControl();
+  renderLodControl();
+  renderSunControl();
+  renderOrientationReadout();
+  renderWorldAxisControl();
+  renderNormalsControl();
+  renderNormalsViewControl();
+}
+
 function formatDirection(vector: DirectionVector): string {
   return `(${vector.x.toFixed(2)}, ${vector.y.toFixed(2)}, ${vector.z.toFixed(2)})`;
 }
@@ -568,28 +593,35 @@ function renderOrientationReadout(): void {
     : '—';
 }
 
+// Shared sync for a sun/ambient light group (enabled toggle, color picker + chip,
+// intensity slider + readout). `renderSunControl` drives both lights through this
+// so the twin blocks stay in one place.
+function syncLightControls(
+  light: LightState,
+  enabled: HTMLInputElement,
+  color: HTMLInputElement,
+  intensity: HTMLInputElement,
+  intensityValue: HTMLOutputElement,
+  lightmapActive: boolean,
+): void {
+  enabled.checked = light.enabled;
+  enabled.disabled = lightmapActive;
+  color.disabled = !light.enabled || lightmapActive;
+  intensity.disabled = !light.enabled || lightmapActive;
+  color.value = light.color;
+  syncColorChip(color);
+  intensity.value = String(light.intensity);
+  intensityValue.textContent = light.intensity.toFixed(2);
+}
+
 function renderSunControl(): void {
   sunControlElements.control.hidden = modelBundle === null || (originalPreviewMode !== '3d' && processedPreviewMode !== '3d');
   const lightmapActive = textures.lightmap.image !== null;
-  sunControlElements.enabled.checked = state.sun.enabled;
-  sunControlElements.enabled.disabled = lightmapActive;
   sunControlElements.control.classList.toggle('off', !state.sun.enabled || lightmapActive);
   sunControlElements.control.classList.toggle('lightmap-active', lightmapActive);
   sunControlElements.orientWithCamera.disabled = !state.sun.enabled || lightmapActive || originalPreviewMode !== '3d' || originalViewport === null;
-  sunControlElements.color.disabled = !state.sun.enabled || lightmapActive;
-  sunControlElements.intensity.disabled = !state.sun.enabled || lightmapActive;
-  sunControlElements.ambientEnabled.checked = state.ambient.enabled;
-  sunControlElements.ambientEnabled.disabled = lightmapActive;
-  sunControlElements.ambientColor.disabled = !state.ambient.enabled || lightmapActive;
-  sunControlElements.ambientIntensity.disabled = !state.ambient.enabled || lightmapActive;
-  sunControlElements.color.value = state.sun.color;
-  syncColorChip(sunControlElements.color);
-  sunControlElements.intensity.value = String(state.sun.intensity);
-  sunControlElements.intensityValue.textContent = state.sun.intensity.toFixed(2);
-  sunControlElements.ambientColor.value = state.ambient.color;
-  syncColorChip(sunControlElements.ambientColor);
-  sunControlElements.ambientIntensity.value = String(state.ambient.intensity);
-  sunControlElements.ambientIntensityValue.textContent = state.ambient.intensity.toFixed(2);
+  syncLightControls(state.sun, sunControlElements.enabled, sunControlElements.color, sunControlElements.intensity, sunControlElements.intensityValue, lightmapActive);
+  syncLightControls(state.ambient, sunControlElements.ambientEnabled, sunControlElements.ambientColor, sunControlElements.ambientIntensity, sunControlElements.ambientIntensityValue, lightmapActive);
 }
 
 function updatePatternControls(): void {
@@ -598,12 +630,9 @@ function updatePatternControls(): void {
 }
 
 function updateAOControls(): void {
-  aoBiasInput.value = String(Math.round(state.aoBias * 100) / 100);
-  aoBiasValue.textContent = formatSignedFixed2(state.aoBias);
-  aoScaleInput.value = String(Math.round(state.aoScale * 100) / 100);
-  aoScaleValue.textContent = formatTimes2(state.aoScale);
-  aoDistanceInput.value = String(state.aoDistance);
-  aoDistanceValue.textContent = formatTimes2(state.aoDistance);
+  syncRangeValue(aoBiasInput, aoBiasValue, Math.round(state.aoBias * 100) / 100, formatSignedFixed2);
+  syncRangeValue(aoScaleInput, aoScaleValue, Math.round(state.aoScale * 100) / 100, formatTimes2);
+  syncRangeValue(aoDistanceInput, aoDistanceValue, state.aoDistance, formatTimes2);
   renderLightmapControls();
 }
 
@@ -723,15 +752,7 @@ function closeModelPreview(): void {
   originalPreviewMode = '2d';
   processedPreviewMode = '2d';
   applyPreviewMode();
-  renderUVControl();
-  renderUVOverlapControl();
-  renderUVWireframeControl();
-  renderLodControl();
-  renderSunControl();
-  renderOrientationReadout();
-  renderWorldAxisControl();
-  renderNormalsControl();
-  renderNormalsViewControl();
+  renderModelControls();
 }
 
 async function setModel(files: File[]): Promise<void> {
@@ -754,24 +775,18 @@ async function setModel(files: File[]): Promise<void> {
     originalViewport = new ModelViewport(originalModelHost);
     processedViewport = new ModelViewport(processedModelHost);
     originalViewport.onCameraChange = renderOrientationReadout;
-    originalViewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
-    processedViewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
-    originalViewport.applyLOD(state.lodLevel);
-    processedViewport.applyLOD(state.lodLevel);
-    originalViewport.setNormalsView(state.showNormals);
-    processedViewport.setNormalsView(state.showNormals);
+    for (const viewport of [originalViewport, processedViewport]) {
+      viewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
+    }
+    forEachViewport((viewport) => {
+      viewport.applyLOD(state.lodLevel);
+      viewport.setNormalsView(state.showNormals);
+    });
     disposeModel(loaded.scene);
     originalPreviewMode = '3d';
     processedPreviewMode = '3d';
     applyPreviewMode();
-    renderUVControl();
-    renderUVOverlapControl();
-    renderUVWireframeControl();
-    renderLodControl();
-    renderSunControl();
-    renderWorldAxisControl();
-    renderNormalsControl();
-    renderNormalsViewControl();
+    renderModelControls();
     applySun();
     if (modelUVChannels.length) applyModelUV(state.uvMap);
     renderTextureRibbon();
@@ -782,7 +797,7 @@ async function setModel(files: File[]): Promise<void> {
   } catch (error) {
     if (modelBundle === bundle) closeModelPreview();
     bundle?.revoke();
-    showToast(errorMessage(error, 'Could not load model.'));
+    toastError(error, 'Could not load model.');
   }
 }
 
@@ -912,16 +927,14 @@ function persistCustomDraft(): void {
       ? updateCustomPalette(existing, customPaletteName.value, customPaletteDescription.value, currentColors())
       : createCustomPalette(customPaletteName.value, customPaletteDescription.value, currentColors(), new Date(), editingCustomKey ?? undefined);
     savedCustomPalettes = upsertCustomPalette(localStorage, palette);
-    editingCustomKey = palette.key;
     state.paletteKey = palette.key;
     state.customColors = [];
     state.paletteSnapshot = undefined;
-    customPaletteName.value = palette.name;
-    customPaletteDescription.value = palette.description;
+    hydrateEditorForSelection(palette.key, palette);
     renderPalettes();
     render();
   } catch (error) {
-    showToast(errorMessage(error, 'Could not save custom palette.'));
+    toastError(error, 'Could not save custom palette.');
   }
 }
 
@@ -958,18 +971,25 @@ function exportPaletteByKey(key: string): void {
     downloadText(serializeCustomPalette(palette), `${safeName}.palette.json`);
     showToast(`Custom palette “${palette.name}” exported`);
   } catch (error) {
-    showToast(errorMessage(error, 'Could not export custom palette.'));
+    toastError(error, 'Could not export custom palette.');
   }
+}
+
+// Shared editor-field sync for the currently selected palette: picks the
+// matching custom palette (if any) and hydrates the draft name/description,
+// falling back to the catalog palette's own values.
+function hydrateEditorForSelection(paletteKey: string, fallback: Palette): void {
+  const selectedCustom = savedCustomPalettes.find((palette) => palette.key === paletteKey);
+  editingCustomKey = selectedCustom?.key ?? null;
+  customPaletteName.value = selectedCustom?.name ?? fallback.name;
+  customPaletteDescription.value = selectedCustom?.description ?? fallback.description;
 }
 
 function selectPalette(key: string): void {
   state.paletteKey = key;
   state.customColors = [];
   state.paletteSnapshot = undefined;
-  const selectedCustom = savedCustomPalettes.find((palette) => palette.key === key);
-  editingCustomKey = selectedCustom?.key ?? null;
-  customPaletteName.value = selectedCustom?.name ?? currentPalette().name;
-  customPaletteDescription.value = selectedCustom?.description ?? currentPalette().description;
+  hydrateEditorForSelection(key, currentPalette());
   renderPalettes();
   render();
 }
@@ -989,7 +1009,7 @@ function removeCustomPalette(key: string): void {
     render();
     showToast('Custom palette deleted');
   } catch (error) {
-    showToast(errorMessage(error, 'Could not delete custom palette.'));
+    toastError(error, 'Could not delete custom palette.');
   }
 }
 
@@ -1010,6 +1030,14 @@ type RangeBinding = {
   apply: (value: number) => void;
 };
 
+// Shared render-side sync for a range input + its value output — the mirror of
+// `bindRange` (listener side). Every control render that writes both fields in
+// lockstep goes through this.
+function syncRangeValue(input: HTMLInputElement, output: HTMLElement, value: number, format: (value: number) => string): void {
+  input.value = String(value);
+  output.textContent = format(value);
+}
+
 function bindRange({ input, output, format, apply }: RangeBinding): void {
   input.addEventListener('input', (event) => {
     const value = Number((event.target as HTMLInputElement).value);
@@ -1021,14 +1049,10 @@ function bindRange({ input, output, format, apply }: RangeBinding): void {
 }
 
 function syncControlsFromState(): void {
-  strengthInput.value = String(Math.round(state.strength * 100));
-  strengthValue.textContent = formatPercent(Math.round(state.strength * 100));
-  stripeAngleInput.value = String(state.stripeAngle);
-  stripeAngleValue.textContent = formatDegrees(state.stripeAngle);
-  noiseScaleInput.value = String(state.noiseScale);
-  noiseScaleValue.textContent = formatPixels(state.noiseScale);
-  seedInput.value = String(state.seed);
-  seedValue.textContent = formatPlain(state.seed);
+  syncRangeValue(strengthInput, strengthValue, Math.round(state.strength * 100), formatPercent);
+  syncRangeValue(stripeAngleInput, stripeAngleValue, state.stripeAngle, formatDegrees);
+  syncRangeValue(noiseScaleInput, noiseScaleValue, state.noiseScale, formatPixels);
+  syncRangeValue(seedInput, seedValue, state.seed, formatPlain);
   setActiveMode(state.mode);
   updatePatternControls();
   updateAOControls();
@@ -1075,7 +1099,7 @@ async function saveConfig(): Promise<void> {
     showToast('Settings saved');
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return;
-    showToast(errorMessage(error, 'Could not save settings.'));
+    toastError(error, 'Could not save settings.');
   }
 }
 
@@ -1089,7 +1113,7 @@ async function loadConfig(): Promise<void> {
     }
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return;
-    showToast(errorMessage(error, 'Could not load settings.'));
+    toastError(error, 'Could not load settings.');
   }
 }
 
@@ -1103,11 +1127,8 @@ function applyPreset(preset: ConversionPreset): void {
   state.uvMap = preset.uvMap;
   state.paletteSnapshot = undefined;
   state.customColors = [];
-  const selectedCustom = savedCustomPalettes.find((palette) => palette.key === paletteKey);
   const selectedPalette = paletteCatalog()[paletteKey];
-  editingCustomKey = selectedCustom?.key ?? null;
-  customPaletteName.value = selectedCustom?.name ?? selectedPalette.name;
-  customPaletteDescription.value = selectedCustom?.description ?? selectedPalette.description;
+  hydrateEditorForSelection(paletteKey, selectedPalette);
   syncControlsFromState();
   applySun();
   updateResolution(preset.resolution, true);
@@ -1154,8 +1175,7 @@ const renderScheduler = createRenderScheduler(render);
 
 function updateResolution(value: number, immediate = false): void {
   state.resolution = value;
-  (document.querySelector('#resolution') as HTMLInputElement).value = String(value);
-  document.querySelector('#resolutionValue')!.textContent = `${value} px`;
+  syncRangeValue(document.querySelector('#resolution') as HTMLInputElement, document.querySelector('#resolutionValue')!, value, formatPixels);
   syncActiveButton(document, '[data-resolution]', (button) => Number(button.dataset.resolution) === value);
   if (immediate) renderScheduler.flush();
   else renderScheduler.request();
@@ -1195,8 +1215,8 @@ function clearTexture(channel: TextureChannelId): void {
 function clearModel(): void {
   renderScheduler.cancel();
   closeModelPreview();
-  const base = textures.base.image;
-  updateFileMeta(textures.base.name, base?.width ?? 640, base?.height ?? 461);
+  const base = textures.base.image!;
+  updateFileMeta(textures.base.name, base.width, base.height);
   renderTextureRibbon();
   render();
   showToast('Model cleared');
@@ -1236,7 +1256,7 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
     render();
     showToast(`${textureLabel(channel)} loaded`);
   } catch (error) {
-    showToast(errorMessage(error, 'Could not load image.'));
+    toastError(error, 'Could not load image.');
   }
 }
 
@@ -1253,12 +1273,8 @@ function reset(): void {
   scheduleNormalAdjustedLighting();
   applySun();
   refreshUVOverlap();
-  renderUVOverlapControl();
-  renderUVWireframeControl();
-  renderNormalsControl();
-  renderNormalsViewControl();
-  originalViewport?.setNormalsView(state.showNormals);
-  processedViewport?.setNormalsView(state.showNormals);
+  renderModelControls();
+  forEachViewport((viewport) => viewport.setNormalsView(state.showNormals));
   updateResolution(128, true);
   showToast('Settings reset');
 }
@@ -1294,7 +1310,8 @@ async function loadExampleAssets(): Promise<void> {
     await setTexture('normal', normal);
     await setModel([model]);
   } catch (error) {
-    console.warn('Example assets could not be loaded; using the sample texture.', error);
+    console.error('Example assets could not be loaded; using the sample texture.', error);
+    showToast('Example assets could not be loaded; using the sample texture.');
   }
 }
 
@@ -1466,7 +1483,7 @@ importCustomPaletteInput.addEventListener('change', async () => {
     beginCustomDraft(palette.name, palette.description, palette.colors, palette.key);
     showToast(`Imported custom palette “${palette.name}”`);
   } catch (error) {
-    showToast(errorMessage(error, 'Could not import custom palette.'));
+    toastError(error, 'Could not import custom palette.');
   } finally {
     importCustomPaletteInput.value = '';
   }
@@ -1519,6 +1536,10 @@ textureInput.addEventListener('change', () => {
   pendingTextureChannel = null;
   if (file && channel) void setTexture(channel, file);
 });
+function droppedFiles(event: DragEvent): File[] {
+  return Array.from(event.dataTransfer?.files ?? []);
+}
+
 function bindSlotDragState(slot: HTMLElement): void {
   ['dragenter', 'dragover'].forEach((type) => slot.addEventListener(type, (event) => { event.preventDefault(); slot.classList.add('dragging'); }));
   ['dragleave', 'drop'].forEach((type) => slot.addEventListener(type, (event) => { event.preventDefault(); slot.classList.remove('dragging'); }));
@@ -1530,7 +1551,7 @@ TEXTURE_CHANNELS.forEach((channel) => {
   bindSlotDragState(slot);
   slot.addEventListener('drop', (event) => {
     if (slot.classList.contains('disabled')) return;
-    const files = Array.from(event.dataTransfer?.files ?? []);
+    const files = droppedFiles(event);
     const image = files.find((file) => file.type.startsWith('image/'));
     if (image) void setTexture(channel.id, image);
   });
@@ -1539,7 +1560,7 @@ const modelSlot = document.querySelector<HTMLElement>('[data-model-slot]');
 if (modelSlot) {
   bindSlotDragState(modelSlot);
   modelSlot.addEventListener('drop', (event) => {
-    const files = Array.from(event.dataTransfer?.files ?? []);
+    const files = droppedFiles(event);
     if (files.some((file) => modelFormat(file.name))) void setModel(files);
   });
 }
@@ -1585,8 +1606,7 @@ useSourceNormalsInput.addEventListener('change', () => {
 showNormalsInput.addEventListener('change', () => {
   state.showNormals = showNormalsInput.checked;
   renderNormalsViewControl();
-  originalViewport?.setNormalsView(state.showNormals);
-  processedViewport?.setNormalsView(state.showNormals);
+  forEachViewport((viewport) => viewport.setNormalsView(state.showNormals));
 });
 smoothAngleInput.addEventListener('input', () => {
   state.smoothAngle = Number(smoothAngleInput.value);
@@ -1632,7 +1652,7 @@ bindSunControl();
 const dropZone = document.querySelector<HTMLDivElement>('#dropZone')!;
 bindSlotDragState(dropZone);
 dropZone.addEventListener('drop', (event) => {
-  const files = Array.from(event.dataTransfer?.files ?? []);
+  const files = droppedFiles(event);
   if (files.some((file) => modelFormat(file.name))) void setModel(files);
   else if (files[0]) void setTexture('base', files[0]);
 });
@@ -1643,7 +1663,7 @@ loadConfigInput.addEventListener('change', async () => {
   try {
     await applyConfigFile(file);
   } catch (error) {
-    showToast(errorMessage(error, 'Could not load settings.'));
+    toastError(error, 'Could not load settings.');
   }
 });
 document.querySelector('#saveButton')!.addEventListener('click', saveConfig);
