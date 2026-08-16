@@ -6,13 +6,13 @@ import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
 import { createModelFileBundle, modelFormat, type ModelFileBundle, type WorldAxis } from './lib/modelFiles';
 import { collectModelTextures, type ExtractedModelTextures } from './lib/modelTextures';
-import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels, prepareSurfaceNormals, recomputeVertexNormals } from './lib/modelScene';
+import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels } from './lib/modelScene';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
 import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
 import { lightmapMatchesBaseColor } from './lib/lightmap';
 import type { NormalFormat } from './lib/normal';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY, DEFAULT_TESSELLATION } from './lib/defaults';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './lib/defaults';
 import { createRenderer } from './lib/render';
 import { lightmapIsActive, type LightState, type PreviewMode, type PreviewViewMode, type SourceImage, type State, type TextureChannelId, type TextureSlot } from './lib/state';
 import { errorMessage, safeFileName } from './lib/strings';
@@ -81,9 +81,6 @@ function defaultState(): State {
   state.sun = { direction: { ...DEFAULT_SUN_DIRECTION }, color: defaults.sunColor as string, intensity: defaults.sunIntensity as number };
   state.ambient = { color: defaults.ambientColor as string, intensity: defaults.ambientIntensity as number };
   state.worldAxis = 'blender';
-  state.useSourceNormals = false;
-  state.smoothAngle = DEFAULT_SMOOTH_ANGLE;
-  state.tessellation = DEFAULT_TESSELLATION;
   state.cameraDirection = { ...DEFAULT_CAMERA_DIRECTION };
   state.showUVOverlap = false;
   state.showUVWireframe = true;
@@ -135,11 +132,6 @@ app.innerHTML = `
               <option value="blender">Blender · Z-up</option>
               <option value="maya">Maya · Y-up</option>
             </select></label>
-            <label class="uv-overlap-control" id="normalsControl" hidden title="Use the normals embedded in the model file instead of recomputing flat normals">
-              <span>Source normals</span>
-              ${toggleControl('useSourceNormals', 'Use source normals')}
-            </label>
-
           </div>
         </div>
 
@@ -304,8 +296,6 @@ app.innerHTML = `
 
         <section class="panel normals-panel">
           <div class="panel-heading compact"><div><p class="eyebrow">SURFACE NORMALS</p><h2>Normals</h2></div></div>
-          ${rangeControl('smoothAngle', 'Smooth angle', 0, 180, 1, DEFAULT_SMOOTH_ANGLE, `${DEFAULT_SMOOTH_ANGLE}°`)}
-          ${rangeControl('tessellation', 'Tessellation', 1, 4, 1, DEFAULT_TESSELLATION, 'Off')}
           ${rangeControl('normalStrength', 'Normal strength', 0, 100, 1, 100, '100%')}
           <label class="control-row"><span><strong>Format</strong><small>Green channel convention</small></span></label>
           <select class="normal-format-select" id="normalFormat" aria-label="Normal map format">
@@ -347,8 +337,6 @@ const uvOverlapControl = document.querySelector<HTMLLabelElement>('#uvOverlapCon
 const uvOverlapInput = document.querySelector<HTMLInputElement>('#uvOverlap')!;
 const uvWireframeControl = document.querySelector<HTMLLabelElement>('#uvWireframeControl')!;
 const uvWireframeInput = document.querySelector<HTMLInputElement>('#uvWireframe')!;
-const normalsControl = document.querySelector<HTMLLabelElement>('#normalsControl')!;
-const useSourceNormalsInput = document.querySelector<HTMLInputElement>('#useSourceNormals')!;
 const originalViewToggle = document.querySelector<HTMLDivElement>('#originalViewToggle')!;
 const processedViewToggle = document.querySelector<HTMLDivElement>('#processedViewToggle')!;
 type SunElements = {
@@ -403,10 +391,6 @@ const normalStrengthInput = document.querySelector<HTMLInputElement>('#normalStr
 const normalStrengthValue = document.querySelector<HTMLOutputElement>('#normalStrengthValue')!;
 const normalFormatSelect = document.querySelector<HTMLSelectElement>('#normalFormat')!;
 const normalStatus = document.querySelector<HTMLDivElement>('#normalStatus')!;
-const smoothAngleInput = document.querySelector<HTMLInputElement>('#smoothAngle')!;
-const smoothAngleValue = document.querySelector<HTMLOutputElement>('#smoothAngleValue')!;
-const tessellationInput = document.querySelector<HTMLInputElement>('#tessellation')!;
-const tessellationValue = document.querySelector<HTMLOutputElement>('#tessellationValue')!;
 let savedCustomPalettes: CustomPalette[] = [];
 try {
   savedCustomPalettes = loadCustomPalettes(localStorage);
@@ -416,7 +400,6 @@ try {
 let editingCustomKey: string | null = null;
 let toastTimer = 0;
 let modelBundle: ModelFileBundle | null = null;
-let modelFiles: File[] = [];
 let originalPreviewMode: PreviewMode = '2d';
 let processedPreviewMode: PreviewMode = '2d';
 let originalViewport: ModelViewport | null = null;
@@ -498,7 +481,6 @@ function updatePreviewBadge(width?: number, height?: number): void {
 
 const formatPercent = (value: number): string => `${value}%`;
 const formatDegrees = (value: number): string => `${value}°`;
-const formatTessellation = (value: number): string => (value <= 1 ? 'Off' : `${value}×`);
 const formatPixels = (value: number): string => `${value} px`;
 const formatPlain = (value: number): string => String(value);
 const formatSignedFixed2 = (value: number): string => `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
@@ -552,8 +534,6 @@ function renderNormalControls(): void {
   normalStrengthInput.disabled = lightmapActive;
   normalFormatSelect.value = state.normalFormat;
   normalFormatSelect.disabled = lightmapActive;
-  syncRangeValue(smoothAngleInput, smoothAngleValue, state.smoothAngle, formatDegrees);
-  syncRangeValue(tessellationInput, tessellationValue, state.tessellation, formatTessellation);
   const image = textures.normal.image;
   normalStatus.textContent = image
     ? `${textures.normal.name} · ${image.width} × ${image.height}`
@@ -615,11 +595,6 @@ function renderWorldAxisControl(): void {
   worldAxisSelect.value = state.worldAxis;
 }
 
-function renderNormalsControl(): void {
-  syncCheckboxControl(normalsControl, useSourceNormalsInput, modelBundle !== null, state.useSourceNormals);
-}
-
-
 // Shared sync for every model-dependent control. The model load/close and reset
 // paths re-render the same cluster, so the group lives here once.
 function renderModelControls(): void {
@@ -630,7 +605,6 @@ function renderModelControls(): void {
   renderSunControl();
   renderOrientationReadout();
   renderWorldAxisControl();
-  renderNormalsControl();
   renderViewToggle();
 }
 
@@ -746,29 +720,6 @@ function applyModelLod(level: number): void {
   if (state.showUVOverlap) render();
 }
 
-function applySmoothAngle(angle: number): void {
-  const changed = angle !== state.smoothAngle;
-  state.smoothAngle = angle;
-  if (state.useSourceNormals) return;
-  if (changed && lightmapIsActive(textures)) clearLightmap();
-  if (aoBakeScene) recomputeVertexNormals(aoBakeScene, angle);
-  forEachViewport((viewport) => viewport.applySmoothAngle(angle));
-  scheduleNormalAdjustedLighting();
-}
-
-function applyTessellation(value: number): void {
-  const changed = value !== state.tessellation;
-  state.tessellation = value;
-  if (state.useSourceNormals) return;
-  if (changed && lightmapIsActive(textures)) clearLightmap();
-  if (aoBakeScene) {
-    prepareSurfaceNormals(aoBakeScene, state.smoothAngle, value);
-    applyUVChannel(aoBakeScene, state.uvMap);
-  }
-  forEachViewport((viewport) => viewport.applyTessellation(value, state.smoothAngle, state.uvMap));
-  scheduleNormalAdjustedLighting();
-}
-
 // Sun/ambient state feeds the bake only — the 3D viewports never light the model
 // in realtime. The baked lightmap (explicit or implicit) is multiplied into the
 // texture by the 2D pipeline, and the viewport displays it under a neutral white
@@ -808,7 +759,6 @@ function closeModelPreview(): void {
   originalViewport = null;
   processedViewport = null;
   modelBundle = null;
-  modelFiles = [];
   modelUVChannels = [];
   modelLodLevels = [];
   disposeAOScene(aoBakeScene);
@@ -829,10 +779,9 @@ async function setModel(files: File[]): Promise<void> {
   let bundle: ModelFileBundle | null = null;
   try {
     bundle = createModelFileBundle(files);
-    const loaded = await loadModel(bundle, files, state.worldAxis, { useSourceNormals: state.useSourceNormals, smoothAngle: state.smoothAngle, tessellation: state.tessellation });
+    const loaded = await loadModel(bundle, files, state.worldAxis);
     closeModelPreview();
     modelBundle = bundle;
-    modelFiles = files;
     const lodPreparation = prepareModelLods(loaded.scene);
     modelLodLevels = lodPreparation.levels;
     state.lodLevel = modelLodLevels[0] ?? 0;
@@ -1212,22 +1161,13 @@ async function applyPreset(preset: ConversionPreset): Promise<void> {
   const paletteSelection = selectOrCreatePalette(localStorage, paletteCatalog(), preset.palette, preset.paletteKey);
   const paletteKey = paletteSelection.key;
   savedCustomPalettes = paletteSelection.customPalettes;
-  const useSourceNormalsChanged = preset.useSourceNormals !== state.useSourceNormals;
   applyConfigValues(state, preset as unknown as Readonly<Record<string, unknown>>);
   setPaletteKey(paletteKey);
   state.uvMap = preset.uvMap;
   const selectedPalette = paletteCatalog()[paletteKey];
   hydrateEditorForSelection(paletteKey, selectedPalette);
   syncControlsFromState();
-  renderNormalsControl();
   applySun();
-  // Source normals are only applied when a model is loaded from file, so a
-  // change to the toggle needs a reload (mirrors the toggle's change handler).
-  if (useSourceNormalsChanged && modelFiles.length) {
-    await setModel(modelFiles);
-  } else if (modelBundle) {
-    applyTessellation(state.tessellation);
-  }
   if (modelBundle) {
     forEachViewport((viewport) => viewport.setCameraForward(state.cameraDirection));
   }
@@ -1733,60 +1673,6 @@ uvWireframeInput.addEventListener('change', () => {
   state.showUVWireframe = uvWireframeInput.checked;
   renderUVWireframeControl();
   render();
-});
-useSourceNormalsInput.addEventListener('change', async () => {
-  state.useSourceNormals = useSourceNormalsInput.checked;
-  renderNormalControls();
-  // Reloading the model from scratch tears the viewports down and resets both
-  // orbit cameras. Re-parse the scene and swap it in place instead, restoring
-  // each viewport's camera afterwards so the user's angle is untouched.
-  if (!modelBundle) {
-    renderNormalsControl();
-    return;
-  }
-  try {
-    const loaded = await loadModel(modelBundle, modelFiles, state.worldAxis, {
-      useSourceNormals: state.useSourceNormals,
-      smoothAngle: state.smoothAngle,
-      tessellation: state.tessellation,
-    });
-    const lodPreparation = prepareModelLods(loaded.scene);
-    modelLodLevels = lodPreparation.levels;
-    state.lodLevel = Math.min(state.lodLevel, Math.max(modelLodLevels.length - 1, 0));
-    disposeAOScene(aoBakeScene);
-    aoBakeScene = buildAOScene(loaded.scene);
-    applyLodLevel(aoBakeScene, state.lodLevel);
-    const cameraStates = [originalViewport, processedViewport].map((viewport) => viewport?.captureCamera());
-    [originalViewport, processedViewport].forEach((viewport, index) => {
-      if (!viewport) return;
-      viewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
-      viewport.applyLOD(state.lodLevel);
-      viewport.setNormalsView(index === 0 ? state.viewModeOriginal === 'normals' : state.viewModeProcessed === 'normals');
-      const captured = cameraStates[index];
-      if (captured) viewport.restoreCamera(captured);
-    });
-    if (modelUVChannels.length) applyModelUV(state.uvMap);
-    refreshUVWireframe();
-    disposeModel(loaded.scene);
-    // Normals changed — any bake computed against the old normals is stale.
-    if (lightmapIsActive(textures)) clearLightmap();
-    renderModelControls();
-    render();
-  } catch (error) {
-    state.useSourceNormals = !state.useSourceNormals;
-    renderNormalsControl();
-    toastError(error, 'Could not reload model.');
-  }
-});
-smoothAngleInput.addEventListener('input', () => {
-  const angle = Number(smoothAngleInput.value);
-  smoothAngleValue.textContent = formatDegrees(angle);
-  applySmoothAngle(angle);
-});
-tessellationInput.addEventListener('input', () => {
-  const value = Number(tessellationInput.value);
-  tessellationValue.textContent = formatTessellation(value);
-  applyTessellation(value);
 });
 function bindSunControl(): void {
   sunControlElements.orientWithCamera.addEventListener('click', () => {

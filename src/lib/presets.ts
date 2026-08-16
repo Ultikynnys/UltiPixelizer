@@ -3,7 +3,7 @@ import type { DitherMode } from './dither';
 import { clamp01 } from './math';
 import { parseJsonFile, serializeJsonFile } from './storage';
 import { slugify } from './strings';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY, DEFAULT_TESSELLATION } from './defaults';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { NormalFormat } from './normal';
 import { DEFAULT_CAMERA_DIRECTION, DEFAULT_SUN_DIRECTION, type DirectionVector } from './sunDirection';
 import type { State } from './state';
@@ -35,10 +35,7 @@ export type ConversionConfig = {
   normalStrength: number;
   normalFormat: NormalFormat;
   sunDirection: DirectionVector;
-  smoothAngle: number;
-  tessellation: number;
   cameraDirection: DirectionVector;
-  useSourceNormals: boolean;
 };
 
 export type ConversionPreset = ConversionConfig & {
@@ -70,7 +67,6 @@ const inRange = (min: number, max: number) => (value: unknown): value is number 
 const isEnum = (options: readonly string[]) => (value: unknown): value is string =>
   typeof value === 'string' && options.includes(value);
 const isHex = (value: unknown): value is string => typeof value === 'string' && isHexColor(value);
-const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
 const isDirectionVector = (value: unknown): value is DirectionVector => {
   if (typeof value !== 'object' || value === null) return false;
   const vector = value as DirectionVector;
@@ -107,10 +103,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'normalStrength', path: ['normalStrength'], default: 1, migrateDefault: 1, validate: inRange(0, 1) },
   { key: 'normalFormat', path: ['normalFormat'], default: 'opengl', migrateDefault: 'opengl', validate: isEnum(['opengl', 'directx']) },
   { key: 'sunDirection', path: ['sun', 'direction'], default: DEFAULT_SUN_DIRECTION, migrateDefault: DEFAULT_SUN_DIRECTION, validate: isDirectionVector },
-  { key: 'smoothAngle', path: ['smoothAngle'], default: DEFAULT_SMOOTH_ANGLE, migrateDefault: DEFAULT_SMOOTH_ANGLE, validate: inRange(0, 180) },
-  { key: 'tessellation', path: ['tessellation'], default: DEFAULT_TESSELLATION, migrateDefault: DEFAULT_TESSELLATION, validate: inRange(1, 4) },
   { key: 'cameraDirection', path: ['cameraDirection'], default: DEFAULT_CAMERA_DIRECTION, migrateDefault: DEFAULT_CAMERA_DIRECTION, validate: isDirectionVector },
-  { key: 'useSourceNormals', path: ['useSourceNormals'], default: false, migrateDefault: false, validate: isBoolean },
 ];
 
 function readPath(state: State, path: readonly string[]): unknown {

@@ -34,7 +34,7 @@ import { USDLoader } from 'three/addons/loaders/USDLoader.js';
 import { createCanvas } from './canvas';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
-import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, forEachMeshIndexed, materialsOf, prepareSurfaceNormals, recomputeVertexNormals, triangleIndices } from './modelScene';
+import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, forEachMeshIndexed, materialsOf, triangleIndices } from './modelScene';
 import { cameraForwardFromQuaternion, normalizeDirection, type DirectionVector } from './sunDirection';
 import { UV_OVERLAP_LABEL } from './uvOverlap';
 
@@ -73,13 +73,10 @@ function orientToWorldAxis(object: Object3D, worldAxis: WorldAxis): void {
   object.rotation.set(upAxisRotation(worldAxis), 0, 0);
 }
 
-export type LoadModelOptions = { useSourceNormals?: boolean; smoothAngle?: number; tessellation?: number };
-
 export async function loadModel(
   bundle: ModelFileBundle,
   files: File[],
   worldAxis: WorldAxis,
-  options: LoadModelOptions = {},
 ): Promise<LoadedModel> {
   const manager = configureManager(bundle);
   let scene: Object3D;
@@ -134,7 +131,6 @@ export async function loadModel(
     animations = [];
   }
 
-  if (!options.useSourceNormals) prepareSurfaceNormals(scene, options.smoothAngle, options.tessellation);
   convertToLambertShading(scene);
   return { scene, animations };
 }
@@ -240,22 +236,6 @@ export class ModelViewport {
 
   applyLOD(level: number): number {
     return this.model ? applyLodLevel(this.model, level) : 0;
-  }
-
-  /** Re-smooths the model's normals in place at the given smooth angle (a no-op
-   * while source normals are in effect). */
-  applySmoothAngle(angle: number): void {
-    if (!this.model) return;
-    recomputeVertexNormals(this.model, angle);
-  }
-
-  /** Re-tessellates the model from its pristine base geometry at the given
-   * density, re-smooths at `angle`, and restores the active UV channel (the
-   * rebuild produces a fresh geometry with the primary channel active). */
-  applyTessellation(tessellation: number, angle: number, uvChannel: string): void {
-    if (!this.model) return;
-    prepareSurfaceNormals(this.model, angle, tessellation);
-    applyUVChannel(this.model, uvChannel);
   }
 
   /** Swaps every mesh to a normals-as-color material for visual debugging, and

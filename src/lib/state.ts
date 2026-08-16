@@ -33,9 +33,6 @@ export type State = {
   sun: SunState;
   ambient: LightState;
   worldAxis: WorldAxis;
-  useSourceNormals: boolean;
-  smoothAngle: number;
-  tessellation: number;
   cameraDirection: DirectionVector;
   stripeAngle: number;
   noiseScale: number;
