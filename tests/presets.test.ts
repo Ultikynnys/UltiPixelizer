@@ -76,7 +76,7 @@ describe('conversion presets', () => {
     expect(parsed.sunColor).toBe('#ffffff');
     expect(parsed.sunIntensity).toBe(1);
     expect(parsed.ambientColor).toBe('#ffffff');
-    expect(parsed.ambientIntensity).toBe(0.7);
+    expect(parsed.ambientIntensity).toBe(0.2);
   });
 
   it('rejects empty names, malformed JSON, invalid exports, and unsupported settings', () => {
@@ -184,12 +184,12 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       noiseScale: 1,
       seed: 1,
       aoBias: 0,
-      aoScale: 0.2,
+      aoScale: 1,
       aoDistance: 2,
       sunColor: '#ffffff',
       sunIntensity: 1,
       ambientColor: '#ffffff',
-      ambientIntensity: 0.7,
+      ambientIntensity: 0.2,
       normalStrength: 1,
       normalFormat: 'opengl',
     });

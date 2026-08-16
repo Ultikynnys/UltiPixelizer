@@ -288,8 +288,8 @@ app.innerHTML = `
           <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING / 04</p><h2>Ambient occlusion</h2></div></div>
           <label class="control-row"><span><strong>Bias</strong><small>Shift occlusion baseline</small></span><output id="aoBiasValue">+0.00</output></label>
           <input class="range" id="aoBias" type="range" min="-1" max="1" step="0.01" value="0" aria-label="Ambient occlusion bias" />
-          <label class="control-row"><span><strong>Scale</strong><small>Occlusion strength</small></span><output id="aoScaleValue">0.20×</output></label>
-          <input class="range" id="aoScale" type="range" min="0" max="2" step="0.01" value="0.2" aria-label="Ambient occlusion scale" />
+          <label class="control-row"><span><strong>Scale</strong><small>Occlusion strength</small></span><output id="aoScaleValue">1.00×</output></label>
+          <input class="range" id="aoScale" type="range" min="0" max="2" step="0.01" value="1" aria-label="Ambient occlusion scale" />
           <label class="control-row"><span><strong>Distance</strong><small>Ray reach for generated AO</small></span><output id="aoDistanceValue">2.00×</output></label>
           <input class="range" id="aoDistance" type="range" min="0.05" max="3" step="0.05" value="2" aria-label="Ambient occlusion distance" />
           <button class="button button-secondary button-full" id="generateAoButton" type="button">Generate AO</button>

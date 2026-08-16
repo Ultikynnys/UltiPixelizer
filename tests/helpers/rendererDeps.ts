@@ -18,7 +18,7 @@ export function createStateFixture(): State {
     uvMap: 'uv',
     lodLevel: 0,
     sun: { color: '#ffffff', intensity: 1, direction: { x: -0.5, y: -0.5, z: -0.5 }, enabled: true },
-    ambient: { color: '#ffffff', intensity: 0.7, enabled: true },
+    ambient: { color: '#ffffff', intensity: 0.2, enabled: true },
     worldAxis: 'maya',
     useSourceNormals: false,
     smoothAngle: 30,
