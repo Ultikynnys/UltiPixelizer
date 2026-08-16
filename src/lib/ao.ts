@@ -22,26 +22,26 @@ export function redChannelFactors(source: AOFactorSource, invert = false): Uint8
 
 /**
  * Returns the AO visibility multiplier for one factor (0–255, 255 = fully
- * unoccluded) after the bias/scale remap: 1 = no AO effect, 0 = fully
+ * unoccluded) after the bias/power remap: 1 = no AO effect, 0 = fully
  * occluded. Clamped to [0, 1]. Shared by the lighting pass (applyAO) and the
  * AO inspection views so the preview always shows the occlusion the bake
- * applies — with defaults (bias 0, scale 1) it is the identity (factor/255).
+ * applies — with defaults (bias 0, power 1) it is the identity (factor/255).
  *
  * - `bias` shifts the whole occlusion curve (−1 = fully bright, +1 = fully dark).
- * - `scale` scales occlusion strength (0 = no effect, 1 = as baked).
+ * - `power` reshapes the curve as an exponent (1 = as baked; >1 darkens,
+ *   <1 brightens; 0 = no AO).
  */
-export function aoMultiplier(factor: number, bias: number, scale: number): number {
-  const occlusion = 1 - factor / 255;
-  return 1 - clamp01(bias + scale * occlusion);
+export function aoMultiplier(factor: number, bias: number, power: number): number {
+  return clamp01((factor / 255) ** power - bias);
 }
 
 /**
- * Remaps each pixel's AO occlusion with bias/scale, then multiplies its RGB by
+ * Remaps each pixel's AO occlusion with bias/power, then multiplies its RGB by
  * the remaining visibility (see aoMultiplier). Mutates `data` in place.
  */
-export function applyAO(data: Uint8ClampedArray, factors: Uint8ClampedArray, bias = 0, scale = 1): void {
+export function applyAO(data: Uint8ClampedArray, factors: Uint8ClampedArray, bias = 0, power = 1): void {
   for (let i = 0; i < factors.length; i += 1) {
-    const multiplier = aoMultiplier(factors[i], bias, scale);
+    const multiplier = aoMultiplier(factors[i], bias, power);
     const offset = i * 4;
     data[offset] = data[offset] * multiplier;
     data[offset + 1] = data[offset + 1] * multiplier;

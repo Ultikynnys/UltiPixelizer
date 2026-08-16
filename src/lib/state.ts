@@ -38,7 +38,7 @@ export type State = {
   noiseScale: number;
   seed: number;
   aoBias: number;
-  aoScale: number;
+  aoPower: number;
   aoDistance: number;
   normalStrength: number;
   normalFormat: NormalFormat;

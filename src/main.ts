@@ -280,7 +280,7 @@ app.innerHTML = `
         <section class="panel">
           <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING</p><h2>Ambient occlusion</h2></div></div>
           ${rangeControl('aoBias', 'Bias', -1, 1, 0.01, 0, '+0.00', 'Shift occlusion baseline')}
-          ${rangeControl('aoScale', 'Scale', 0, 2, 0.01, 1, '1.00×', 'Occlusion strength')}
+          ${rangeControl('aoPower', 'Power', 0, 16, 0.01, 1, '1.00', 'Occlusion curve exponent (1 = as baked)')}
           ${rangeControl('aoDistance', 'Distance', 0.05, 3, 0.05, 2, '2.00×', 'Ray reach for generated AO')}
         </section>
 
@@ -363,8 +363,8 @@ const originalPreviewToggle = document.querySelector<HTMLDivElement>('#originalP
 const processedPreviewToggle = document.querySelector<HTMLDivElement>('#processedPreviewToggle')!;
 const aoBiasInput = document.querySelector<HTMLInputElement>('#aoBias')!;
 const aoBiasValue = document.querySelector<HTMLOutputElement>('#aoBiasValue')!;
-const aoScaleInput = document.querySelector<HTMLInputElement>('#aoScale')!;
-const aoScaleValue = document.querySelector<HTMLOutputElement>('#aoScaleValue')!;
+const aoPowerInput = document.querySelector<HTMLInputElement>('#aoPower')!;
+const aoPowerValue = document.querySelector<HTMLOutputElement>('#aoPowerValue')!;
 const aoDistanceInput = document.querySelector<HTMLInputElement>('#aoDistance')!;
 const aoDistanceValue = document.querySelector<HTMLOutputElement>('#aoDistanceValue')!;
 const strengthInput = document.querySelector<HTMLInputElement>('#strength')!;
@@ -666,7 +666,7 @@ function updatePatternControls(): void {
 
 function updateAOControls(): void {
   syncRangeValue(aoBiasInput, aoBiasValue, Math.round(state.aoBias * 100) / 100, formatSignedFixed2);
-  syncRangeValue(aoScaleInput, aoScaleValue, Math.round(state.aoScale * 100) / 100, formatTimes2);
+  syncRangeValue(aoPowerInput, aoPowerValue, Math.round(state.aoPower * 100) / 100, formatFixed2);
   syncRangeValue(aoDistanceInput, aoDistanceValue, state.aoDistance, formatTimes2);
   renderLightmapControls();
 }
@@ -1465,10 +1465,10 @@ bindRange({
   apply: (value) => { state.aoBias = Math.round(value * 100) / 100; },
 });
 bindRange({
-  input: aoScaleInput,
-  output: aoScaleValue,
-  format: formatTimes2,
-  apply: (value) => { state.aoScale = Math.round(value * 100) / 100; },
+  input: aoPowerInput,
+  output: aoPowerValue,
+  format: formatFixed2,
+  apply: (value) => { state.aoPower = Math.round(value * 100) / 100; },
 });
 bindRange({
   input: aoDistanceInput,

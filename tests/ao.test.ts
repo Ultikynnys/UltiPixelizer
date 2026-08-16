@@ -37,7 +37,7 @@ describe('ambient occlusion factors', () => {
     expect(Array.from(data.slice(8, 11))).toEqual([100, 50, 25]);
   });
 
-  it('scale of zero leaves pixels unchanged', () => {
+  it('power of zero leaves pixels unchanged', () => {
     const data = frame([[200, 100, 50, 255]]);
     applyAO(data, new Uint8ClampedArray([0]), 0, 0);
     expect(Array.from(data.slice(0, 3))).toEqual([200, 100, 50]);
@@ -53,32 +53,40 @@ describe('ambient occlusion factors', () => {
 
   it('clamps remapped occlusion so AO never exceeds [0, 1]', () => {
     const data = frame([[100, 100, 100, 255], [100, 100, 100, 255]]);
-    applyAO(data, new Uint8ClampedArray([0, 255]), -1, 4);
+    applyAO(data, new Uint8ClampedArray([0, 255]), 1, 4);
+    // Fully occluded (v=0): 0^4 − 1 = −1 → clamped 0 → black.
     expect(Array.from(data.slice(0, 3))).toEqual([0, 0, 0]);
-    expect(Array.from(data.slice(4, 7))).toEqual([100, 100, 100]);
+    // Unoccluded (v=1): 1 − 1 = 0 → multiplier 0 → black (bias +1 = fully dark).
+    expect(Array.from(data.slice(4, 7))).toEqual([0, 0, 0]);
   });
 });
 
 describe('AO multiplier remap', () => {
-  it('is the raw visibility at default bias and scale', () => {
+  it('is the raw visibility at default bias and power', () => {
     expect(aoMultiplier(200, 0, 1)).toBeCloseTo(200 / 255);
     expect(aoMultiplier(0, 0, 1)).toBe(0);
     expect(aoMultiplier(255, 0, 1)).toBe(1);
   });
 
-  it('returns 1 (no AO) when scale is zero', () => {
+  it('returns 1 (no AO) when power is zero', () => {
     expect(aoMultiplier(0, 0, 0)).toBe(1);
     expect(aoMultiplier(128, 0, 0)).toBe(1);
   });
 
+  it('darkens more above power 1 and less below it', () => {
+    // Higher power shrinks visibility^power, lowering the multiplier.
+    expect(aoMultiplier(200, 0, 2)).toBeCloseTo((200 / 255) ** 2);
+    expect(aoMultiplier(200, 0, 0.5)).toBeCloseTo(Math.sqrt(200 / 255));
+  });
+
   it('raises the baseline with positive bias', () => {
-    // Unoccluded factor 255 → occlusion 0 → adjusted 0.5 → multiplier 0.5.
+    // Unoccluded factor 255 → visibility 1 → multiplier 1 − 0.5.
     expect(aoMultiplier(255, 0.5, 1)).toBe(0.5);
   });
 
   it('clamps the remap to [0, 1]', () => {
-    expect(aoMultiplier(0, -1, 4)).toBe(0); // occlusion 1, adjusted 3 → clamped 1
-    expect(aoMultiplier(255, -1, 4)).toBe(1); // occlusion 0, adjusted −1 → clamped 0
+    expect(aoMultiplier(0, 1, 4)).toBe(0); // 0 − 1 = −1 → clamped 0
+    expect(aoMultiplier(255, -1, 4)).toBe(1); // 1 + 1 = 2 → clamped 1
   });
 });
 

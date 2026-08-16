@@ -26,7 +26,7 @@ export function createStateFixture(): State {
     noiseScale: 1,
     seed: 1,
     aoBias: 0,
-    aoScale: 1,
+    aoPower: 1,
     aoDistance: 2,
     normalStrength: 1,
     normalFormat: 'opengl',

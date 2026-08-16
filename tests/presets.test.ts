@@ -27,7 +27,7 @@ const config: ConversionConfig = {
   noiseScale: 1,
   seed: 1,
   aoBias: 0,
-  aoScale: 1,
+  aoPower: 1,
   aoDistance: 2,
   sunColor: '#ffd8a8',
   sunIntensity: 0.9,
@@ -62,13 +62,14 @@ describe('conversion presets', () => {
     expect(parsePreset(JSON.stringify(legacy)).seed).toBe(1);
   });
 
-  it('migrates presets saved before AO bias/scale existed', () => {
+  it('migrates presets saved before AO bias/power existed', () => {
     const oldPreset = createPreset('Legacy', '', config);
-    const { aoBias: _bias, aoScale: _scale, ...legacy } = oldPreset;
+    const { aoBias: _bias, aoPower: _power, ...legacy } = oldPreset;
     const parsed = parsePreset(JSON.stringify({ ...legacy, version: 1, aoIntensity: 0.6 }));
-    expect(parsed.aoScale).toBe(0.6);
+    expect(parsed.aoPower).toBe(0.6);
     expect(parsed.aoBias).toBe(0);
     expect('aoIntensity' in parsed).toBe(false);
+    expect('aoScale' in parsed).toBe(false);
   });
 
   it('migrates presets saved before configurable lighting existed', () => {
@@ -192,7 +193,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       noiseScale: 1,
       seed: 1,
       aoBias: 0,
-      aoScale: 1,
+      aoPower: 1,
       aoDistance: 2,
       sun: { color: '#ffd8a8', intensity: 0.9, direction: { x: -0.5, y: -0.7071067811865476, z: -0.5 } },
       ambient: { color: '#8fb4ff', intensity: 0.6 },
@@ -216,7 +217,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       noiseScale: 1,
       seed: 1,
       aoBias: 0,
-      aoScale: 1,
+      aoPower: 1,
       aoDistance: 2,
       sunColor: '#ffffff',
       sunIntensity: 1,
@@ -245,7 +246,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       noiseScale: 1,
       seed: 1,
       aoBias: 0,
-      aoScale: 1,
+      aoPower: 1,
       aoDistance: 2,
       sunColor: '#ffd8a8',
       sunIntensity: 0.9,

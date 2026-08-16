@@ -124,20 +124,20 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 
-  it('applies AO scale in the Lightmap+AO view mode', () => {
+  it('applies AO power in the Lightmap+AO view mode', () => {
     const ao = solidTexture([128, 128, 128, 255]); // 50% visibility
     const lightmap = solidTexture([200, 200, 200, 255]);
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: lightmap, name: '' } } });
     deps.state.viewModeOriginal = 'lightmap-ao';
     deps.state.viewModeProcessed = 'lightmap-ao';
-    deps.state.aoScale = 0.5;
+    deps.state.aoPower = 0.5;
     const shared = sharedState();
     createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
 
-    // 50% visibility at scale 0.5 → visibility 1 − 0.5×(127/255) ≈ 0.751 → 200 × 0.751 ≈ 150 (truncated).
+    // 50% visibility at power 0.5 → visibility √(128/255) ≈ 0.708 → 200 × 0.708 ≈ 141.7 → 142 (clamped-array rounds).
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([
-      150, 150, 150, 255, 150, 150, 150, 255,
-      150, 150, 150, 255, 150, 150, 150, 255,
+      142, 142, 142, 255, 142, 142, 142, 255,
+      142, 142, 142, 255, 142, 142, 142, 255,
     ]);
   });
 
@@ -156,17 +156,17 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
   });
 
-  it('applies AO scale in the AO-only view mode', () => {
+  it('applies AO power in the AO-only view mode', () => {
     const ao = solidTexture([200, 200, 200, 255]);
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
     deps.state.viewModeOriginal = 'ao';
     deps.state.viewModeProcessed = 'ao';
-    deps.state.aoScale = 2;
+    deps.state.aoPower = 2;
     const shared = sharedState();
     createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
 
-    // 200/255 visibility at scale 2 → multiplier 1 − 2×(55/255) = 145/255 → 145 gray.
-    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([145, 145, 145, 255]);
+    // 200/255 visibility at power 2 → (200/255)² ≈ 0.615 → 157 gray.
+    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([157, 157, 157, 255]);
   });
 
   it('applies AO bias in the AO-only view mode', () => {

@@ -36,7 +36,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
 
   function applyLighting(data: Uint8ClampedArray, width: number, height: number): void {
     const aoFactors = currentAOFactors(width, height);
-    if (aoFactors) applyAO(data, aoFactors, state.aoBias, state.aoScale);
+    if (aoFactors) applyAO(data, aoFactors, state.aoBias, state.aoPower);
     const lightmapPixels = currentLightmapPixels(width, height);
     if (lightmapPixels) applyLightmap(data, lightmapPixels);
   }
@@ -69,7 +69,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
       const combined = new Uint8ClampedArray(width * height * 4);
       for (let i = 0; i < width * height; i += 1) {
         const offset = i * 4;
-        const visibility = aoMultiplier(aoFactors[i], state.aoBias, state.aoScale);
+        const visibility = aoMultiplier(aoFactors[i], state.aoBias, state.aoPower);
         combined[offset] = lightmapPixels[offset] * visibility;
         combined[offset + 1] = lightmapPixels[offset + 1] * visibility;
         combined[offset + 2] = lightmapPixels[offset + 2] * visibility;
@@ -90,7 +90,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
       const aoHeight = aoImage.height;
       const remapped = new Uint8ClampedArray(aoPixels.length);
       for (let i = 0; i < aoWidth * aoHeight; i += 1) {
-        const gray = Math.round(aoMultiplier(aoPixels[i * 4], state.aoBias, state.aoScale) * 255);
+        const gray = Math.round(aoMultiplier(aoPixels[i * 4], state.aoBias, state.aoPower) * 255);
         const offset = i * 4;
         remapped[offset] = gray;
         remapped[offset + 1] = gray;

@@ -8,7 +8,7 @@ import type { NormalFormat } from './normal';
 import { DEFAULT_CAMERA_DIRECTION, DEFAULT_SUN_DIRECTION, type DirectionVector } from './sunDirection';
 import type { State } from './state';
 
-export const PRESET_VERSION = 6;
+export const PRESET_VERSION = 7;
 
 export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'none'];
 
@@ -26,7 +26,7 @@ export type ConversionConfig = {
   noiseScale: number;
   seed: number;
   aoBias: number;
-  aoScale: number;
+  aoPower: number;
   aoDistance: number;
   sunColor: string;
   sunIntensity: number;
@@ -94,7 +94,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'noiseScale', path: ['noiseScale'], default: 1, migrateDefault: 1, validate: inRange(1, 32) },
   { key: 'seed', path: ['seed'], default: 1, migrateDefault: 1, validate: inRange(0, 9999) },
   { key: 'aoBias', path: ['aoBias'], default: 0, migrateDefault: 0, validate: inRange(-1, 1) },
-  { key: 'aoScale', path: ['aoScale'], default: 1, migrateDefault: 1, validate: inRange(0, 2) },
+  { key: 'aoPower', path: ['aoPower'], default: 1, migrateDefault: 1, validate: inRange(0, 16) },
   { key: 'aoDistance', path: ['aoDistance'], default: 2, migrateDefault: 2, validate: inRange(0.05, 3) },
   { key: 'sunColor', path: ['sun', 'color'], default: '#ffffff', migrateDefault: '#ffffff', validate: isHex },
   { key: 'sunIntensity', path: ['sun', 'intensity'], default: DEFAULT_SUN_INTENSITY, migrateDefault: DEFAULT_SUN_INTENSITY, validate: inRange(0, 1) },
@@ -206,6 +206,12 @@ function migratePreset(value: unknown): unknown {
       ambientIntensity: ambientEnabled === false ? 0 : rest.ambientIntensity,
     };
   }
+  if (preset.version === 6) {
+    // v7 renamed AO "Scale" to "Power" (an exponent). Carry the value over
+    // 1:1 — both default to 1 ("as baked"); only the curve shape differs.
+    const { aoScale, ...rest } = preset;
+    preset = { ...rest, version: PRESET_VERSION, aoPower: typeof aoScale === 'number' ? aoScale : 1 };
+  }
   if (preset.version !== PRESET_VERSION) return value;
   const migrated: Record<string, unknown> = { ...preset };
   if (migrated.mode === 'diagonal') {
@@ -215,6 +221,10 @@ function migratePreset(value: unknown): unknown {
     migrated.mode = 'stripes';
     migrated.stripeAngle = 0;
   }
+  // v7 renamed AO "Scale" to "Power"; older migrations that jumped straight
+  // to the current version may still carry aoScale — convert and drop it.
+  if (migrated.aoPower === undefined && typeof migrated.aoScale === 'number') migrated.aoPower = migrated.aoScale;
+  delete migrated.aoScale;
   if (migrated.uvMap === undefined) migrated.uvMap = 'uv';
   for (const field of CONFIG_FIELDS) {
     if (field.migrateDefault !== undefined && migrated[field.key] === undefined) migrated[field.key] = field.migrateDefault;
