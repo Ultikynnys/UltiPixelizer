@@ -40,7 +40,6 @@ export type State = {
   aoBias: number;
   aoScale: number;
   aoDistance: number;
-  lightmapContribution: number;
   normalStrength: number;
   normalFormat: NormalFormat;
   showUVOverlap: boolean;

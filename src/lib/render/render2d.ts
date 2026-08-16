@@ -37,7 +37,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
     const aoFactors = currentAOFactors(width, height);
     if (aoFactors) applyAO(data, aoFactors, state.aoBias, state.aoScale);
     const lightmapPixels = currentLightmapPixels(width, height);
-    if (lightmapPixels) applyLightmap(data, lightmapPixels, state.lightmapContribution);
+    if (lightmapPixels) applyLightmap(data, lightmapPixels);
   }
 
   /** Lightmap-only view shows the raw map, so lighting (AO + lightmap multiply)

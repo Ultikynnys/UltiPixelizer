@@ -1,6 +1,6 @@
 import './style.css';
 import { createCanvas, createSampleTexture, downloadCanvas, downloadText, loadImageFile } from './lib/canvas';
-import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomPalettes, parseCustomPalette, selectOrCreatePalette, serializeCustomPalette, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
+import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomPalettes, paletteFromImport, selectOrCreatePalette, serializeCustomPalette, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
 import type { DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
@@ -232,7 +232,7 @@ app.innerHTML = `
               <div id="customColors" class="custom-colors"></div>
             </fieldset>
           </details>
-          <input id="importCustomPalette" type="file" accept="application/json,.json" hidden />
+          <input id="importCustomPalette" type="file" accept=".json,.hex,.txt,application/json" hidden />
         </section>
 
         <section class="panel">
@@ -307,8 +307,6 @@ app.innerHTML = `
         <section class="panel lightmap-panel">
           <div class="panel-heading compact"><div><p class="eyebrow">LIGHTMAP BAKE / 06</p><h2>Baked lighting</h2></div></div>
           <p class="panel-description">Bake the current sun and ambient lighting into UV space, or load a matching custom lightmap.</p>
-          <label class="control-row"><span><strong>Contribution</strong><small>White to full lightmap</small></span><output id="lightmapContributionValue">100%</output></label>
-          <input class="range" id="lightmapContribution" type="range" min="0" max="100" step="1" value="100" aria-label="Lightmap contribution" />
           <div class="lightmap-status" id="lightmapStatus">No lightmap loaded</div>
           <button class="button button-secondary button-full" id="bakeLightmapButton" type="button">Generate Lighting</button>
         </section>
@@ -395,8 +393,6 @@ const aoDistanceValue = document.querySelector<HTMLOutputElement>('#aoDistanceVa
 const strengthInput = document.querySelector<HTMLInputElement>('#strength')!;
 const strengthValue = document.querySelector<HTMLOutputElement>('#strengthValue')!;
 const generateAoButton = document.querySelector<HTMLButtonElement>('#generateAoButton')!;
-const lightmapContributionInput = document.querySelector<HTMLInputElement>('#lightmapContribution')!;
-const lightmapContributionValue = document.querySelector<HTMLOutputElement>('#lightmapContributionValue')!;
 const lightmapStatus = document.querySelector<HTMLDivElement>('#lightmapStatus')!;
 const bakeLightmapButton = document.querySelector<HTMLButtonElement>('#bakeLightmapButton')!;
 const normalStrengthInput = document.querySelector<HTMLInputElement>('#normalStrength')!;
@@ -507,8 +503,6 @@ const formatSignedInt = (value: number): string => `${value > 0 ? '+' : ''}${val
 
 function renderLightmapControls(): void {
   const lightmap = textures.lightmap.image;
-  const contribution = Math.round(state.lightmapContribution * 100);
-  syncRangeValue(lightmapContributionInput, lightmapContributionValue, contribution, formatPercent);
   lightmapStatus.textContent = lightmap
     ? `${textures.lightmap.name} · ${lightmap.width} × ${lightmap.height}`
     : 'No lightmap loaded';
@@ -1406,12 +1400,6 @@ bindRange({
   apply: (value) => { state.aoDistance = value; },
 });
 bindRange({
-  input: lightmapContributionInput,
-  output: lightmapContributionValue,
-  format: formatPercent,
-  apply: (value) => { state.lightmapContribution = value / 100; },
-});
-bindRange({
   input: normalStrengthInput,
   output: normalStrengthValue,
   format: formatPercent,
@@ -1516,13 +1504,13 @@ importCustomPaletteInput.addEventListener('change', async () => {
   if (!file) return;
   try {
     if (file.size > 100_000) throw new Error('Palette file is too large.');
-    const palette = parseCustomPalette(await file.text());
+    const palette = paletteFromImport(await file.text(), file.name);
     savedCustomPalettes = upsertCustomPalette(localStorage, palette);
     state.paletteKey = palette.key;
     beginCustomDraft(palette.name, palette.description, palette.colors, palette.key);
-    showToast(`Imported custom palette “${palette.name}”`);
+    showToast(`Imported palette “${palette.name}”`);
   } catch (error) {
-    toastError(error, 'Could not import custom palette.');
+    toastError(error, 'Could not import palette.');
   } finally {
     importCustomPaletteInput.value = '';
   }

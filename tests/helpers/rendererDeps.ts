@@ -29,7 +29,6 @@ export function createStateFixture(): State {
     aoBias: 0,
     aoScale: 1,
     aoDistance: 2,
-    lightmapContribution: 1,
     normalStrength: 1,
     normalFormat: 'opengl',
     showUVOverlap: false,

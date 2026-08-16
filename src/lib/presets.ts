@@ -31,7 +31,6 @@ export type ConversionConfig = {
   sunIntensity: number;
   ambientColor: string;
   ambientIntensity: number;
-  lightmapContribution: number;
   normalStrength: number;
   normalFormat: NormalFormat;
 };
@@ -90,7 +89,6 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'sunIntensity', path: ['sun', 'intensity'], default: DEFAULT_SUN_INTENSITY, migrateDefault: DEFAULT_SUN_INTENSITY, validate: inRange(0, 1) },
   { key: 'ambientColor', path: ['ambient', 'color'], default: '#ffffff', migrateDefault: '#ffffff', validate: isHex },
   { key: 'ambientIntensity', path: ['ambient', 'intensity'], default: DEFAULT_AMBIENT_INTENSITY, migrateDefault: DEFAULT_AMBIENT_INTENSITY, validate: inRange(0, 1) },
-  { key: 'lightmapContribution', path: ['lightmapContribution'], default: 1, migrateDefault: 1, validate: inRange(0, 1) },
   { key: 'normalStrength', path: ['normalStrength'], default: 1, migrateDefault: 1, validate: inRange(0, 1) },
   { key: 'normalFormat', path: ['normalFormat'], default: 'opengl', migrateDefault: 'opengl', validate: isEnum(['opengl', 'directx']) },
 ];

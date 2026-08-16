@@ -32,7 +32,6 @@ const config: ConversionConfig = {
   sunIntensity: 0.9,
   ambientColor: '#8fb4ff',
   ambientIntensity: 0.6,
-  lightmapContribution: 0.75,
   normalStrength: 0.6,
   normalFormat: 'opengl',
 };
@@ -103,13 +102,13 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...base, ambientIntensity: -0.1 })).toBe(false);
   });
 
-  it('migrates and validates lightmap contribution', () => {
-    const current = createPreset('Legacy lightmap', '', config);
-    const { lightmapContribution: _removed, ...legacy } = current;
-    expect(parsePreset(JSON.stringify({ ...legacy, version: 3 })).lightmapContribution).toBe(1);
-    expect(isConversionPreset({ ...current, lightmapContribution: 0 })).toBe(true);
-    expect(isConversionPreset({ ...current, lightmapContribution: 1 })).toBe(true);
-    expect(isConversionPreset({ ...current, lightmapContribution: 1.01 })).toBe(false);
+  it('tolerates the removed lightmap contribution key in legacy presets', () => {
+    const current = createPreset('Legacy contribution', '', config);
+    // Old preset files may still carry the removed lightmap-contribution
+    // setting; validation only checks known fields, so they keep loading (the
+    // key is simply ignored from here on).
+    expect(isConversionPreset({ ...current, lightmapContribution: 0.5 })).toBe(true);
+    expect(parsePreset(JSON.stringify({ ...current, lightmapContribution: 0.5 })).resolution).toBe(128);
   });
 
   it('migrates presets saved before normal mapping existed', () => {
@@ -166,7 +165,6 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       aoDistance: 2,
       sun: { color: '#ffd8a8', intensity: 0.9, direction: { x: -0.5, y: -0.7071067811865476, z: -0.5 }, enabled: true },
       ambient: { color: '#8fb4ff', intensity: 0.6, enabled: true },
-      lightmapContribution: 0.75,
       normalStrength: 0.6,
       normalFormat: 'opengl',
     } as State;
@@ -174,7 +172,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(19);
+    expect(Object.keys(defaults)).toHaveLength(18);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -192,7 +190,6 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       sunIntensity: 1,
       ambientColor: '#ffffff',
       ambientIntensity: 0.7,
-      lightmapContribution: 1,
       normalStrength: 1,
       normalFormat: 'opengl',
     });
@@ -220,7 +217,6 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       sunIntensity: 0.9,
       ambientColor: '#8fb4ff',
       ambientIntensity: 0.6,
-      lightmapContribution: 0.75,
       normalStrength: 0.6,
       normalFormat: 'opengl',
     });
@@ -233,14 +229,12 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       sunColor: '#ff0000',
       sunIntensity: 0.5,
       ambientIntensity: 0.3,
-      lightmapContribution: 0.25,
       normalFormat: 'directx',
     });
     expect(state.resolution).toBe(64);
     expect(state.sun.color).toBe('#ff0000');
     expect(state.sun.intensity).toBe(0.5);
     expect(state.ambient.intensity).toBe(0.3);
-    expect(state.lightmapContribution).toBe(0.25);
     expect(state.normalFormat).toBe('directx');
     // Fields not present in the table are left untouched.
     expect((state as unknown as Record<string, unknown>).paletteKey).toBeUndefined();
