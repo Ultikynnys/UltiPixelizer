@@ -138,10 +138,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="v${{ steps.version.outputs.version }}"
+          # The downloaded artifact keeps the bundle subdirectories (appimage/,
+          # deb/, msi/, nsis/...) — globbing `release/*` would pass directories
+          # to gh, which errors. Upload only files, at any depth.
+          mapfile -d '' INSTALLERS < <(find release -type f -print0)
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" release/* --clobber
+            gh release upload "$TAG" "${INSTALLERS[@]}" --clobber
           else
-            gh release create "$TAG" release/* \
+            gh release create "$TAG" "${INSTALLERS[@]}" \
               --title "UltiPixelizer $TAG" \
               --notes "Standalone UltiPixelizer build (Windows .msi/.exe, Linux .AppImage/.deb). All processing stays on-device."
           fi
