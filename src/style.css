@@ -110,7 +110,7 @@ button { color: inherit; }
   font: 600 8px 'DM Mono', monospace; margin: 7px 0 3px; padding: 7px 8px; text-transform: uppercase; width: 136px;
 }
 .orient-sun-button:hover:not(:disabled) { color: var(--paper); }
-.orient-sun-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.orient-sun-button:focus-visible { background: var(--accent); color: var(--on-accent); }
 .orient-sun-button:disabled { cursor: not-allowed; opacity: .35; }
 .orientation-readout { display: grid; gap: 4px; margin-top: 7px; padding-top: 7px; width: 136px; }
 .orientation-row { align-items: center; display: flex; font: 500 8px 'DM Mono', monospace; justify-content: space-between; }
@@ -121,7 +121,7 @@ button { color: inherit; }
 .sun-toggle input::after { background: var(--paper-dim); content: ''; height: 6px; left: 1px; position: absolute; top: 1px; transition: left .15s ease, background .15s ease; width: 6px; }
 .sun-toggle input:checked { background: var(--accent); }
 .sun-toggle input:checked::after { background: var(--ink); left: 10px; }
-.sun-toggle input:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.sun-toggle input:focus-visible { background: color-mix(in srgb, var(--accent) 55%, var(--raised)); }
 .sun-toggle input:disabled { cursor: not-allowed; opacity: .35; }
 .light-controls { display: grid; gap: 6px; margin-top: 3px; padding-top: 7px; width: 136px; }
 .light-color-control { align-items: center; color: var(--muted); display: grid; font: 500 8px 'DM Mono', monospace; gap: 5px; grid-template-columns: 1fr 28px; position: relative; }
@@ -168,10 +168,9 @@ button { color: inherit; }
 .texture-ribbon { align-items: center; display: flex; gap: 10px; padding: 12px 28px; }
 .texture-slot { align-items: center; background: var(--stage); cursor: pointer; display: flex; flex-direction: column; gap: 5px; height: 66px; justify-content: center; min-width: 82px; padding: 6px 8px; position: relative; }
 .texture-slot:hover, .palette-card-new:hover, .custom-color-add:hover { color: var(--paper); }
-.texture-slot:focus-visible { outline: 1px solid var(--paper); outline-offset: 2px; }
+.texture-slot:focus-visible { background: var(--raised); }
 .texture-slot.dragging { box-shadow: inset 0 0 0 1px var(--paper); }
 .texture-slot.disabled { cursor: not-allowed; opacity: .45; }
-.texture-slot.disabled:focus-visible { outline-color: var(--muted); }
 .texture-slot-model { max-width: 150px; }
 .texture-slot-preview { align-items: center; display: flex; height: 30px; justify-content: center; overflow: hidden; width: 40px; }
 .texture-slot-preview canvas { display: block; image-rendering: pixelated; height: 100%; object-fit: cover; width: 100%; }
