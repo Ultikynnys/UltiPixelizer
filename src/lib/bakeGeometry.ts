@@ -7,6 +7,7 @@ import {
   Vector3,
 } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
+import { computeSmoothNormals } from './modelScene';
 
 export type UvPair = [number, number];
 export type BakeVertex = { position: Vector3; normal: Vector3 };
@@ -46,17 +47,23 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
 
   scene.traverse((child) => {
     if (!(child instanceof Mesh) || !child.visible) return;
-    const geometry = child.geometry as BufferGeometry;
-    const position = geometry.getAttribute('position') as BufferAttribute | undefined;
-    if (!position) return;
+    let geometry = child.geometry as BufferGeometry;
+    if (!geometry.getAttribute('position')) return;
 
-    const uv = geometry.getAttribute('uv') as BufferAttribute | undefined;
+    let uv = geometry.getAttribute('uv') as BufferAttribute | undefined;
     let normal = geometry.getAttribute('normal') as BufferAttribute | undefined;
     if (uv && !normal) {
-      geometry.computeVertexNormals();
+      const flat = computeSmoothNormals(geometry);
+      if (flat !== geometry) {
+        child.geometry = flat;
+        geometry.dispose();
+        geometry = flat;
+      }
+      uv = geometry.getAttribute('uv') as BufferAttribute | undefined;
       normal = geometry.getAttribute('normal') as BufferAttribute | undefined;
     }
 
+    const position = geometry.getAttribute('position') as BufferAttribute;
     const world = child.matrixWorld;
     normalMatrix.getNormalMatrix(world);
     const index = geometry.getIndex();

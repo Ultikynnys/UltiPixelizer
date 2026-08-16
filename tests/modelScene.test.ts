@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture } from 'three';
-import { applyTextureToModel, applyUVChannel, cloneModelScene, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, recomputeVertexNormals, uvChannelIndex } from '../src/lib/modelScene';
+import { applyTextureToModel, applyUVChannel, cloneModelScene, computeSmoothNormals, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, recomputeVertexNormals, uvChannelIndex } from '../src/lib/modelScene';
 
 function mesh(channels: string[], materials = 1): Mesh {
   const geometry = new BufferGeometry();
@@ -98,6 +98,76 @@ describe('model scene processing', () => {
       expect(normal.getX(i)).toBeCloseTo(0);
       expect(normal.getY(i)).toBeCloseTo(0);
     }
+  });
+
+  it('computes flat faceted normals by expanding indexed geometry per face', () => {
+    const root = new Object3D();
+    const geometry = new BufferGeometry();
+    // Two triangles sharing the (0,0,0)–(0,1,0) edge: an XY face (+Z) and a YZ face (+X).
+    geometry.setAttribute('position', new Float32BufferAttribute([
+      0, 0, 0,  1, 0, 0,  0, 1, 0,  0, 0, 1,
+    ], 3));
+    // Stale exporter normals pointing -Y, to be discarded on recompute.
+    geometry.setAttribute('normal', new Float32BufferAttribute([
+      0, -1, 0,  0, -1, 0,  0, -1, 0,  0, -1, 0,
+    ], 3));
+    geometry.setIndex([0, 1, 2, 0, 2, 3]);
+    const mesh = new Mesh(geometry, new MeshBasicMaterial());
+    root.add(mesh);
+    expect(recomputeVertexNormals(root)).toBe(1);
+    const flat = mesh.geometry;
+    expect(flat).not.toBe(geometry);
+    expect(flat.index).toBeNull();
+    expect(flat.getAttribute('position').count).toBe(6);
+    const normal = flat.getAttribute('normal');
+    for (let i = 0; i < 3; i += 1) {
+      expect(normal.getX(i)).toBeCloseTo(0);
+      expect(normal.getY(i)).toBeCloseTo(0);
+      expect(normal.getZ(i)).toBeCloseTo(1);
+    }
+    for (let i = 3; i < 6; i += 1) {
+      expect(normal.getX(i)).toBeCloseTo(1);
+      expect(normal.getY(i)).toBeCloseTo(0);
+      expect(normal.getZ(i)).toBeCloseTo(0);
+    }
+  });
+
+  it('computeSmoothNormals returns a new de-indexed geometry for indexed input and the same instance for non-indexed', () => {
+    const indexed = new BufferGeometry();
+    indexed.setAttribute('position', new Float32BufferAttribute([
+      0, 0, 0,  1, 0, 0,  0, 1, 0,  0, 0, 1,
+    ], 3));
+    indexed.setIndex([0, 1, 2, 0, 2, 3]);
+    const flat = computeSmoothNormals(indexed, 0);
+    expect(flat).not.toBe(indexed);
+    expect(flat.index).toBeNull();
+    expect(flat.getAttribute('normal').getZ(0)).toBeCloseTo(1);
+
+    const soup = new BufferGeometry();
+    soup.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    expect(computeSmoothNormals(soup)).toBe(soup);
+    expect(soup.getAttribute('normal').getZ(0)).toBeCloseTo(1);
+  });
+
+  it('computeSmoothNormals smooths a 90° dihedral edge above the angle but keeps it hard below it', () => {
+    const geometry = new BufferGeometry();
+    // Two triangles sharing the (0,0,0)–(0,1,0) edge: an XY face (+Z) and a YZ face (+X), 90° apart.
+    geometry.setAttribute('position', new Float32BufferAttribute([
+      0, 0, 0,  1, 0, 0,  0, 1, 0,  0, 0, 1,
+    ], 3));
+    geometry.setIndex([0, 1, 2, 0, 2, 3]);
+
+    const hard = computeSmoothNormals(geometry, 30);
+    expect(hard.getAttribute('normal').getX(0)).toBeCloseTo(0);
+    expect(hard.getAttribute('normal').getZ(0)).toBeCloseTo(1);
+    expect(hard.getAttribute('normal').getX(5)).toBeCloseTo(1);
+
+    const smooth = computeSmoothNormals(geometry, 120);
+    const normal = smooth.getAttribute('normal');
+    expect(normal.getX(0)).toBeCloseTo(Math.SQRT1_2);
+    expect(normal.getY(0)).toBeCloseTo(0);
+    expect(normal.getZ(0)).toBeCloseTo(Math.SQRT1_2);
+    expect(normal.getX(5)).toBeCloseTo(1);
   });
 
   it('disposes geometry, materials, and textures without closing shared image sources', () => {

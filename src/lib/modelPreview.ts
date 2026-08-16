@@ -69,35 +69,48 @@ function orientToWorldAxis(object: Object3D, worldAxis: WorldAxis): void {
   object.rotation.set(upAxisRotation(worldAxis), 0, 0);
 }
 
-export async function loadModel(bundle: ModelFileBundle, files: File[], worldAxis: WorldAxis): Promise<LoadedModel> {
+export type LoadModelOptions = { useSourceNormals?: boolean; smoothAngle?: number };
+
+export async function loadModel(
+  bundle: ModelFileBundle,
+  files: File[],
+  worldAxis: WorldAxis,
+  options: LoadModelOptions = {},
+): Promise<LoadedModel> {
   const manager = configureManager(bundle);
+  let scene: Object3D;
+  let animations: AnimationClip[];
+
   if (bundle.format === 'glb' || bundle.format === 'gltf') {
     const result = await new GLTFLoader(manager).loadAsync(bundle.primaryUrl);
-    recomputeVertexNormals(result.scene);
-    return { scene: result.scene, animations: result.animations };
-  }
-  if (bundle.format === 'fbx') {
-    const scene = await new FBXLoader(manager).loadAsync(bundle.primaryUrl);
-    orientToWorldAxis(scene, worldAxis);
-    recomputeVertexNormals(scene);
-    return { scene, animations: scene.animations };
-  }
-  const objLoader = new OBJLoader(manager);
-  const mtl = files.find((file) => file.name.toLowerCase().endsWith('.mtl'));
-  if (mtl) {
-    const mtlUrl = URL.createObjectURL(mtl);
-    try {
-      const materials = await new MTLLoader(manager).loadAsync(mtlUrl);
-      materials.preload();
-      objLoader.setMaterials(materials);
-    } finally {
-      URL.revokeObjectURL(mtlUrl);
+    scene = result.scene;
+    animations = result.animations;
+  } else if (bundle.format === 'fbx') {
+    const loaded = await new FBXLoader(manager).loadAsync(bundle.primaryUrl);
+    orientToWorldAxis(loaded, worldAxis);
+    scene = loaded;
+    animations = loaded.animations;
+  } else {
+    const objLoader = new OBJLoader(manager);
+    const mtl = files.find((file) => file.name.toLowerCase().endsWith('.mtl'));
+    if (mtl) {
+      const mtlUrl = URL.createObjectURL(mtl);
+      try {
+        const materials = await new MTLLoader(manager).loadAsync(mtlUrl);
+        materials.preload();
+        objLoader.setMaterials(materials);
+      } finally {
+        URL.revokeObjectURL(mtlUrl);
+      }
     }
+    const loaded = await objLoader.loadAsync(bundle.primaryUrl);
+    orientToWorldAxis(loaded, worldAxis);
+    scene = loaded;
+    animations = [];
   }
-  const scene = await objLoader.loadAsync(bundle.primaryUrl);
-  orientToWorldAxis(scene, worldAxis);
-  recomputeVertexNormals(scene);
-  return { scene, animations: [] };
+
+  if (!options.useSourceNormals) recomputeVertexNormals(scene, options.smoothAngle);
+  return { scene, animations };
 }
 
 export class ModelViewport {

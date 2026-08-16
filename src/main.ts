@@ -14,7 +14,7 @@ import { applyAO, imageAOFactors } from './lib/ao';
 import { bakeMeshAO } from './lib/aoBake';
 import { applyLightmap, imageLightmapPixels, lightmapMatchesBaseColor } from './lib/lightmap';
 import { bakeMeshLightmap, type BakeLightmapOptions } from './lib/lightmapBake';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './lib/defaults';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY } from './lib/defaults';
 import { imageNormalMapPixels, type NormalFormat } from './lib/normal';
 import { safeFileName } from './lib/strings';
 import { DEFAULT_SUN_DIRECTION, type DirectionVector } from './lib/sunDirection';
@@ -57,6 +57,8 @@ type State = {
   sun: SunState;
   ambient: LightState;
   worldAxis: WorldAxis;
+  useSourceNormals: boolean;
+  smoothAngle: number;
   stripeAngle: number;
   noiseScale: number;
   seed: number;
@@ -122,6 +124,8 @@ function defaultState(): State {
     sun: { direction: { ...DEFAULT_SUN_DIRECTION }, enabled: true, color: '#ffffff', intensity: DEFAULT_SUN_INTENSITY },
     ambient: { color: '#ffffff', intensity: DEFAULT_AMBIENT_INTENSITY, enabled: true },
     worldAxis: 'blender',
+    useSourceNormals: false,
+    smoothAngle: DEFAULT_SMOOTH_ANGLE,
     stripeAngle: 45,
     noiseScale: 1,
     seed: 1,
@@ -185,6 +189,10 @@ app.innerHTML = `
             <label class="uv-overlap-control" id="uvWireframeControl" hidden title="Overlay UV island wireframes on the 2D view">
               <span>UV islands</span>
               <span class="sun-toggle"><input id="uvWireframe" type="checkbox" checked aria-label="Show UV island wireframes" /><span aria-hidden="true"></span></span>
+            </label>
+            <label class="uv-overlap-control" id="normalsControl" hidden title="Use the normals embedded in the model file instead of recomputing flat normals">
+              <span>Source normals</span>
+              <span class="sun-toggle"><input id="useSourceNormals" type="checkbox" aria-label="Use source normals" /><span aria-hidden="true"></span></span>
             </label>
 
           </div>
@@ -327,8 +335,9 @@ app.innerHTML = `
         </section>
 
         <section class="panel normals-panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">SURFACE NORMALS / 05</p><h2>Normal map</h2></div></div>
-          <p class="panel-description">Perturb the baked sun lighting with the loaded normal map's surface detail.</p>
+          <div class="panel-heading compact"><div><p class="eyebrow">SURFACE NORMALS / 05</p><h2>Normals</h2></div></div>
+          <p class="panel-description">Smooth mesh normals where the face angle is below the threshold, then perturb lighting with a normal map.</p>
+          ${rangeControl('smoothAngle', 'Smooth angle', 0, 180, 1, DEFAULT_SMOOTH_ANGLE, `${DEFAULT_SMOOTH_ANGLE}°`)}
           ${rangeControl('normalStrength', 'Normal strength', 0, 100, 1, 100, '100%')}
           <label class="control-row"><span><strong>Format</strong><small>Green channel convention</small></span></label>
           <select class="normal-format-select" id="normalFormat" aria-label="Normal map format">
@@ -373,6 +382,8 @@ const uvOverlapControl = document.querySelector<HTMLLabelElement>('#uvOverlapCon
 const uvOverlapInput = document.querySelector<HTMLInputElement>('#uvOverlap')!;
 const uvWireframeControl = document.querySelector<HTMLLabelElement>('#uvWireframeControl')!;
 const uvWireframeInput = document.querySelector<HTMLInputElement>('#uvWireframe')!;
+const normalsControl = document.querySelector<HTMLLabelElement>('#normalsControl')!;
+const useSourceNormalsInput = document.querySelector<HTMLInputElement>('#useSourceNormals')!;
 type SunElements = {
   control: HTMLDivElement;
   enabled: HTMLInputElement;
@@ -431,11 +442,14 @@ const normalStrengthInput = document.querySelector<HTMLInputElement>('#normalStr
 const normalStrengthValue = document.querySelector<HTMLOutputElement>('#normalStrengthValue')!;
 const normalFormatSelect = document.querySelector<HTMLSelectElement>('#normalFormat')!;
 const normalStatus = document.querySelector<HTMLDivElement>('#normalStatus')!;
+const smoothAngleInput = document.querySelector<HTMLInputElement>('#smoothAngle')!;
+const smoothAngleValue = document.querySelector<HTMLOutputElement>('#smoothAngleValue')!;
 let savedCustomPalettes = loadCustomPalettes(localStorage);
 let editingCustomKey: string | null = null;
 let toastTimer = 0;
 let renderedCanvas = document.createElement('canvas');
 let modelBundle: ModelFileBundle | null = null;
+let modelFiles: File[] = [];
 let originalPreviewMode: PreviewMode = '2d';
 let processedPreviewMode: PreviewMode = '2d';
 let originalViewport: ModelViewport | null = null;
@@ -566,6 +580,9 @@ function renderNormalControls(): void {
   normalStrengthValue.textContent = formatPercent(strength);
   normalFormatSelect.value = state.normalFormat;
   normalFormatSelect.disabled = lightmapActive;
+  smoothAngleInput.value = String(state.smoothAngle);
+  smoothAngleValue.textContent = formatDegrees(state.smoothAngle);
+  smoothAngleInput.disabled = state.useSourceNormals;
   const image = textures.normal.image;
   normalStatus.textContent = image
     ? `${textures.normal.name} · ${image.width} × ${image.height}`
@@ -800,6 +817,11 @@ function renderWorldAxisControl(): void {
   const supportsAxis = modelBundle !== null && (modelBundle.format === 'fbx' || modelBundle.format === 'obj');
   worldAxisControl.hidden = !supportsAxis;
   worldAxisSelect.value = state.worldAxis;
+}
+
+function renderNormalsControl(): void {
+  normalsControl.hidden = modelBundle === null;
+  useSourceNormalsInput.checked = state.useSourceNormals;
 }
 
 function formatDirection(vector: DirectionVector): string {
@@ -1116,6 +1138,7 @@ function closeModelPreview(): void {
   originalViewport = null;
   processedViewport = null;
   modelBundle = null;
+  modelFiles = [];
   modelUVChannels = [];
   modelLodLevels = [];
   disposeAOScene(aoBakeScene);
@@ -1139,15 +1162,17 @@ function closeModelPreview(): void {
   renderSunControl();
   renderOrientationReadout();
   renderWorldAxisControl();
+  renderNormalsControl();
 }
 
 async function setModel(files: File[]): Promise<void> {
   let bundle: ModelFileBundle | null = null;
   try {
     bundle = createModelFileBundle(files);
-    const loaded = await loadModel(bundle, files, state.worldAxis);
+    const loaded = await loadModel(bundle, files, state.worldAxis, { useSourceNormals: state.useSourceNormals, smoothAngle: state.smoothAngle });
     closeModelPreview();
     modelBundle = bundle;
+    modelFiles = files;
     const lodPreparation = prepareModelLods(loaded.scene);
     modelLodLevels = lodPreparation.levels;
     state.lodLevel = modelLodLevels[0] ?? 0;
@@ -1174,6 +1199,7 @@ async function setModel(files: File[]): Promise<void> {
     renderLodControl();
     renderSunControl();
     renderWorldAxisControl();
+    renderNormalsControl();
     applySun();
     if (modelUVChannels.length) applyModelUV(state.uvMap);
     renderTextureRibbon();
@@ -1653,6 +1679,7 @@ function reset(): void {
   refreshUVOverlap();
   renderUVOverlapControl();
   renderUVWireframeControl();
+  renderNormalsControl();
   updateResolution(128, true);
   showToast('Settings reset');
 }
@@ -1969,6 +1996,19 @@ uvWireframeInput.addEventListener('change', () => {
   state.showUVWireframe = uvWireframeInput.checked;
   renderUVWireframeControl();
   render();
+});
+useSourceNormalsInput.addEventListener('change', () => {
+  state.useSourceNormals = useSourceNormalsInput.checked;
+  renderNormalControls();
+  if (modelFiles.length) void setModel(modelFiles);
+  else renderNormalsControl();
+});
+smoothAngleInput.addEventListener('input', () => {
+  state.smoothAngle = Number(smoothAngleInput.value);
+  smoothAngleValue.textContent = formatDegrees(state.smoothAngle);
+});
+smoothAngleInput.addEventListener('change', () => {
+  if (modelFiles.length && !state.useSourceNormals) void setModel(modelFiles);
 });
 function bindSunControl(): void {
   sunControlElements.orientWithCamera.addEventListener('click', () => {

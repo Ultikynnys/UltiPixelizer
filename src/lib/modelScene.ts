@@ -1,6 +1,7 @@
 import {
   Box3,
   BufferAttribute,
+  BufferGeometry,
   CanvasTexture,
   Color,
   DoubleSide,
@@ -14,6 +15,7 @@ import {
   Vector3,
 } from 'three';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
+import { DEFAULT_SMOOTH_ANGLE } from './defaults';
 
 const uvPattern = /^uv(\d*)$/;
 
@@ -65,13 +67,142 @@ export function materialsOf(mesh: Mesh): Material[] {
   return Array.isArray(mesh.material) ? mesh.material : [mesh.material];
 }
 
-/** Rebuilds vertex normals from triangle winding for every mesh, replacing
- * potentially-broken exporter normals (e.g. FBX). Returns the mesh count. */
-export function recomputeVertexNormals(object: Object3D): number {
+/** Recomputes vertex normals with angle-based smoothing, discarding any existing
+ * normal attribute. Adjacent faces sharing an edge are smoothed (share a normal)
+ * only when the angle between their face normals is below `angleDeg`; otherwise
+ * the edge stays hard. Indexed geometry is expanded to non-indexed so hard edges
+ * can own separate vertices. Returns the geometry to use — the same object, or a
+ * new de-indexed geometry the caller should substitute in. */
+export function computeSmoothNormals(geometry: BufferGeometry, angleDeg = DEFAULT_SMOOTH_ANGLE): BufferGeometry {
+  geometry.deleteAttribute('normal');
+  const position = geometry.getAttribute('position') as BufferAttribute | undefined;
+  if (!position) return geometry;
+
+  const index = geometry.index;
+  if (!index) {
+    // Non-indexed geometry has no shared vertices to smooth across, so every
+    // triangle keeps its own flat face normal.
+    geometry.computeVertexNormals();
+    return geometry;
+  }
+
+  const cornerCount = index.count;
+  const triangleCount = cornerCount / 3;
+  const cosThreshold = Math.cos((angleDeg * Math.PI) / 180);
+
+  const faceNormals = new Float32Array(cornerCount);
+  const faceAreas = new Float32Array(triangleCount);
+  const pA = new Vector3();
+  const pB = new Vector3();
+  const pC = new Vector3();
+  const cb = new Vector3();
+  const ab = new Vector3();
+
+  for (let tri = 0; tri < triangleCount; tri += 1) {
+    const base = tri * 3;
+    pA.fromBufferAttribute(position, index.getX(base));
+    pB.fromBufferAttribute(position, index.getX(base + 1));
+    pC.fromBufferAttribute(position, index.getX(base + 2));
+    cb.subVectors(pC, pB);
+    ab.subVectors(pA, pB);
+    cb.cross(ab);
+    const area = cb.length();
+    if (area > 1e-12) cb.divideScalar(area);
+    else cb.set(0, 0, 0);
+    faceAreas[tri] = area;
+    faceNormals[base] = cb.x;
+    faceNormals[base + 1] = cb.y;
+    faceNormals[base + 2] = cb.z;
+  }
+
+  const parent = new Int32Array(cornerCount);
+  for (let i = 0; i < cornerCount; i += 1) parent[i] = i;
+  const find = (value: number): number => {
+    while (parent[value] !== value) {
+      parent[value] = parent[parent[value]];
+      value = parent[value];
+    }
+    return value;
+  };
+  const union = (left: number, right: number): void => {
+    const leftRoot = find(left);
+    const rightRoot = find(right);
+    if (leftRoot !== rightRoot) parent[rightRoot] = leftRoot;
+  };
+
+  const edges = new Map<string, { cornerMin: number; cornerMax: number; fx: number; fy: number; fz: number }>();
+  for (let tri = 0; tri < triangleCount; tri += 1) {
+    const base = tri * 3;
+    const fx = faceNormals[base];
+    const fy = faceNormals[base + 1];
+    const fz = faceNormals[base + 2];
+    for (let k = 0; k < 3; k += 1) {
+      const vertexA = index.getX(base + k);
+      const vertexB = index.getX(base + ((k + 1) % 3));
+      const minVertex = Math.min(vertexA, vertexB);
+      const maxVertex = Math.max(vertexA, vertexB);
+      const key = `${minVertex}:${maxVertex}`;
+      const cornerA = base + k;
+      const cornerB = base + ((k + 1) % 3);
+      const cornerMin = vertexA === minVertex ? cornerA : cornerB;
+      const cornerMax = vertexA === minVertex ? cornerB : cornerA;
+      const existing = edges.get(key);
+      if (existing) {
+        const dot = fx * existing.fx + fy * existing.fy + fz * existing.fz;
+        if (dot > cosThreshold) {
+          union(cornerMin, existing.cornerMin);
+          union(cornerMax, existing.cornerMax);
+        }
+      } else {
+        edges.set(key, { cornerMin, cornerMax, fx, fy, fz });
+      }
+    }
+  }
+
+  const accX = new Float32Array(cornerCount);
+  const accY = new Float32Array(cornerCount);
+  const accZ = new Float32Array(cornerCount);
+  for (let tri = 0; tri < triangleCount; tri += 1) {
+    const base = tri * 3;
+    const weight = faceAreas[tri];
+    const fx = faceNormals[base] * weight;
+    const fy = faceNormals[base + 1] * weight;
+    const fz = faceNormals[base + 2] * weight;
+    for (let k = 0; k < 3; k += 1) {
+      const root = find(base + k);
+      accX[root] += fx;
+      accY[root] += fy;
+      accZ[root] += fz;
+    }
+  }
+
+  const nonIndexed = geometry.toNonIndexed();
+  const normalAttribute = new BufferAttribute(new Float32Array(cornerCount * 3), 3);
+  for (let corner = 0; corner < cornerCount; corner += 1) {
+    const root = find(corner);
+    const x = accX[root];
+    const y = accY[root];
+    const z = accZ[root];
+    const length = Math.sqrt(x * x + y * y + z * z) || 1;
+    normalAttribute.setXYZ(corner, x / length, y / length, z / length);
+  }
+  nonIndexed.setAttribute('normal', normalAttribute);
+  return nonIndexed;
+}
+
+/** Rebuilds vertex normals from triangle winding for every mesh, discarding any
+ * exporter-provided normals (often broken or smooth) and applying angle-based
+ * smoothing. Returns the mesh count. */
+export function recomputeVertexNormals(object: Object3D, angleDeg = DEFAULT_SMOOTH_ANGLE): number {
   let meshCount = 0;
   object.traverse((child) => {
     if (!(child instanceof Mesh)) return;
-    child.geometry.computeVertexNormals();
+    const source = child.geometry;
+    const geometry = computeSmoothNormals(source, angleDeg);
+    if (geometry !== source) {
+      child.geometry = geometry;
+      source.dispose();
+    }
     meshCount += 1;
   });
   return meshCount;
