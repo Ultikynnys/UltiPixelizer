@@ -524,7 +524,6 @@ function renderNormalControls(): void {
   normalFormatSelect.disabled = lightmapActive;
   syncRangeValue(smoothAngleInput, smoothAngleValue, state.smoothAngle, formatDegrees);
   syncRangeValue(tessellationInput, tessellationValue, state.tessellation, formatTessellation);
-  tessellationInput.disabled = state.useSourceNormals;
   const image = textures.normal.image;
   normalStatus.textContent = image
     ? `${textures.normal.name} · ${image.width} × ${image.height}`
@@ -724,15 +723,20 @@ function applyModelLod(level: number): void {
 }
 
 function applySmoothAngle(angle: number): void {
+  const changed = angle !== state.smoothAngle;
   state.smoothAngle = angle;
   if (state.useSourceNormals) return;
+  if (changed && lightmapIsActive(textures)) clearLightmap();
   if (aoBakeScene) recomputeVertexNormals(aoBakeScene, angle);
   forEachViewport((viewport) => viewport.applySmoothAngle(angle));
+  scheduleNormalAdjustedLighting();
 }
 
 function applyTessellation(value: number): void {
+  const changed = value !== state.tessellation;
   state.tessellation = value;
   if (state.useSourceNormals) return;
+  if (changed && lightmapIsActive(textures)) clearLightmap();
   if (aoBakeScene) {
     prepareSurfaceNormals(aoBakeScene, state.smoothAngle, value);
     applyUVChannel(aoBakeScene, state.uvMap);

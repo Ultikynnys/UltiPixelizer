@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, PlaneGeometry, Scene, Vector3 } from 'three';
+import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, PlaneGeometry, Scene, SphereGeometry, Vector3 } from 'three';
 import { AMBIENT_FLOOR } from '../src/lib/defaults';
 import { bakeMeshLightmap, type BakeLightmapOptions } from '../src/lib/lightmapBake';
+import { prepareSurfaceNormals } from '../src/lib/modelScene';
 
 const defaults: BakeLightmapOptions = {
   // Orthographic rays travel down camera-local forward (-Z) onto the default +Z plane face.
@@ -234,5 +235,34 @@ describe('bakeMeshLightmap', () => {
     expect(rgb(2, 3)).toEqual([0, 0, 0]);
     // A texel far from the island keeps the full-light background.
     expect(rgb(0, 0)).toEqual([255, 255, 255]);
+  });
+
+  it('bakes lighting from the tessellated mesh normals, not the coarse originals', () => {
+    // A low-poly sphere: coarse vertex normals interpolate poorly across the
+    // large triangles. Subdividing adds interior vertices whose recomputed
+    // smooth normals refine the per-pixel shading, so the lighting bake must
+    // reflect the denser normal field. With no other occluders and no ambient,
+    // the sun term depends only on the interpolated normal.
+    const scene = new Scene();
+    const sphere = new Mesh(new SphereGeometry(1, 4, 3), new MeshBasicMaterial());
+    const originalVertices = sphere.geometry.getAttribute('position').count;
+    scene.add(sphere);
+    const coarse = bakeMeshLightmap(scene, 32, 32, defaults);
+
+    prepareSurfaceNormals(scene, 30, 2);
+
+    const tessellated = sphere.geometry;
+    expect(tessellated.getAttribute('position').count).toBeGreaterThan(originalVertices);
+    expect(tessellated.getAttribute('normal').count).toBe(tessellated.getAttribute('position').count);
+
+    const fine = bakeMeshLightmap(scene, 32, 32, defaults);
+
+    let differingPixels = 0;
+    for (let i = 0; i < coarse.length; i += 4) {
+      if (Math.abs(coarse[i] - fine[i]) > 2
+        || Math.abs(coarse[i + 1] - fine[i + 1]) > 2
+        || Math.abs(coarse[i + 2] - fine[i + 2]) > 2) differingPixels += 1;
+    }
+    expect(differingPixels).toBeGreaterThan(0);
   });
 });
