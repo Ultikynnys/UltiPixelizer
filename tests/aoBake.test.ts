@@ -9,6 +9,16 @@ import {
 } from 'three';
 import { bakeMeshAO } from '../src/lib/aoBake';
 
+/** Ceiling quad with no UVs so it occludes bake surfaces but is never baked itself. */
+function ceilingQuad(half = 2): Mesh {
+  const ceiling = new BufferGeometry();
+  ceiling.setAttribute('position', new Float32BufferAttribute([
+    -half, -half, 0.5,  half, -half, 0.5,  half, half, 0.5,
+    -half, -half, 0.5,  half, half, 0.5,  -half, half, 0.5,
+  ], 3));
+  return new Mesh(ceiling, new MeshBasicMaterial());
+}
+
 function mirroredHalfOccluderScene(direction: -1 | 1): Scene {
   const scene = new Scene();
   const surface = new Mesh(new PlaneGeometry(2, 2, 2, 2), new MeshBasicMaterial());
@@ -36,13 +46,7 @@ describe('bakeMeshAO', () => {
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
 
-    // Ceiling quad with no UVs so it occludes but is never baked itself.
-    const ceiling = new BufferGeometry();
-    ceiling.setAttribute('position', new Float32BufferAttribute([
-      -2, -2, 0.5,  2, -2, 0.5,  2, 2, 0.5,
-      -2, -2, 0.5,  2, 2, 0.5,  -2, 2, 0.5,
-    ], 3));
-    scene.add(new Mesh(ceiling, new MeshBasicMaterial()));
+    scene.add(ceilingQuad());
 
     const factors = bakeMeshAO(scene, 8, 8, { samples: 16, distance: 1 });
     const center = factors[4 * 8 + 4];
@@ -81,12 +85,7 @@ describe('bakeMeshAO', () => {
     ], 2));
     scene.add(new Mesh(surface, new MeshBasicMaterial()));
 
-    const ceiling = new BufferGeometry();
-    ceiling.setAttribute('position', new Float32BufferAttribute([
-      -3, -3, 0.5,  3, -3, 0.5,  3, 3, 0.5,
-      -3, -3, 0.5,  3, 3, 0.5,  -3, 3, 0.5,
-    ], 3));
-    scene.add(new Mesh(ceiling, new MeshBasicMaterial()));
+    scene.add(ceilingQuad(3));
 
     const factors = bakeMeshAO(scene, 16, 8, { samples: 64, distance: 1 });
     expect(factors[6 * 16 + 1]).toBeLessThan(200);
@@ -99,12 +98,7 @@ describe('bakeMeshAO', () => {
     island.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
     island.setAttribute('uv', new Float32BufferAttribute([0.4, 0.4, 0.6, 0.4, 0.4, 0.6], 2));
     scene.add(new Mesh(island, new MeshBasicMaterial()));
-    const ceiling = new BufferGeometry();
-    ceiling.setAttribute('position', new Float32BufferAttribute([
-      -2, -2, 0.5,  2, -2, 0.5,  2, 2, 0.5,
-      -2, -2, 0.5,  2, 2, 0.5,  -2, 2, 0.5,
-    ], 3));
-    scene.add(new Mesh(ceiling, new MeshBasicMaterial()));
+    scene.add(ceilingQuad());
 
     const factors = bakeMeshAO(scene, 8, 8, { samples: 16, distance: 1 });
     // The island itself is occluded by the ceiling…

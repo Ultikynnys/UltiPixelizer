@@ -1,11 +1,7 @@
-import { imagePixels } from './canvas';
+import { imagePixels, type PixelSource } from './canvas';
 import { clamp01 } from './math';
 
-export type AOFactorSource = {
-  data: Uint8ClampedArray;
-  width: number;
-  height: number;
-};
+export type AOFactorSource = PixelSource;
 
 /**
  * Extracts per-pixel ambient-occlusion visibility from an image's red channel.

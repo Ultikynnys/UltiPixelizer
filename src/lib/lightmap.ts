@@ -1,11 +1,5 @@
 import { clamp01 } from './math';
 
-export type LightmapSource = {
-  data: Uint8ClampedArray;
-  width: number;
-  height: number;
-};
-
 export type ImageDimensions = { width: number; height: number };
 
 export function lightmapMatchesBaseColor(lightmap: ImageDimensions, baseColor: ImageDimensions): boolean {

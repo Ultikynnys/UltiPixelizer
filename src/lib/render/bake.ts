@@ -1,5 +1,6 @@
 import { bakeMeshAO } from '../aoBake';
 import { factorsToCanvas, pixelsToCanvas } from '../canvas';
+import { errorMessage } from '../strings';
 import { bakeMeshLightmap, type BakeLightmapOptions } from '../lightmapBake';
 import { imageNormalMapPixels } from '../normal';
 import type { Render2DApi } from './render2d';
@@ -88,7 +89,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
         render2d.render();
         showToast('Ambient occlusion generated');
       } catch (error) {
-        showToast(error instanceof Error ? error.message : 'Could not generate ambient occlusion.');
+        showToast(errorMessage(error, 'Could not generate ambient occlusion.'));
       }
     }, 30);
   }
@@ -115,7 +116,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
         render2d.render();
         showToast('Lighting baked');
       } catch (error) {
-        showToast(error instanceof Error ? error.message : 'Could not bake lighting.');
+        showToast(errorMessage(error, 'Could not bake lighting.'));
       }
     }, 30);
   }

@@ -1,4 +1,5 @@
 import { BufferAttribute, Mesh, Object3D } from 'three';
+import { rasterizeBake } from './bakeGeometry';
 
 /** Shared label text for the UV-overlap highlight in both the 2D and 3D views. */
 export const UV_OVERLAP_LABEL = 'UV OVERLAP';
@@ -63,8 +64,9 @@ export function collectUVTriangles(scene: Object3D): UVTriangle[] {
 
 /**
  * Rasterizes triangle UVs into a `width × height` grid, invoking `mark` for
- * every texel whose center falls inside the triangle. UV (0,0) is the texture
- * bottom-left; the canvas is top-left, so V is flipped (mirrors `rasterizeBake`).
+ * every texel whose center falls inside the triangle. Thin wrapper over the
+ * shared barycentric rasterizer — the overlap detector only needs the covered
+ * texel coordinates, not the barycentric weights.
  */
 export function rasterizeUVCoverage(
   width: number,
@@ -72,34 +74,7 @@ export function rasterizeUVCoverage(
   triangles: UVTriangle[],
   mark: (px: number, py: number) => void,
 ): void {
-  for (const triangle of triangles) {
-    const [uva, uvb, uvc] = triangle.uv;
-    const ax = uva[0] * width;
-    const ay = (1 - uva[1]) * height;
-    const bx = uvb[0] * width;
-    const by = (1 - uvb[1]) * height;
-    const cx = uvc[0] * width;
-    const cy = (1 - uvc[1]) * height;
-
-    const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
-    const maxX = Math.min(width - 1, Math.ceil(Math.max(ax, bx, cx)));
-    const minY = Math.max(0, Math.floor(Math.min(ay, by, cy)));
-    const maxY = Math.min(height - 1, Math.ceil(Math.max(ay, by, cy)));
-    const denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
-    if (denominator === 0) continue;
-
-    for (let py = minY; py <= maxY; py += 1) {
-      for (let px = minX; px <= maxX; px += 1) {
-        const x = px + 0.5;
-        const y = py + 0.5;
-        const w0 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / denominator;
-        const w1 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denominator;
-        const w2 = 1 - w0 - w1;
-        if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-        mark(px, py);
-      }
-    }
-  }
+  rasterizeBake(width, height, triangles, (px, py) => mark(px, py));
 }
 
 /**

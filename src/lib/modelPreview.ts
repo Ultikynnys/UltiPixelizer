@@ -167,24 +167,16 @@ export class ModelViewport {
     this.removeOverlapOverlay();
     this.model = model;
     this.scene.add(model);
-    this.fitAxesToModel();
-    const target = fitCameraToObject(this.camera, model, this.host.clientWidth / Math.max(this.host.clientHeight, 1));
-    this.controls.target.copy(target);
-    this.controls.update();
     this.mixer = animations.length ? new AnimationMixer(model) : null;
     if (this.mixer && !matchMedia('(prefers-reduced-motion: reduce)').matches) this.mixer.clipAction(animations[0]).play();
     this.resize();
-    this.onCameraChange?.();
+    this.refitCamera();
   }
 
   setWorldAxis(worldAxis: WorldAxis): void {
     if (!this.model) return;
     orientToWorldAxis(this.model, worldAxis);
-    this.fitAxesToModel();
-    const target = fitCameraToObject(this.camera, this.model, this.host.clientWidth / Math.max(this.host.clientHeight, 1));
-    this.controls.target.copy(target);
-    this.controls.update();
-    this.onCameraChange?.();
+    this.refitCamera();
   }
 
   applyImage(image: CanvasImageSource): number {
@@ -362,6 +354,17 @@ export class ModelViewport {
 
   setAmbientIntensity(intensity: number): void {
     this.ambient.intensity = intensity * Math.PI;
+  }
+
+  /** Recenters the orbit camera on the model and notifies camera-change
+   * listeners. Shared by model load and world-axis changes. */
+  private refitCamera(): void {
+    if (!this.model) return;
+    this.fitAxesToModel();
+    const target = fitCameraToObject(this.camera, this.model, this.host.clientWidth / Math.max(this.host.clientHeight, 1));
+    this.controls.target.copy(target);
+    this.controls.update();
+    this.onCameraChange?.();
   }
 
   private fitAxesToModel(): void {

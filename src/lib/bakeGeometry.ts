@@ -114,15 +114,17 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
 }
 
 /**
- * Rasterizes bake triangles into a `width × height` grid, invoking `writePixel`
- * with the barycentric weights for every covered pixel. UV (0,0) is the texture
- * bottom-left; the canvas is top-left, so V is flipped here.
+ * Rasterizes triangles into a `width × height` grid, invoking `writePixel`
+ * with the barycentric weights for every covered pixel. Generic over triangle
+ * shape — the bake (BakeTriangle) and UV-overlap (UVTriangle) rasterizers are
+ * the same math. UV (0,0) is the texture bottom-left; the canvas is top-left,
+ * so V is flipped here.
  */
-export function rasterizeBake(
+export function rasterizeBake<T extends { uv: [UvPair, UvPair, UvPair] }>(
   width: number,
   height: number,
-  triangles: BakeTriangle[],
-  writePixel: (px: number, py: number, w0: number, w1: number, w2: number, triangle: BakeTriangle) => void,
+  triangles: readonly T[],
+  writePixel: (px: number, py: number, w0: number, w1: number, w2: number, triangle: T) => void,
 ): void {
   for (const triangle of triangles) {
     const [uva, uvb, uvc] = triangle.uv;
@@ -152,6 +154,39 @@ export function rasterizeBake(
       }
     }
   }
+}
+
+/**
+ * Rasterizes bake triangles into a fresh `255`-filled buffer, marking covered
+ * texels and dilating the UV islands' edges outward afterward. Every UV-space
+ * bake (AO, lightmap) goes through here so the mark-then-pad pipeline stays
+ * identical. `writePixel` receives the target buffer and the per-texel pixel
+ * offset so callers write their channel layout directly.
+ */
+export function rasterizeBakedPixels(
+  width: number,
+  height: number,
+  triangles: readonly BakeTriangle[],
+  channels: number,
+  writePixel: (
+    pixels: Uint8ClampedArray,
+    px: number,
+    py: number,
+    w0: number,
+    w1: number,
+    w2: number,
+    triangle: BakeTriangle,
+    pixelOffset: number,
+  ) => void,
+): Uint8ClampedArray {
+  const pixels = new Uint8ClampedArray(width * height * channels).fill(255);
+  const written = new Uint8Array(width * height);
+  rasterizeBake(width, height, triangles, (px, py, w0, w1, w2, triangle) => {
+    written[py * width + px] = 1;
+    writePixel(pixels, px, py, w0, w1, w2, triangle, (py * width + px) * channels);
+  });
+  dilateUVBake(pixels, written, width, height, channels);
+  return pixels;
 }
 
 /** Texels of padding spread around UV islands after a bake. The rasterizer only

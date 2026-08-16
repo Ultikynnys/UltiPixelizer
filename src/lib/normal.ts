@@ -1,12 +1,8 @@
-import { imagePixels } from './canvas';
+import { imagePixels, type PixelSource } from './canvas';
 
 export type NormalFormat = 'opengl' | 'directx';
 
-export type NormalMapSource = {
-  data: Uint8ClampedArray;
-  width: number;
-  height: number;
-};
+export type NormalMapSource = PixelSource;
 
 /**
  * Extracts a normal map's RGBA pixels at its native resolution. The blue channel

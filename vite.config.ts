@@ -7,6 +7,10 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // `.reasonix/` holds vendored backups (e.g. wt-v34) whose stale test files
+    // must not run against the live code. `exclude` replaces vitest's default
+    // list, so the standard entries are repeated here.
+    exclude: ['**/.reasonix/**', '**/node_modules/**', '**/dist/**'],
     coverage: {
       provider: 'v8',
       include: ['src/lib/customPalettes.ts', 'src/lib/dither.ts', 'src/lib/modelFiles.ts', 'src/lib/modelLod.ts', 'src/lib/modelScene.ts', 'src/lib/palettes.ts', 'src/lib/presets.ts', 'src/lib/renderScheduler.ts'],

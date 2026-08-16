@@ -1,7 +1,7 @@
 import { isHexColor, isPalette, type Palette } from './palettes';
 import type { DitherMode } from './dither';
 import { clamp01 } from './math';
-import { createStoredCollection, type StorageLike } from './storage';
+import { createStoredCollection, parseJsonFile, serializeJsonFile, type StorageLike } from './storage';
 import { slugify } from './strings';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { NormalFormat } from './normal';
@@ -164,8 +164,7 @@ export function createPreset(name: string, description: string, config: Conversi
 }
 
 export function serializePreset(preset: ConversionPreset): string {
-  if (!isConversionPreset(preset)) throw new Error('Cannot export an invalid preset.');
-  return JSON.stringify(preset, null, 2);
+  return serializeJsonFile(preset, isConversionPreset, 'Cannot export an invalid preset.');
 }
 
 function migratePreset(value: unknown): unknown {
@@ -204,14 +203,10 @@ function migratePreset(value: unknown): unknown {
 }
 
 export function parsePreset(json: string): ConversionPreset {
-  let value: unknown;
-  try {
-    value = migratePreset(JSON.parse(json));
-  } catch {
-    throw new Error('Preset file is not valid JSON.');
-  }
-  if (!isConversionPreset(value)) throw new Error('Preset file has invalid or unsupported settings.');
-  return value;
+  return parseJsonFile(json, isConversionPreset, {
+    invalidJson: 'Preset file is not valid JSON.',
+    invalidData: 'Preset file has invalid or unsupported settings.',
+  }, { before: migratePreset });
 }
 
 const presetLibrary = createStoredCollection<ConversionPreset>({

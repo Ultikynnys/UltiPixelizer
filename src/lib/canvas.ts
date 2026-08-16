@@ -2,6 +2,11 @@ export function cloneImageData(source: ImageData): ImageData {
   return new ImageData(new Uint8ClampedArray(source.data), source.width, source.height, { colorSpace: source.colorSpace });
 }
 
+/** RGBA pixel data plus dimensions — the shared shape of every decoded image
+ * source (AO factors, lightmaps, normal maps). All the `*Source` aliases in the
+ * renderer derive from this so the image→pixels contract stays in one place. */
+export type PixelSource = { data: Uint8ClampedArray; width: number; height: number };
+
 /** Draws an image into a fresh canvas at the given size and returns the canvas
  * plus its 2D context (null if a context can't be created). Shared by every
  * image→pixels / image→canvas reader in the renderer. */

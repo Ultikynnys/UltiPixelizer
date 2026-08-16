@@ -1,5 +1,36 @@
 export type StorageLike = Pick<Storage, 'getItem' | 'setItem'>;
 
+/**
+ * Parses a JSON file string and validates the result, throwing a friendly
+ * error for unparseable or invalid payloads. Shared by the preset and custom
+ * palette importers so the JSON-error convention stays in one place.
+ *
+ * - `before` runs before validation (e.g. version migration of old files).
+ * - `after` runs after validation (e.g. defensive deep-cloning).
+ */
+export function parseJsonFile<T>(
+  json: string,
+  validate: (value: unknown) => value is T,
+  messages: { invalidJson: string; invalidData: string },
+  transforms: { before?: (value: unknown) => unknown; after?: (value: T) => T } = {},
+): T {
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    throw new Error(messages.invalidJson);
+  }
+  value = transforms.before ? transforms.before(value) : value;
+  if (!validate(value)) throw new Error(messages.invalidData);
+  return transforms.after ? transforms.after(value) : value;
+}
+
+/** Serializes a validated value to pretty JSON, refusing invalid payloads. */
+export function serializeJsonFile<T>(value: T, validate: (value: unknown) => value is T, message: string): string {
+  if (!validate(value)) throw new Error(message);
+  return JSON.stringify(value, null, 2);
+}
+
 export type StoredCollection<T> = {
   load(storage: StorageLike): T[];
   save(storage: StorageLike, entries: T[]): void;

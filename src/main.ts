@@ -14,7 +14,7 @@ import type { NormalFormat } from './lib/normal';
 import { AMBIENT_FLOOR, DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY } from './lib/defaults';
 import { createRenderer } from './lib/render';
 import type { LightState, PreviewMode, State, TextureChannelId, TextureSlot } from './lib/state';
-import { safeFileName } from './lib/strings';
+import { errorMessage, safeFileName } from './lib/strings';
 import { DEFAULT_SUN_DIRECTION, type DirectionVector } from './lib/sunDirection';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
 import exampleModelUrl from '../Example/Book.fbx?url';
@@ -510,24 +510,37 @@ function disposeAOScene(scene: Object3D | null): void {
   });
 }
 
+// Shared checkbox-row renderer: every checkbox control in the app (UV overlap,
+// UV wireframe, normals source, normals view) syncs visibility + checked state
+// through this so the two-line pattern stays in one place.
+function syncCheckboxControl(control: HTMLElement, input: HTMLInputElement, visible: boolean, checked: boolean): void {
+  control.hidden = !visible;
+  input.checked = checked;
+}
+
+// Shared select-row renderer, populated from `options` with the current value
+// marked selected. Used by the UV-channel and LOD-level selects.
+function renderSelectControl(control: HTMLElement, select: HTMLSelectElement, options: { value: string; label: string }[], selected: string, visible: boolean): void {
+  control.hidden = !visible;
+  select.innerHTML = options.map((option) =>
+    `<option value="${escapeHtml(option.value)}" ${option.value === selected ? 'selected' : ''}>${option.label}</option>`,
+  ).join('');
+}
+
 function renderUVControl(): void {
-  uvControl.hidden = modelUVChannels.length === 0;
-  uvMapSelect.innerHTML = modelUVChannels.map((channel, index) => `<option value="${channel}" ${channel === state.uvMap ? 'selected' : ''}>UV ${index + 1} · ${channel}</option>`).join('');
+  renderSelectControl(uvControl, uvMapSelect, modelUVChannels.map((channel, index) => ({ value: channel, label: `UV ${index + 1} · ${channel}` })), state.uvMap, modelUVChannels.length > 0);
 }
 
 function renderUVOverlapControl(): void {
-  uvOverlapControl.hidden = modelUVChannels.length === 0;
-  uvOverlapInput.checked = state.showUVOverlap;
+  syncCheckboxControl(uvOverlapControl, uvOverlapInput, modelUVChannels.length > 0, state.showUVOverlap);
 }
 
 function renderUVWireframeControl(): void {
-  uvWireframeControl.hidden = modelUVChannels.length === 0;
-  uvWireframeInput.checked = state.showUVWireframe;
+  syncCheckboxControl(uvWireframeControl, uvWireframeInput, modelUVChannels.length > 0, state.showUVWireframe);
 }
 
 function renderLodControl(): void {
-  lodControl.hidden = modelLodLevels.length <= 1;
-  lodMapSelect.innerHTML = modelLodLevels.map((level) => `<option value="${level}" ${level === state.lodLevel ? 'selected' : ''}>LOD ${level}</option>`).join('');
+  renderSelectControl(lodControl, lodMapSelect, modelLodLevels.map((level) => ({ value: String(level), label: `LOD ${level}` })), String(state.lodLevel), modelLodLevels.length > 1);
 }
 
 function renderWorldAxisControl(): void {
@@ -537,13 +550,11 @@ function renderWorldAxisControl(): void {
 }
 
 function renderNormalsControl(): void {
-  normalsControl.hidden = modelBundle === null;
-  useSourceNormalsInput.checked = state.useSourceNormals;
+  syncCheckboxControl(normalsControl, useSourceNormalsInput, modelBundle !== null, state.useSourceNormals);
 }
 
 function renderNormalsViewControl(): void {
-  normalsViewControl.hidden = modelBundle === null;
-  showNormalsInput.checked = state.showNormals;
+  syncCheckboxControl(normalsViewControl, showNormalsInput, modelBundle !== null, state.showNormals);
 }
 
 function formatDirection(vector: DirectionVector): string {
@@ -771,7 +782,7 @@ async function setModel(files: File[]): Promise<void> {
   } catch (error) {
     if (modelBundle === bundle) closeModelPreview();
     bundle?.revoke();
-    showToast(error instanceof Error ? error.message : 'Could not load model.');
+    showToast(errorMessage(error, 'Could not load model.'));
   }
 }
 
@@ -910,7 +921,7 @@ function persistCustomDraft(): void {
     renderPalettes();
     render();
   } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Could not save custom palette.');
+    showToast(errorMessage(error, 'Could not save custom palette.'));
   }
 }
 
@@ -947,7 +958,7 @@ function exportPaletteByKey(key: string): void {
     downloadText(serializeCustomPalette(palette), `${safeName}.palette.json`);
     showToast(`Custom palette “${palette.name}” exported`);
   } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Could not export custom palette.');
+    showToast(errorMessage(error, 'Could not export custom palette.'));
   }
 }
 
@@ -978,7 +989,7 @@ function removeCustomPalette(key: string): void {
     render();
     showToast('Custom palette deleted');
   } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Could not delete custom palette.');
+    showToast(errorMessage(error, 'Could not delete custom palette.'));
   }
 }
 
@@ -1064,7 +1075,7 @@ async function saveConfig(): Promise<void> {
     showToast('Settings saved');
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return;
-    showToast(error instanceof Error ? error.message : 'Could not save settings.');
+    showToast(errorMessage(error, 'Could not save settings.'));
   }
 }
 
@@ -1078,7 +1089,7 @@ async function loadConfig(): Promise<void> {
     }
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return;
-    showToast(error instanceof Error ? error.message : 'Could not load settings.');
+    showToast(errorMessage(error, 'Could not load settings.'));
   }
 }
 
@@ -1225,7 +1236,7 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
     render();
     showToast(`${textureLabel(channel)} loaded`);
   } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Could not load image.');
+    showToast(errorMessage(error, 'Could not load image.'));
   }
 }
 
@@ -1455,7 +1466,7 @@ importCustomPaletteInput.addEventListener('change', async () => {
     beginCustomDraft(palette.name, palette.description, palette.colors, palette.key);
     showToast(`Imported custom palette “${palette.name}”`);
   } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Could not import custom palette.');
+    showToast(errorMessage(error, 'Could not import custom palette.'));
   } finally {
     importCustomPaletteInput.value = '';
   }
@@ -1632,7 +1643,7 @@ loadConfigInput.addEventListener('change', async () => {
   try {
     await applyConfigFile(file);
   } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Could not load settings.');
+    showToast(errorMessage(error, 'Could not load settings.'));
   }
 });
 document.querySelector('#saveButton')!.addEventListener('click', saveConfig);

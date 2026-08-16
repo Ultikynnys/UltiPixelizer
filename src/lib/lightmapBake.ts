@@ -1,7 +1,7 @@
 import { DoubleSide, Object3D, Ray, Vector3 } from 'three';
 import { hexToRgb, isHexColor } from './palettes';
 import { directionToSun, type DirectionVector } from './sunDirection';
-import { collectBakeScene, dilateUVBake, rasterizeBake, type BakeTriangle, type UvPair } from './bakeGeometry';
+import { collectBakeScene, rasterizeBakedPixels, type BakeTriangle, type UvPair } from './bakeGeometry';
 import { AMBIENT_FLOOR } from './defaults';
 import { clamp01 } from './math';
 import { triangleNormal } from './modelScene';
@@ -143,12 +143,8 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
     )]))
     : null;
 
-  const pixels = new Uint8ClampedArray(width * height * 4).fill(255);
-  const written = new Uint8Array(width * height);
   const mapped = new Vector3();
-  rasterizeBake(width, height, triangles, (px, py, w0, w1, w2, triangle) => {
-    written[py * width + px] = 1;
-    const offset = (py * width + px) * 4;
+  const pixels = rasterizeBakedPixels(width, height, triangles, 4, (pixels, _px, _py, w0, w1, w2, triangle, offset) => {
     const basis = tangentBases?.get(triangle);
     if (normalMap && basis) {
       const [uva, uvb, uvc] = triangle.uv;
@@ -178,6 +174,5 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
       }
     }
   });
-  dilateUVBake(pixels, written, width, height, 4);
   return pixels;
 }

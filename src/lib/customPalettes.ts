@@ -1,5 +1,5 @@
 import { isPalette, type Palette } from './palettes';
-import { createStoredCollection, type StorageLike } from './storage';
+import { createStoredCollection, parseJsonFile, serializeJsonFile, type StorageLike } from './storage';
 import { slugify } from './strings';
 export type { StorageLike } from './storage';
 
@@ -53,19 +53,14 @@ export function updateCustomPalette(source: CustomPalette, name: string, descrip
 }
 
 export function parseCustomPalette(json: string): CustomPalette {
-  let value: unknown;
-  try {
-    value = JSON.parse(json);
-  } catch {
-    throw new Error('Palette file is not valid JSON.');
-  }
-  if (!isCustomPalette(value)) throw new Error('Palette file has invalid or unsupported data.');
-  return { ...value, colors: [...value.colors] };
+  return parseJsonFile(json, isCustomPalette, {
+    invalidJson: 'Palette file is not valid JSON.',
+    invalidData: 'Palette file has invalid or unsupported data.',
+  }, { after: (palette) => ({ ...palette, colors: [...palette.colors] }) });
 }
 
 export function serializeCustomPalette(palette: CustomPalette): string {
-  if (!isCustomPalette(palette)) throw new Error('Cannot export an invalid custom palette.');
-  return JSON.stringify(palette, null, 2);
+  return serializeJsonFile(palette, isCustomPalette, 'Cannot export an invalid custom palette.');
 }
 
 export function matchingPaletteKey(catalog: Record<string, Palette>, colors: string[], preferredKey?: string): string | null {
