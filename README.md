@@ -23,3 +23,7 @@ Open the live app at [ultikynnys.github.io/UltiPixelizer](https://ultikynnys.git
 ## License
 
 [MIT](LICENSE)
+
+## Support
+
+If you find UltiPixelizer useful, consider supporting the developer on [Ko-fi](https://ko-fi.com/r60dr60d).
