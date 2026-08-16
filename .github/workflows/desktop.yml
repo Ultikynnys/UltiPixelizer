@@ -140,8 +140,18 @@ jobs:
           TAG="v${{ steps.version.outputs.version }}"
           # The downloaded artifact keeps the bundle subdirectories (appimage/,
           # deb/, msi/, nsis/...) — globbing `release/*` would pass directories
-          # to gh, which errors. Upload only files, at any depth.
-          mapfile -d '' INSTALLERS < <(find release -type f -print0)
+          # to gh, which errors. Upload only files, at any depth, deduped by
+          # name (the icon PNG is emitted in both appimage/ and deb/, and a
+          # duplicate name fails gh upload with HTTP 422).
+          declare -A SEEN=()
+          INSTALLERS=()
+          while IFS= read -r -d '' FILE; do
+            NAME=${FILE##*/}
+            if [[ -z ${SEEN[$NAME]+x} ]]; then
+              SEEN[$NAME]=1
+              INSTALLERS+=("$FILE")
+            fi
+          done < <(find release -type f -print0)
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${INSTALLERS[@]}" --clobber
           else
