@@ -1,6 +1,4 @@
-# UltiPixelizer
-
-> A local, browser-based texture pixelation and palette-dithering studio for 3D models.
+![UltiPixelizer](Assets/brand.png)
 
 ![UltiPixelizer example](Assets/Example.png)
 
