@@ -41,6 +41,7 @@ const config: ConversionConfig = {
   smoothAngle: 30,
   tessellation: 2,
   cameraDirection: { x: 0, y: 0, z: -1 },
+  useSourceNormals: true,
 };
 
 describe('conversion presets', () => {
@@ -152,7 +153,7 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...base, normalFormat: 'vulkan' })).toBe(false);
   });
 
-  it('migrates presets saved before sun direction, toggles, and camera existed', () => {
+  it('migrates presets saved before sun direction, toggles, camera, and source normals existed', () => {
     const current = createPreset('Legacy', '', config);
     const {
       sunDirection: _sunDirection,
@@ -161,6 +162,7 @@ describe('conversion presets', () => {
       smoothAngle: _smoothAngle,
       tessellation: _tessellation,
       cameraDirection: _cameraDirection,
+      useSourceNormals: _useSourceNormals,
       ...legacy
     } = current;
     const parsed = parsePreset(JSON.stringify(legacy));
@@ -170,6 +172,7 @@ describe('conversion presets', () => {
     expect(parsed.smoothAngle).toBe(30);
     expect(parsed.tessellation).toBe(1);
     expect(parsed.cameraDirection).toEqual(DEFAULT_CAMERA_DIRECTION);
+    expect(parsed.useSourceNormals).toBe(false);
   });
 
 });
@@ -197,12 +200,13 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       smoothAngle: 30,
       tessellation: 2,
       cameraDirection: { x: 0, y: 0, z: -1 },
+      useSourceNormals: true,
     } as State;
   }
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(24);
+    expect(Object.keys(defaults)).toHaveLength(25);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -228,6 +232,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       smoothAngle: 30,
       tessellation: 1,
       cameraDirection: DEFAULT_CAMERA_DIRECTION,
+      useSourceNormals: false,
     });
     // Catalog/structural fields are deliberately not part of the table.
     expect('paletteKey' in defaults).toBe(false);
@@ -261,6 +266,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       smoothAngle: 30,
       tessellation: 2,
       cameraDirection: { x: 0, y: 0, z: -1 },
+      useSourceNormals: true,
     });
   });
 

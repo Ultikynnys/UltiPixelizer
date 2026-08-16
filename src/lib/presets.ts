@@ -40,6 +40,7 @@ export type ConversionConfig = {
   smoothAngle: number;
   tessellation: number;
   cameraDirection: DirectionVector;
+  useSourceNormals: boolean;
 };
 
 export type ConversionPreset = ConversionConfig & {
@@ -113,6 +114,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'smoothAngle', path: ['smoothAngle'], default: DEFAULT_SMOOTH_ANGLE, migrateDefault: DEFAULT_SMOOTH_ANGLE, validate: inRange(0, 180) },
   { key: 'tessellation', path: ['tessellation'], default: DEFAULT_TESSELLATION, migrateDefault: DEFAULT_TESSELLATION, validate: inRange(1, 4) },
   { key: 'cameraDirection', path: ['cameraDirection'], default: DEFAULT_CAMERA_DIRECTION, migrateDefault: DEFAULT_CAMERA_DIRECTION, validate: isDirectionVector },
+  { key: 'useSourceNormals', path: ['useSourceNormals'], default: false, migrateDefault: false, validate: isBoolean },
 ];
 
 function readPath(state: State, path: readonly string[]): unknown {
