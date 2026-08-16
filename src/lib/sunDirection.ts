@@ -14,10 +14,14 @@ export const DEFAULT_SUN_DIRECTION: Readonly<DirectionVector> = Object.freeze({
   z: -0.5,
 });
 
-/** Returns a finite unit-length world direction, or the default sun direction for invalid input. */
+/** Returns a finite unit-length world direction. Throws on non-finite or
+ * zero-length input so a bad direction surfaces instead of silently falling back
+ * to the default sun. */
 export function normalizeDirection(direction: DirectionVector): DirectionVector {
   const length = Math.hypot(direction.x, direction.y, direction.z);
-  if (!Number.isFinite(length) || length === 0) return { ...DEFAULT_SUN_DIRECTION };
+  if (!Number.isFinite(length) || length === 0) {
+    throw new Error('Sun direction must be a finite, non-zero vector.');
+  }
   return {
     x: direction.x / length,
     y: direction.y / length,

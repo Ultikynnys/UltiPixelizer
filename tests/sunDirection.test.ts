@@ -55,9 +55,10 @@ describe('sun world direction', () => {
     }
   });
 
-  it('uses a safe default for zero-length and non-finite vectors', () => {
-    expect(normalizeDirection({ x: 0, y: 0, z: 0 })).toEqual(DEFAULT_SUN_DIRECTION);
-    expect(normalizeDirection({ x: Number.NaN, y: 0, z: 0 })).toEqual(DEFAULT_SUN_DIRECTION);
+  it('throws for zero-length and non-finite vectors', () => {
+    expect(() => normalizeDirection({ x: 0, y: 0, z: 0 })).toThrow();
+    expect(() => normalizeDirection({ x: Number.NaN, y: 0, z: 0 })).toThrow();
+    expect(() => normalizeDirection({ x: Number.POSITIVE_INFINITY, y: 0, z: 0 })).toThrow();
   });
 
   it('directionToSun negates the light-travel direction toward the sun', () => {

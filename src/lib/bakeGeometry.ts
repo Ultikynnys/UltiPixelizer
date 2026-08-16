@@ -9,7 +9,7 @@ import {
   Vector3,
 } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
-import { computeSmoothNormals, forEachTriangle } from './modelScene';
+import { computeSmoothNormals, forEachTriangle, triangleNormal } from './modelScene';
 
 export type UvPair = [number, number];
 export type BakeVertex = { position: Vector3; normal: Vector3 };
@@ -34,7 +34,8 @@ export type BakeScene = {
  * Every mesh contributes to occlusion; only meshes that carry both a `uv` and a
  * `normal` attribute are baked. Meshes missing normals are recomputed via
  * `computeSmoothNormals`, so pass a disposable scene (a clone) if you need to
- * keep the original untouched.
+ * keep the original untouched. Degenerate triangles (zero world area, or
+ * collapsed UVs) are skipped — they have no surface to light.
  */
 export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
   scene.updateMatrixWorld(true);
@@ -44,8 +45,11 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
   const triangles: BakeTriangle[] = [];
   const vertexIndexByKey = new Map<string, number>();
   const normalMatrix = new Matrix3();
-  const v = new Vector3();
   const n = new Vector3();
+  const pa = new Vector3();
+  const pb = new Vector3();
+  const pc = new Vector3();
+  const faceNormal = new Vector3();
 
   scene.traverse((child) => {
     if (!(child instanceof Mesh) || !child.visible) return;
@@ -70,31 +74,38 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
     normalMatrix.getNormalMatrix(world);
 
     forEachTriangle(geometry, (ia, ib, ic) => {
-      // Occluder triangles (world space) — every mesh contributes.
-      for (const vi of [ia, ib, ic]) {
-        v.fromBufferAttribute(position, vi).applyMatrix4(world);
-        worldPositions.push(v.x, v.y, v.z);
-      }
+      // World-space corners. A zero-area triangle has no surface to light or
+      // occlude, so it is skipped entirely.
+      pa.fromBufferAttribute(position, ia).applyMatrix4(world);
+      pb.fromBufferAttribute(position, ib).applyMatrix4(world);
+      pc.fromBufferAttribute(position, ic).applyMatrix4(world);
+      if (triangleNormal(pa, pb, pc, faceNormal).lengthSq() === 0) return;
 
-      // Bakeable surface — needs UVs and normals.
-      if (uv && normal) {
-        const verts: [number, number, number] = [ia, ib, ic].map((vi) => {
-          v.fromBufferAttribute(position, vi).applyMatrix4(world);
-          n.fromBufferAttribute(normal, vi).applyMatrix3(normalMatrix).normalize();
-          const key = [v.x, v.y, v.z, n.x, n.y, n.z].map((value) => value.toFixed(6)).join(',');
-          let resolved = vertexIndexByKey.get(key);
-          if (resolved === undefined) {
-            resolved = vertices.length;
-            vertices.push({ position: v.clone(), normal: n.clone() });
-            vertexIndexByKey.set(key, resolved);
-          }
-          return resolved;
-        }) as [number, number, number];
-        triangles.push({
-          uv: [[uv.getX(ia), uv.getY(ia)], [uv.getX(ib), uv.getY(ib)], [uv.getX(ic), uv.getY(ic)]],
-          verts,
-        });
-      }
+      // Occluder triangles (world space) — every mesh contributes.
+      worldPositions.push(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z, pc.x, pc.y, pc.z);
+
+      // Bakeable surface — needs UVs, normals, and a non-degenerate UV footprint.
+      if (!uv || !normal) return;
+      const uva: UvPair = [uv.getX(ia), uv.getY(ia)];
+      const uvb: UvPair = [uv.getX(ib), uv.getY(ib)];
+      const uvc: UvPair = [uv.getX(ic), uv.getY(ic)];
+      const det = (uvb[0] - uva[0]) * (uvc[1] - uva[1]) - (uvc[0] - uva[0]) * (uvb[1] - uva[1]);
+      if (Math.abs(det) <= 1e-12) return;
+
+      const corners = [pa, pb, pc];
+      const verts: [number, number, number] = [ia, ib, ic].map((vi, cornerIndex) => {
+        const corner = corners[cornerIndex];
+        n.fromBufferAttribute(normal, vi).applyMatrix3(normalMatrix).normalize();
+        const key = [corner.x, corner.y, corner.z, n.x, n.y, n.z].map((value) => value.toFixed(6)).join(',');
+        let resolved = vertexIndexByKey.get(key);
+        if (resolved === undefined) {
+          resolved = vertices.length;
+          vertices.push({ position: corner.clone(), normal: n.clone() });
+          vertexIndexByKey.set(key, resolved);
+        }
+        return resolved;
+      }) as [number, number, number];
+      triangles.push({ uv: [uva, uvb, uvc], verts });
     });
   });
 

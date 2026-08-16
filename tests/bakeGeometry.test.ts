@@ -78,6 +78,28 @@ describe('collectBakeScene', () => {
     expect(result.triangles).toHaveLength(1);
   });
 
+  it('skips zero-area and collapsed-UV triangles from the bake surface', () => {
+    const scene = new Object3D();
+    // Collinear positions → zero world area → excluded entirely.
+    scene.add(meshWith({
+      position: [0, 0, 0, 1, 0, 0, 2, 0, 0],
+      uv: [0, 0, 1, 0, 0, 1],
+      normal: [0, 0, 1, 0, 0, 1, 0, 0, 1],
+    }));
+    // Valid area but collapsed UVs → no bake surface, still an occluder.
+    scene.add(meshWith({
+      position: [0, 0, 0, 1, 0, 0, 0, 1, 0],
+      uv: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+      normal: [0, 0, 1, 0, 0, 1, 0, 0, 1],
+    }));
+
+    const result = collectBakeScene(scene);
+    expect(result.triangles).toHaveLength(0);
+    expect(result.vertices).toHaveLength(0);
+    // The collapsed-UV triangle still casts shadows, so the BVH is built.
+    expect(result.bvh).not.toBeNull();
+  });
+
   it('skips invisible meshes and meshes without positions', () => {
     const scene = new Object3D();
     const first = uvTriangle();

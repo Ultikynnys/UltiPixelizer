@@ -56,6 +56,7 @@ function combineLight(
  * the UV gradients and are re-orthogonalized against the triangle face normal;
  * the shading normal is interpolated from per-vertex normals by the caller, so
  * the sun respects source / smoothed normals rather than the flat face normal.
+ * Throws for degenerate triangles — callers skip those before reaching here.
  */
 function computeTangentBasis(
   p0: Vector3,
@@ -73,29 +74,23 @@ function computeTangentBasis(
   const du2 = uv2[0] - uv0[0];
   const dv2 = uv2[1] - uv0[1];
   const det = du1 * dv2 - du2 * dv1;
-  const tangent = new Vector3();
-  const bitangent = new Vector3();
-  if (Math.abs(det) > 1e-12) {
-    const f = 1 / det;
-    tangent.set(
-      f * (dv2 * e1.x - dv1 * e2.x),
-      f * (dv2 * e1.y - dv1 * e2.y),
-      f * (dv2 * e1.z - dv1 * e2.z),
-    );
-    bitangent.set(
-      f * (-du2 * e1.x + du1 * e2.x),
-      f * (-du2 * e1.y + du1 * e2.y),
-      f * (-du2 * e1.z + du1 * e2.z),
-    );
+  if (normal.lengthSq() === 0 || Math.abs(det) <= 1e-12) {
+    throw new Error('Cannot build a tangent basis for a degenerate triangle.');
   }
-  if (normal.lengthSq() === 0) normal.set(0, 0, 1);
   normal.normalize();
-  tangent.addScaledVector(normal, -tangent.dot(normal));
-  if (tangent.lengthSq() === 0) tangent.set(1, 0, 0);
-  tangent.normalize();
-  bitangent.addScaledVector(normal, -bitangent.dot(normal));
-  if (bitangent.lengthSq() === 0) bitangent.set(0, 1, 0);
-  bitangent.normalize();
+  const f = 1 / det;
+  const tangent = new Vector3(
+    f * (dv2 * e1.x - dv1 * e2.x),
+    f * (dv2 * e1.y - dv1 * e2.y),
+    f * (dv2 * e1.z - dv1 * e2.z),
+  );
+  const bitangent = new Vector3(
+    f * (-du2 * e1.x + du1 * e2.x),
+    f * (-du2 * e1.y + du1 * e2.y),
+    f * (-du2 * e1.z + du1 * e2.z),
+  );
+  tangent.addScaledVector(normal, -tangent.dot(normal)).normalize();
+  bitangent.addScaledVector(normal, -bitangent.dot(normal)).normalize();
   return [tangent, bitangent];
 }
 
@@ -151,7 +146,7 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
       const nx = w0 * na.x + w1 * nb.x + w2 * nc.x;
       const ny = w0 * na.y + w1 * nb.y + w2 * nc.y;
       const nz = w0 * na.z + w1 * nb.z + w2 * nc.z;
-      const length = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+      const length = Math.sqrt(nx * nx + ny * ny + nz * nz);
       mapped.set(
         tangent.x * tx + bitangent.x * ty + (nx / length) * tz,
         tangent.y * tx + bitangent.y * ty + (ny / length) * tz,
