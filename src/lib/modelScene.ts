@@ -7,12 +7,17 @@ import {
   DoubleSide,
   Material,
   Mesh,
+  MeshBasicMaterial,
+  MeshLambertMaterial,
   NearestFilter,
   Object3D,
   PerspectiveCamera,
+  ShaderMaterial,
   SRGBColorSpace,
   Texture,
+  Vector2,
   Vector3,
+  type NormalMapTypes,
 } from 'three';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { DEFAULT_SMOOTH_ANGLE } from './defaults';
@@ -255,39 +260,93 @@ export function createPixelTexture(image: CanvasImageSource): CanvasTexture<Canv
   return texture;
 }
 
-/** Neutralises every specular / gloss channel a Three material can carry so the
- * model renders fully matte — no Blinn-Phong highlight, no PBR sheen. Idempotent. */
-function stripMaterialSpecular(material: Material): void {
-  const matte = material as Material & {
-    specular?: Color;
-    shininess?: number;
-    metalness?: number;
-    roughness?: number;
-    clearcoat?: number;
-    clearcoatRoughness?: number;
-    specularIntensity?: number;
-    sheen?: number;
+const _white = new Color(0xffffff);
+
+/**
+ * Builds the matte Lambert equivalent of a source material, preserving every
+ * diffuse-relevant channel and dropping every specular / gloss channel by
+ * construction. `MeshLambertMaterial` has no specular term in its shader, so a
+ * black albedo renders black under any light. Returns the source unchanged when
+ * it is already matte: `MeshLambertMaterial`, or `MeshBasicMaterial` (glTF
+ * unlit — deliberately ignores lights). Custom `ShaderMaterial`s pass through
+ * untouched — their shading is author-controlled.
+ */
+function lambertFromMaterial(material: Material): Material {
+  if (material instanceof MeshLambertMaterial || material instanceof MeshBasicMaterial) return material;
+  if (material instanceof ShaderMaterial) return material;
+  const source = material as Material & {
+    color?: Color;
+    map?: Texture | null;
+    alphaMap?: Texture | null;
+    emissive?: Color;
+    emissiveIntensity?: number;
+    emissiveMap?: Texture | null;
+    aoMap?: Texture | null;
+    aoMapIntensity?: number;
+    bumpMap?: Texture | null;
+    bumpScale?: number;
+    normalMap?: Texture | null;
+    normalMapType?: NormalMapTypes;
+    normalScale?: Vector2;
+    vertexColors?: boolean;
+    flatShading?: boolean;
   };
-  if ('specular' in matte) matte.specular?.set(0x000000);
-  if ('shininess' in matte) matte.shininess = 0;
-  if ('metalness' in matte) matte.metalness = 0;
-  if ('roughness' in matte) matte.roughness = 1;
-  if ('clearcoat' in matte) matte.clearcoat = 0;
-  if ('clearcoatRoughness' in matte) matte.clearcoatRoughness = 1;
-  if ('specularIntensity' in matte) matte.specularIntensity = 0;
-  if ('sheen' in matte) matte.sheen = 0;
-  matte.needsUpdate = true;
+  const lambert = new MeshLambertMaterial();
+  lambert.color.copy(source.color ?? _white);
+  if (source.map) lambert.map = source.map;
+  if (source.alphaMap) lambert.alphaMap = source.alphaMap;
+  if (source.emissive) lambert.emissive.copy(source.emissive);
+  if (source.emissiveIntensity !== undefined) lambert.emissiveIntensity = source.emissiveIntensity;
+  if (source.emissiveMap) lambert.emissiveMap = source.emissiveMap;
+  if (source.aoMap) {
+    lambert.aoMap = source.aoMap;
+    if (source.aoMapIntensity !== undefined) lambert.aoMapIntensity = source.aoMapIntensity;
+  }
+  if (source.bumpMap) {
+    lambert.bumpMap = source.bumpMap;
+    if (source.bumpScale !== undefined) lambert.bumpScale = source.bumpScale;
+  }
+  if (source.normalMap) {
+    lambert.normalMap = source.normalMap;
+    if (source.normalMapType !== undefined) lambert.normalMapType = source.normalMapType;
+    if (source.normalScale) lambert.normalScale.copy(source.normalScale);
+  }
+  if (source.vertexColors !== undefined) lambert.vertexColors = source.vertexColors;
+  if (source.flatShading !== undefined) lambert.flatShading = source.flatShading;
+  lambert.transparent = material.transparent;
+  lambert.opacity = material.opacity;
+  lambert.side = material.side;
+  lambert.alphaTest = material.alphaTest;
+  lambert.alphaHash = material.alphaHash;
+  lambert.depthTest = material.depthTest;
+  lambert.depthWrite = material.depthWrite;
+  return lambert;
 }
 
-/** Strips specularity from every material in a model subtree. Returns the count. */
-export function stripSpecularFromModel(object: Object3D): number {
+/**
+ * Replaces every material in a model subtree with its matte Lambert equivalent,
+ * so the model renders with pure diffuse shading — a black albedo stays black
+ * under any light. Loader materials (Phong / Standard / Physical) always carry a
+ * specular response that per-property stripping cannot fully remove — three r185
+ * `MeshStandardMaterial` hardcodes a 4% dielectric F0 (white at grazing angles),
+ * which shows up as a sheen on black surfaces. Returns the conversion count.
+ */
+export function convertToLambertShading(object: Object3D): number {
   let materialCount = 0;
+  const disposed = new Set<Material>();
   object.traverse((child) => {
     if (!(child instanceof Mesh)) return;
-    materialsOf(child).forEach((material) => {
-      stripMaterialSpecular(material);
+    const converted = materialsOf(child).map((material) => {
+      const lambert = lambertFromMaterial(material);
+      if (lambert === material) return material;
+      if (!disposed.has(material)) {
+        disposed.add(material);
+        material.dispose();
+      }
       materialCount += 1;
+      return lambert;
     });
+    child.material = converted.length === 1 ? converted[0] : converted;
   });
   return materialCount;
 }
@@ -303,7 +362,6 @@ export function applyTextureToMaterial(material: Material, texture: Texture): vo
   textured.color?.set(0xffffff);
   textured.transparent = true;
   textured.side = DoubleSide;
-  stripMaterialSpecular(material);
   textured.needsUpdate = true;
 }
 

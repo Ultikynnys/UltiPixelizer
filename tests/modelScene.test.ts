@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshPhongMaterial, MeshStandardMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture, Vector3 } from 'three';
-import { applyTextureToModel, applyUVChannel, cloneModelScene, computeSmoothNormals, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, recomputeVertexNormals, stripSpecularFromModel, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
+import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshPhongMaterial, MeshStandardMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture, Vector3 } from 'three';
+import { applyTextureToModel, applyUVChannel, cloneModelScene, computeSmoothNormals, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, recomputeVertexNormals, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
 
 function mesh(channels: string[], materials = 1): Mesh {
   const geometry = new BufferGeometry();
@@ -181,18 +181,56 @@ describe('model scene processing', () => {
     expect(target.z).toBeCloseTo(1);
   });
 
-  it('stripSpecularFromModel removes Phong specular and PBR sheen from every material', () => {
-    const phong = new MeshPhongMaterial({ specular: 0xffffff, shininess: 60 });
-    const standard = new MeshStandardMaterial({ metalness: 1, roughness: 0 });
+  it('convertToLambertShading replaces Phong and Standard materials with matte Lambert, preserving diffuse channels', () => {
+    const map = new Texture();
+    const normalMap = new Texture();
+    const phong = new MeshPhongMaterial({
+      color: 0x336699, map, normalMap, emissive: 0x112233,
+      specular: 0xffffff, shininess: 60, transparent: true, opacity: 0.5,
+    });
+    const standard = new MeshStandardMaterial({ color: 0x884422, metalness: 1, roughness: 0 });
     const root = new Object3D();
-    root.add(new Mesh(new BufferGeometry(), phong));
-    root.add(new Mesh(new BufferGeometry(), standard));
+    root.add(new Mesh(new BufferGeometry(), phong), new Mesh(new BufferGeometry(), standard));
 
-    expect(stripSpecularFromModel(root)).toBe(2);
-    expect(phong.specular.getHex()).toBe(0x000000);
-    expect(phong.shininess).toBe(0);
-    expect(standard.metalness).toBe(0);
-    expect(standard.roughness).toBe(1);
+    expect(convertToLambertShading(root)).toBe(2);
+    const convertedPhong = (root.children[0] as Mesh).material as MeshLambertMaterial;
+    const convertedStandard = (root.children[1] as Mesh).material as MeshLambertMaterial;
+    expect(convertedPhong.type).toBe('MeshLambertMaterial');
+    expect(convertedStandard.type).toBe('MeshLambertMaterial');
+    expect(convertedPhong.map).toBe(map);
+    expect(convertedPhong.normalMap).toBe(normalMap);
+    expect(convertedPhong.color.getHex()).toBe(0x336699);
+    expect(convertedPhong.emissive.getHex()).toBe(0x112233);
+    expect(convertedPhong.transparent).toBe(true);
+    expect(convertedPhong.opacity).toBe(0.5);
+    expect('specular' in convertedPhong).toBe(false);
+    expect('shininess' in convertedPhong).toBe(false);
+    expect('metalness' in convertedStandard).toBe(false);
+    expect('roughness' in convertedStandard).toBe(false);
+  });
+
+  it('convertToLambertShading leaves Lambert and Basic materials untouched', () => {
+    const lambert = new MeshLambertMaterial({ color: 0x123456 });
+    const basic = new MeshBasicMaterial({ color: 0x654321 });
+    const custom = new ShaderMaterial();
+    const root = new Object3D();
+    root.add(new Mesh(new BufferGeometry(), lambert), new Mesh(new BufferGeometry(), basic), new Mesh(new BufferGeometry(), custom));
+    expect(convertToLambertShading(root)).toBe(0);
+    expect((root.children[0] as Mesh).material).toBe(lambert);
+    expect((root.children[1] as Mesh).material).toBe(basic);
+    expect((root.children[2] as Mesh).material).toBe(custom);
+  });
+
+  it('convertToLambertShading converts multi-material meshes in place', () => {
+    const mesh = new Mesh(new BufferGeometry(), [new MeshPhongMaterial(), new MeshStandardMaterial()]);
+    const root = new Object3D();
+    root.add(mesh);
+    expect(convertToLambertShading(root)).toBe(2);
+    expect(Array.isArray(mesh.material)).toBe(true);
+    const converted = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    converted.forEach((material) => {
+      expect(material.type).toBe('MeshLambertMaterial');
+    });
   });
 
   it('disposes geometry, materials, and textures without closing shared image sources', () => {

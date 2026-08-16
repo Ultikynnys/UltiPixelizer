@@ -33,7 +33,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
-import { applyTextureToMaterial, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject, materialsOf, recomputeVertexNormals, stripSpecularFromModel } from './modelScene';
+import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, materialsOf, recomputeVertexNormals } from './modelScene';
 import { cameraForwardFromQuaternion, directionToSun, type DirectionVector } from './sunDirection';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
@@ -113,7 +113,7 @@ export async function loadModel(
   }
 
   if (!options.useSourceNormals) recomputeVertexNormals(scene, options.smoothAngle);
-  stripSpecularFromModel(scene);
+  convertToLambertShading(scene);
   return { scene, animations };
 }
 
