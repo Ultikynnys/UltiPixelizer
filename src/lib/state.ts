@@ -46,3 +46,10 @@ export type State = {
   showUVWireframe: boolean;
   showNormals: boolean;
 };
+
+/** True when a lightmap is loaded (the lightmap slot holds an image). Shared by
+ * the light-map controls, sun sync, and the bake scheduler so the predicate
+ * lives in one place. */
+export function lightmapIsActive(textures: Record<TextureChannelId, TextureSlot>): boolean {
+  return textures.lightmap.image !== null;
+}

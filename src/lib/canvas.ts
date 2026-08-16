@@ -7,14 +7,22 @@ export function cloneImageData(source: ImageData): ImageData {
  * renderer derive from this so the image→pixels contract stays in one place. */
 export type PixelSource = { data: Uint8ClampedArray; width: number; height: number };
 
+/** Creates a fresh canvas at the given size and returns it with its 2D context
+ * (null if a context can't be created). Shared by every canvas bootstrap in the
+ * app so the create + size + getContext idiom lives in one place. */
+export function createCanvas(width: number, height: number, willReadFrequently = false): { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D | null } {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', willReadFrequently ? { willReadFrequently: true } : undefined);
+  return { canvas, context };
+}
+
 /** Draws an image into a fresh canvas at the given size and returns the canvas
  * plus its 2D context (null if a context can't be created). Shared by every
  * image→pixels / image→canvas reader in the renderer. */
 export function drawImageToCanvas(image: CanvasImageSource, width: number, height: number): { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D | null } {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d', { willReadFrequently: true });
+  const { canvas, context } = createCanvas(width, height, true);
   if (context) context.drawImage(image, 0, 0, width, height);
   return { canvas, context };
 }
@@ -29,10 +37,7 @@ export function imagePixels(image: CanvasImageSource, width: number, height: num
 
 /** Writes RGBA pixel data into a fresh canvas at the given size. */
 export function pixelsToCanvas(pixels: Uint8ClampedArray, width: number, height: number): HTMLCanvasElement {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d');
+  const { canvas, context } = createCanvas(width, height);
   if (!context) throw new Error('Canvas is unavailable.');
   const imageData = context.createImageData(width, height);
   imageData.data.set(pixels);
@@ -84,10 +89,7 @@ function mulberry32(seed: number): () => number {
 }
 
 export function createSampleTexture(size = 640, seed = 1): HTMLCanvasElement {
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = Math.round(size * 0.72);
-  const context = canvas.getContext('2d');
+  const { canvas, context } = createCanvas(size, Math.round(size * 0.72));
   if (!context) throw new Error('Canvas is unavailable.');
 
   const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);

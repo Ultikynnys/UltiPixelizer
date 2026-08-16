@@ -3,6 +3,7 @@ import { factorsToCanvas, pixelsToCanvas } from '../canvas';
 import { errorMessage } from '../strings';
 import { bakeMeshLightmap, type BakeLightmapOptions } from '../lightmapBake';
 import { imageNormalMapPixels } from '../normal';
+import { lightmapIsActive } from '../state';
 import type { Render2DApi } from './render2d';
 import type { RendererDeps, RenderShared } from './types';
 
@@ -30,12 +31,13 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   } = deps;
 
   function normalMapOptions() {
+    const normalFlipY = state.normalFormat === 'directx';
     const image = textures.normal.image;
-    if (!image) return { normalStrength: state.normalStrength, normalFlipY: state.normalFormat === 'directx' };
+    if (!image) return { normalStrength: state.normalStrength, normalFlipY };
     return {
       normalMap: imageNormalMapPixels(image),
       normalStrength: state.normalStrength,
-      normalFlipY: state.normalFormat === 'directx',
+      normalFlipY,
     };
   }
 
@@ -138,7 +140,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   }
 
   function bakeImplicitLightmap(): void {
-    if (!getAOScene() || !textures.base.image || textures.lightmap.image) {
+    if (!getAOScene() || !textures.base.image || lightmapIsActive(textures)) {
       shared.implicitLightmapCanvas = null;
       return;
     }
@@ -154,7 +156,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   function scheduleImplicitLightmapBake(): void {
     if (shared.implicitLightmapTimer) window.clearTimeout(shared.implicitLightmapTimer);
     shared.implicitLightmapTimer = 0;
-    if (textures.lightmap.image !== null || getAOScene() === null) return;
+    if (lightmapIsActive(textures) || getAOScene() === null) return;
     shared.implicitLightmapTimer = window.setTimeout(() => {
       shared.implicitLightmapTimer = 0;
       bakeImplicitLightmap();

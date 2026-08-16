@@ -1,5 +1,5 @@
 import './style.css';
-import { createSampleTexture, downloadCanvas, downloadText, loadImageFile } from './lib/canvas';
+import { createCanvas, createSampleTexture, downloadCanvas, downloadText, loadImageFile } from './lib/canvas';
 import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomPalettes, parseCustomPalette, selectOrCreatePalette, serializeCustomPalette, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
 import type { DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
@@ -13,7 +13,7 @@ import { lightmapMatchesBaseColor } from './lib/lightmap';
 import type { NormalFormat } from './lib/normal';
 import { AMBIENT_FLOOR, DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY } from './lib/defaults';
 import { createRenderer } from './lib/render';
-import type { LightState, PreviewMode, State, TextureChannelId, TextureSlot } from './lib/state';
+import { lightmapIsActive, type LightState, type PreviewMode, type State, type TextureChannelId, type TextureSlot } from './lib/state';
 import { errorMessage, safeFileName } from './lib/strings';
 import { DEFAULT_SUN_DIRECTION, type DirectionVector } from './lib/sunDirection';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
@@ -441,6 +441,10 @@ function customPaletteRecord(): Record<string, CustomPalette> {
   return Object.fromEntries(savedCustomPalettes.map((palette) => [palette.key, palette]));
 }
 
+function customPaletteByKey(key: string | null): CustomPalette | undefined {
+  return key === null ? undefined : savedCustomPalettes.find((palette) => palette.key === key);
+}
+
 function paletteCatalog(): Record<string, Palette> {
   return { ...palettes, ...customPaletteRecord() };
 }
@@ -454,6 +458,15 @@ function currentPalette(): Palette {
 
 function currentColors(): string[] {
   return state.customColors.length > 0 ? state.customColors : currentPalette().colors;
+}
+
+/** Selects a palette key and clears any in-progress custom color draft. Shared
+ * by the save / select / delete / load-preset paths so the draft reset stays
+ * consistent. */
+function setPaletteKey(key: string): void {
+  state.paletteKey = key;
+  state.customColors = [];
+  state.paletteSnapshot = undefined;
 }
 
 function dimensions(): { width: number; height: number } {
@@ -481,18 +494,18 @@ const formatTimes2 = (value: number): string => `${value.toFixed(2)}×`;
 const formatSignedInt = (value: number): string => `${value > 0 ? '+' : ''}${value}`;
 
 function renderLightmapControls(): void {
-  const active = textures.lightmap.image !== null;
+  const lightmap = textures.lightmap.image;
   const contribution = Math.round(state.lightmapContribution * 100);
   syncRangeValue(lightmapContributionInput, lightmapContributionValue, contribution, formatPercent);
-  lightmapStatus.textContent = active && textures.lightmap.image
-    ? `${textures.lightmap.name} · ${textures.lightmap.image.width} × ${textures.lightmap.image.height}`
+  lightmapStatus.textContent = lightmap
+    ? `${textures.lightmap.name} · ${lightmap.width} × ${lightmap.height}`
     : 'No lightmap loaded';
   bakeLightmapButton.disabled = aoBakeScene === null;
 }
 
 function renderNormalControls(): void {
   const strength = Math.round(state.normalStrength * 100);
-  const lightmapActive = textures.lightmap.image !== null;
+  const lightmapActive = lightmapIsActive(textures);
   syncRangeValue(normalStrengthInput, normalStrengthValue, strength, formatPercent);
   normalStrengthInput.disabled = lightmapActive;
   normalFormatSelect.value = state.normalFormat;
@@ -616,7 +629,7 @@ function syncLightControls(
 
 function renderSunControl(): void {
   sunControlElements.control.hidden = modelBundle === null || (originalPreviewMode !== '3d' && processedPreviewMode !== '3d');
-  const lightmapActive = textures.lightmap.image !== null;
+  const lightmapActive = lightmapIsActive(textures);
   sunControlElements.control.classList.toggle('off', !state.sun.enabled || lightmapActive);
   sunControlElements.control.classList.toggle('lightmap-active', lightmapActive);
   sunControlElements.orientWithCamera.disabled = !state.sun.enabled || lightmapActive || originalPreviewMode !== '3d' || originalViewport === null;
@@ -657,10 +670,8 @@ function renderTextureRibbon(): void {
     slotElement.classList.toggle('disabled', !modelBundle && channel.id !== 'base');
     if (preview) {
       if (data.image) {
-        const canvas = document.createElement('canvas');
-        canvas.width = 40;
-        canvas.height = 34;
-        canvas.getContext('2d')?.drawImage(data.image, 0, 0, 40, 34);
+        const { canvas, context } = createCanvas(40, 34);
+        context?.drawImage(data.image, 0, 0, 40, 34);
         preview.replaceChildren(canvas);
       } else {
         preview.innerHTML = '<span class="texture-slot-empty-mark">+</span>';
@@ -677,7 +688,7 @@ function renderTextureRibbon(): void {
 }
 
 function applyModelUV(channel: string): void {
-  if (channel !== state.uvMap && textures.lightmap.image) clearLightmap();
+  if (channel !== state.uvMap && lightmapIsActive(textures)) clearLightmap();
   state.uvMap = channel;
   if (aoBakeScene) applyUVChannel(aoBakeScene, channel);
   const originalStatus = originalViewport?.applyUV(channel);
@@ -690,7 +701,7 @@ function applyModelUV(channel: string): void {
 }
 
 function applyModelLod(level: number): void {
-  if (level !== state.lodLevel && textures.lightmap.image) clearLightmap();
+  if (level !== state.lodLevel && lightmapIsActive(textures)) clearLightmap();
   state.lodLevel = level;
   forEachViewport((viewport) => viewport.applyLOD(level));
   if (aoBakeScene) applyLodLevel(aoBakeScene, level);
@@ -701,7 +712,7 @@ function applyModelLod(level: number): void {
 function applySun(): void {
   renderSunControl();
   renderOrientationReadout();
-  const lightmapActive = textures.lightmap.image !== null;
+  const lightmapActive = lightmapIsActive(textures);
   const ambientIntensity = lightmapActive ? 1 : state.ambient.enabled ? Math.max(AMBIENT_FLOOR, state.ambient.intensity) : 0;
   forEachViewport((viewport) => {
     viewport.setSunDirection(state.sun.direction);
@@ -915,21 +926,19 @@ function beginCustomDraft(name: string, description: string, colors: string[], k
 // 'change' event never bubbles to the customColors listener and the edit is never persisted.
 function ensureCustomDraft(): void {
   if (state.customColors.length > 0) return;
-  const selectedCustom = savedCustomPalettes.find((palette) => palette.key === state.paletteKey);
+  const selectedCustom = customPaletteByKey(state.paletteKey);
   if (selectedCustom) hydrateCustomDraft(selectedCustom.name, selectedCustom.description, selectedCustom.colors, selectedCustom.key);
   else hydrateCustomDraft(`${currentPalette().name} Copy`, `Custom copy of ${currentPalette().name}`, currentPalette().colors);
 }
 
 function persistCustomDraft(): void {
   try {
-    const existing = savedCustomPalettes.find((palette) => palette.key === editingCustomKey);
+    const existing = customPaletteByKey(editingCustomKey);
     const palette = existing
       ? updateCustomPalette(existing, customPaletteName.value, customPaletteDescription.value, currentColors())
       : createCustomPalette(customPaletteName.value, customPaletteDescription.value, currentColors(), new Date(), editingCustomKey ?? undefined);
     savedCustomPalettes = upsertCustomPalette(localStorage, palette);
-    state.paletteKey = palette.key;
-    state.customColors = [];
-    state.paletteSnapshot = undefined;
+    setPaletteKey(palette.key);
     hydrateEditorForSelection(palette.key, palette);
     renderPalettes();
     render();
@@ -965,7 +974,7 @@ function duplicatePaletteByKey(key: string): void {
 
 function exportPaletteByKey(key: string): void {
   try {
-    const palette = savedCustomPalettes.find((entry) => entry.key === key);
+    const palette = customPaletteByKey(key);
     if (!palette) return;
     const safeName = safeFileName(palette.name, 'custom-palette');
     downloadText(serializeCustomPalette(palette), `${safeName}.palette.json`);
@@ -979,16 +988,14 @@ function exportPaletteByKey(key: string): void {
 // matching custom palette (if any) and hydrates the draft name/description,
 // falling back to the catalog palette's own values.
 function hydrateEditorForSelection(paletteKey: string, fallback: Palette): void {
-  const selectedCustom = savedCustomPalettes.find((palette) => palette.key === paletteKey);
+  const selectedCustom = customPaletteByKey(paletteKey);
   editingCustomKey = selectedCustom?.key ?? null;
   customPaletteName.value = selectedCustom?.name ?? fallback.name;
   customPaletteDescription.value = selectedCustom?.description ?? fallback.description;
 }
 
 function selectPalette(key: string): void {
-  state.paletteKey = key;
-  state.customColors = [];
-  state.paletteSnapshot = undefined;
+  setPaletteKey(key);
   hydrateEditorForSelection(key, currentPalette());
   renderPalettes();
   render();
@@ -999,9 +1006,7 @@ function removeCustomPalette(key: string): void {
     savedCustomPalettes = deleteCustomPalette(localStorage, key);
     if (editingCustomKey === key) editingCustomKey = null;
     if (state.paletteKey === key) {
-      state.paletteKey = 'desert';
-      state.customColors = [];
-      state.paletteSnapshot = undefined;
+      setPaletteKey('desert');
       customPaletteName.value = '';
       customPaletteDescription.value = '';
     }
@@ -1123,10 +1128,8 @@ function applyPreset(preset: ConversionPreset): void {
   const paletteKey = paletteSelection.key;
   savedCustomPalettes = paletteSelection.customPalettes;
   applyConfigValues(state, preset as unknown as Readonly<Record<string, unknown>>);
-  state.paletteKey = paletteKey;
+  setPaletteKey(paletteKey);
   state.uvMap = preset.uvMap;
-  state.paletteSnapshot = undefined;
-  state.customColors = [];
   const selectedPalette = paletteCatalog()[paletteKey];
   hydrateEditorForSelection(paletteKey, selectedPalette);
   syncControlsFromState();
@@ -1192,7 +1195,7 @@ function updateFileMeta(name: string, width: number, height: number, updateHeadi
 
 function clearTexture(channel: TextureChannelId): void {
   if (channel === 'base') {
-    if (textures.lightmap.image) clearLightmap();
+    if (lightmapIsActive(textures)) clearLightmap();
     textures.base.image = sample;
     textures.base.name = 'sample-landscape.png';
     updateFileMeta(textures.base.name, sample.width, sample.height);
@@ -1230,7 +1233,7 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
   try {
     const image = await loadImageFile(file);
     renderScheduler.cancel();
-    if (channel === 'base' && textures.lightmap.image) clearLightmap();
+    if (channel === 'base' && lightmapIsActive(textures)) clearLightmap();
     if (channel === 'lightmap') {
       const baseColor = textures.base.image!;
       if (!lightmapMatchesBaseColor(image, baseColor)) {

@@ -30,20 +30,18 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { createCanvas } from './canvas';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
-import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, materialsOf, recomputeVertexNormals, triangleIndices } from './modelScene';
+import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, forEachMeshIndexed, materialsOf, recomputeVertexNormals, triangleIndices } from './modelScene';
 import { cameraForwardFromQuaternion, directionToSun, type DirectionVector } from './sunDirection';
 import { UV_OVERLAP_LABEL } from './uvOverlap';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
 
 function overlapLabelTexture(): CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 64;
-  const context = canvas.getContext('2d');
+  const { canvas, context } = createCanvas(256, 64);
   if (context) {
     context.font = '700 30px "DM Mono", monospace';
     context.textAlign = 'center';
@@ -252,11 +250,8 @@ export class ModelViewport {
     this.model.updateMatrixWorld(true);
     const positions: number[] = [];
     const v = new Vector3();
-    let meshIndex = 0;
-    this.model.traverse((child) => {
-      if (!(child instanceof Mesh)) return;
+    forEachMeshIndexed(this.model, (child, meshIndex) => {
       const meshTriangleIndices = overlapping.get(meshIndex);
-      meshIndex += 1;
       if (!meshTriangleIndices || meshTriangleIndices.length === 0) return;
 
       const position = child.geometry.getAttribute('position');

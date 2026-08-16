@@ -1,4 +1,4 @@
-import { factorsToCanvas } from '../canvas';
+import { createCanvas, factorsToCanvas } from '../canvas';
 import type { SourceImage } from '../state';
 import { UV_OVERLAP_LABEL, collectUVTriangles, computeUVOverlap, type UVTriangle } from '../uvOverlap';
 import type { RendererDeps, RenderShared } from './types';
@@ -70,11 +70,7 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
 
   function renderWaveTile(time: number): HTMLCanvasElement {
     const size = 256;
-    if (!uvWaveCanvas) {
-      uvWaveCanvas = document.createElement('canvas');
-      uvWaveCanvas.width = size;
-      uvWaveCanvas.height = size;
-    }
+    if (!uvWaveCanvas) uvWaveCanvas = createCanvas(size, size).canvas;
     const context = uvWaveCanvas.getContext('2d');
     if (!context) return uvWaveCanvas;
     const image = context.createImageData(size, size);

@@ -3,7 +3,7 @@ import { hexToRgb, isHexColor } from './palettes';
 import { directionToSun, type DirectionVector } from './sunDirection';
 import { castBakeRay, collectBakeScene, rasterizeBakedPixels, type BakeTriangle, type UvPair } from './bakeGeometry';
 import { AMBIENT_FLOOR } from './defaults';
-import { clamp01 } from './math';
+import { clamp01, type RGB } from './math';
 import { triangleNormal } from './modelScene';
 import { sampleNormalMap, type NormalMapSource } from './normal';
 
@@ -19,8 +19,6 @@ export type BakeLightmapOptions = {
   normalStrength?: number;
   normalFlipY?: boolean;
 };
-
-type RGB = [number, number, number];
 
 function parseColor(color: string): RGB {
   if (!isHexColor(color)) throw new Error(`Invalid light color: ${color}`);

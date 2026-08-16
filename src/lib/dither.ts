@@ -1,5 +1,5 @@
 import { hexToRgb } from './palettes';
-import { clamp } from './math';
+import { clamp, type RGB } from './math';
 
 export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'cross' | 'stripes' | 'noise' | 'checker' | 'none';
 
@@ -14,8 +14,6 @@ export type ProcessOptions = {
   noiseScale: number;
   seed: number;
 };
-
-type RGB = [number, number, number];
 
 const BAYER_4 = [
   [0, 8, 2, 10],

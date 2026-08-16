@@ -109,6 +109,20 @@ export function forEachTriangle(
   }
 }
 
+/** Iterates every Mesh in a subtree in depth-first order, passing the mesh and
+ * its traversal index. The index counts *all* meshes (visible or not) so it
+ * stays stable across identical-topology clones — the UV-overlap detector and
+ * the 3D overlap overlay both depend on this shared ordering. */
+export function forEachMeshIndexed(object: Object3D, callback: (mesh: Mesh, index: number) => void): void {
+  let index = 0;
+  object.traverse((child) => {
+    if (!(child instanceof Mesh)) return;
+    const meshIndex = index;
+    index += 1;
+    callback(child, meshIndex);
+  });
+}
+
 /** Recomputes vertex normals with angle-based smoothing, discarding any existing
  * normal attribute. Adjacent faces sharing an edge are smoothed (share a normal)
  * only when the angle between their face normals is below `angleDeg`; otherwise
