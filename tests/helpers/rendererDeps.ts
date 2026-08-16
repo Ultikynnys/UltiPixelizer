@@ -34,7 +34,8 @@ export function createStateFixture(): State {
     cameraDirection: { x: 0, y: 0, z: -1 },
     showUVOverlap: false,
     showUVWireframe: false,
-    viewMode: 'flat',
+    viewModeOriginal: 'flat',
+    viewModeProcessed: 'flat',
   } as State;
 }
 

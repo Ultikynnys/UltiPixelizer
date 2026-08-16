@@ -75,7 +75,8 @@ describe('createRender2D render pipeline', () => {
   it('shows the raw lightmap in both panes when lightmap-only mode is on', () => {
     const lightmap = solidTexture([200, 200, 200, 255]);
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: lightmap, name: '' } } });
-    deps.state.viewMode = 'lightmap';
+    deps.state.viewModeOriginal = 'lightmap';
+    deps.state.viewModeProcessed = 'lightmap';
     const shared = sharedState();
     createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
 
@@ -88,7 +89,8 @@ describe('createRender2D render pipeline', () => {
   it('shows the raw AO map in both panes when AO-only mode is on', () => {
     const ao = solidTexture([200, 200, 200, 255]);
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
-    deps.state.viewMode = 'ao';
+    deps.state.viewModeOriginal = 'ao';
+    deps.state.viewModeProcessed = 'ao';
     const shared = sharedState();
     createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
 
@@ -96,6 +98,20 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([200, 200, 200, 255]);
     // Dithered pane quantizes the AO map (200 → white).
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
+  });
+
+  it('renders each pane from its own view mode', () => {
+    const ao = solidTexture([200, 200, 200, 255]);
+    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.viewModeOriginal = 'ao';
+    // viewModeProcessed stays 'flat' → the dithered pane quantizes the lit base.
+    const shared = sharedState();
+    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+
+    // Original pane shows the raw AO factors at native resolution.
+    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([200, 200, 200, 255]);
+    // Dithered pane quantizes the lit base texture, not the AO map — all dark → black.
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 
   it('draws the UV wireframe onto both panes when enabled and available', () => {

@@ -2,6 +2,7 @@ import { applyAO, imageAOFactors } from '../ao';
 import { drawImageToCanvas, imagePixels, processLitImageData } from '../canvas';
 import { processImageData } from '../dither';
 import { applyLightmap } from '../lightmap';
+import type { PreviewViewMode, SourceImage } from '../state';
 import type { RendererDeps, RenderShared } from './types';
 import type { OverlayView } from './overlay';
 
@@ -56,14 +57,20 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
 
   function render(): void {
     const { width, height } = dimensions();
-    // Inspection modes swap the base color for the raw AO or lightmap in both
-    // previews so the map can be inspected (and dithered) on its own. viewMode
-    // is a single mutually-exclusive enum ('flat' | 'normals' | 'ao' | 'lightmap').
-    const aoOnlySource = state.viewMode === 'ao' ? textures.ao.image : null;
-    const lightmapOnlySource = state.viewMode === 'lightmap' ? (textures.lightmap.image ?? shared.implicitLightmapCanvas) : null;
-    const onlySource = aoOnlySource ?? lightmapOnlySource;
-    const source = onlySource ?? textures.base.image!;
-    const { canvas: nextCanvas, context: renderContext } = drawImageToCanvas(source, width, height);
+    // Per-pane inspection enum: each preview pane picks its own source, so the
+    // original can show the raw AO while the dithered pane quantizes the base.
+    // Lighting (AO + lightmap multiply) is skipped for whichever pane inspects
+    // a raw map, since lighting the map being inspected would alter it.
+    const inspectionSource = (viewMode: PreviewViewMode): SourceImage | null =>
+      viewMode === 'ao' ? textures.ao.image
+      : viewMode === 'lightmap' ? (textures.lightmap.image ?? shared.implicitLightmapCanvas)
+      : null;
+    const originalOnlySource = inspectionSource(state.viewModeOriginal);
+    const processedOnlySource = inspectionSource(state.viewModeProcessed);
+
+    // Dithered pane: quantize the processed pane's chosen source.
+    const processedSource = processedOnlySource ?? textures.base.image!;
+    const { canvas: nextCanvas, context: renderContext } = drawImageToCanvas(processedSource, width, height);
     shared.renderedCanvas = nextCanvas;
     if (!renderContext) return;
     const sourceData = renderContext.getImageData(0, 0, width, height);
@@ -75,7 +82,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
     };
     const { processed: processedData } = processLitImageData(
       sourceData,
-      onlySource ? skipLighting : applyLighting,
+      processedOnlySource ? skipLighting : applyLighting,
       (lit) => processImageData(lit, processedOptions),
     );
     renderContext.putImageData(processedData, 0, 0);
@@ -84,18 +91,20 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
     previewCanvas.height = height;
     previewCanvas.getContext('2d')?.drawImage(shared.renderedCanvas, 0, 0);
 
-    // Original pane shows the source at native resolution — the pixel grid slider must not affect it.
-    const litSourceNative = onlySource
-      ? drawImageToCanvas(source, source.width, source.height).canvas
-      : litCanvas(source, source.width, source.height);
+    // Original pane shows its chosen source at native resolution — the pixel
+    // grid slider must not affect it.
+    const originalSource = originalOnlySource ?? textures.base.image!;
+    const litSourceNative = originalOnlySource
+      ? drawImageToCanvas(originalSource, originalSource.width, originalSource.height).canvas
+      : litCanvas(originalSource, originalSource.width, originalSource.height);
     shared.originalBaseCanvas = litSourceNative;
-    originalCanvas.width = source.width;
-    originalCanvas.height = source.height;
+    originalCanvas.width = originalSource.width;
+    originalCanvas.height = originalSource.height;
     originalCanvas.getContext('2d')?.drawImage(litSourceNative, 0, 0);
 
     if (state.showUVWireframe && overlay.hasWireframe()) {
       const originalContext = originalCanvas.getContext('2d');
-      if (originalContext) overlay.drawWireframe(originalContext, source.width, source.height);
+      if (originalContext) overlay.drawWireframe(originalContext, originalSource.width, originalSource.height);
       const previewContext = previewCanvas.getContext('2d');
       if (previewContext) overlay.drawWireframe(previewContext, width, height);
     }

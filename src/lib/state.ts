@@ -47,7 +47,8 @@ export type State = {
   normalFormat: NormalFormat;
   showUVOverlap: boolean;
   showUVWireframe: boolean;
-  viewMode: PreviewViewMode;
+  viewModeOriginal: PreviewViewMode;
+  viewModeProcessed: PreviewViewMode;
 };
 
 /** True when a lightmap is loaded (the lightmap slot holds an image). Shared by

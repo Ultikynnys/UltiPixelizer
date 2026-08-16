@@ -87,7 +87,8 @@ function defaultState(): State {
   state.cameraDirection = { ...DEFAULT_CAMERA_DIRECTION };
   state.showUVOverlap = false;
   state.showUVWireframe = true;
-  state.viewMode = 'flat';
+  state.viewModeOriginal = 'flat';
+  state.viewModeProcessed = 'flat';
   applyConfigValues(state, defaults);
   return state;
 }
@@ -180,7 +181,7 @@ app.innerHTML = `
                   <span>UV islands</span>
                   ${toggleControl('uvWireframe', 'Show UV island wireframes', true)}
                 </label>
-                <div class="preview-view-toggle" id="previewViewToggle" hidden role="group" aria-label="View mode">
+                <div class="preview-view-toggle" id="originalViewToggle" hidden role="group" aria-label="View mode">
                   <button type="button" data-view="flat" class="active">Flat</button>
                   <button type="button" data-view="normals">Normals</button>
                   <button type="button" data-view="ao">AO</button>
@@ -196,6 +197,12 @@ app.innerHTML = `
                 <div class="preview-mode-toggle" id="processedPreviewToggle" hidden role="group" aria-label="Preview mode">
                   <button type="button" data-preview-mode="2d" class="active">2D</button>
                   <button type="button" data-preview-mode="3d">3D</button>
+                </div>
+                <div class="preview-view-toggle" id="processedViewToggle" hidden role="group" aria-label="View mode">
+                  <button type="button" data-view="flat" class="active">Flat</button>
+                  <button type="button" data-view="normals">Normals</button>
+                  <button type="button" data-view="ao">AO</button>
+                  <button type="button" data-view="lightmap">Lightmap</button>
                 </div>
               </div>
             </figure>
@@ -342,7 +349,8 @@ const uvWireframeControl = document.querySelector<HTMLLabelElement>('#uvWirefram
 const uvWireframeInput = document.querySelector<HTMLInputElement>('#uvWireframe')!;
 const normalsControl = document.querySelector<HTMLLabelElement>('#normalsControl')!;
 const useSourceNormalsInput = document.querySelector<HTMLInputElement>('#useSourceNormals')!;
-const previewViewToggle = document.querySelector<HTMLDivElement>('#previewViewToggle')!;
+const originalViewToggle = document.querySelector<HTMLDivElement>('#originalViewToggle')!;
+const processedViewToggle = document.querySelector<HTMLDivElement>('#processedViewToggle')!;
 type SunElements = {
   control: HTMLDivElement;
   orientWithCamera: HTMLButtonElement;
@@ -507,19 +515,34 @@ function renderLightmapControls(): void {
 }
 
 // Combined preview view enum (Flat / Normals / AO / Lightmap): one segmented
-// control on the preview canvas, visible in both 2D and 3D views. AO and
-// Lightmap are only actionable while their texture slot holds an image.
+// control per preview pane, each with its own selection. Both are visible in
+// 2D and 3D views; AO and Lightmap are only actionable while their texture
+// slot holds an image.
 function renderViewToggle(): void {
   const aoDefined = textures.ao.image !== null;
   const lightmapDefined = lightmapIsActive(textures);
-  if (!aoDefined && state.viewMode === 'ao') state.viewMode = 'flat';
-  if (!lightmapDefined && state.viewMode === 'lightmap') state.viewMode = 'flat';
-  previewViewToggle.hidden = modelBundle === null;
-  syncActiveButton(previewViewToggle, '[data-view]', (button) => button.dataset.view === state.viewMode);
-  for (const button of previewViewToggle.querySelectorAll<HTMLButtonElement>('[data-view]')) {
+  if (!aoDefined && state.viewModeOriginal === 'ao') state.viewModeOriginal = 'flat';
+  if (!lightmapDefined && state.viewModeOriginal === 'lightmap') state.viewModeOriginal = 'flat';
+  if (!aoDefined && state.viewModeProcessed === 'ao') state.viewModeProcessed = 'flat';
+  if (!lightmapDefined && state.viewModeProcessed === 'lightmap') state.viewModeProcessed = 'flat';
+  const hidden = modelBundle === null;
+  originalViewToggle.hidden = hidden;
+  processedViewToggle.hidden = hidden;
+  syncViewToggle(originalViewToggle, state.viewModeOriginal, aoDefined, lightmapDefined);
+  syncViewToggle(processedViewToggle, state.viewModeProcessed, aoDefined, lightmapDefined);
+}
+
+function syncViewToggle(toggle: HTMLDivElement, viewMode: PreviewViewMode, aoDefined: boolean, lightmapDefined: boolean): void {
+  syncActiveButton(toggle, '[data-view]', (button) => button.dataset.view === viewMode);
+  for (const button of toggle.querySelectorAll<HTMLButtonElement>('[data-view]')) {
     const view = button.dataset.view as PreviewViewMode;
     button.disabled = (view === 'ao' && !aoDefined) || (view === 'lightmap' && !lightmapDefined);
   }
+}
+
+function applyViewNormals(): void {
+  originalViewport?.setNormalsView(state.viewModeOriginal === 'normals');
+  processedViewport?.setNormalsView(state.viewModeProcessed === 'normals');
 }
 
 function renderNormalControls(): void {
@@ -793,7 +816,8 @@ function closeModelPreview(): void {
   resetPreview();
   textures.lightmap.image = null;
   textures.lightmap.name = '';
-  state.viewMode = 'flat';
+  state.viewModeOriginal = 'flat';
+  state.viewModeProcessed = 'flat';
   renderLightmapControls();
   originalPreviewMode = '2d';
   processedPreviewMode = '2d';
@@ -825,10 +849,8 @@ async function setModel(files: File[]): Promise<void> {
     for (const viewport of [originalViewport, processedViewport]) {
       viewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
     }
-    forEachViewport((viewport) => {
-      viewport.applyLOD(state.lodLevel);
-      viewport.setNormalsView(state.viewMode === 'normals');
-    });
+    forEachViewport((viewport) => viewport.applyLOD(state.lodLevel));
+    applyViewNormals();
     disposeModel(loaded.scene);
     originalPreviewMode = '3d';
     processedPreviewMode = '3d';
@@ -1284,7 +1306,10 @@ function clearTexture(channel: TextureChannelId): void {
   } else {
     textures[channel].image = null;
     textures[channel].name = '';
-    if (channel === 'ao' && state.viewMode === 'ao') state.viewMode = 'flat';
+    if (channel === 'ao') {
+      if (state.viewModeOriginal === 'ao') state.viewModeOriginal = 'flat';
+      if (state.viewModeProcessed === 'ao') state.viewModeProcessed = 'flat';
+    }
     if (channel === 'normal') {
       renderNormalControls();
       scheduleNormalAdjustedLighting();
@@ -1356,7 +1381,7 @@ function reset(): void {
   applySun();
   refreshUVOverlap();
   renderModelControls();
-  forEachViewport((viewport) => viewport.setNormalsView(state.viewMode === 'normals'));
+  applyViewNormals();
   updateResolution(128, true);
   showToast('Settings reset');
 }
@@ -1736,7 +1761,7 @@ useSourceNormalsInput.addEventListener('change', async () => {
       if (!viewport) return;
       viewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
       viewport.applyLOD(state.lodLevel);
-      viewport.setNormalsView(state.viewMode === 'normals');
+      viewport.setNormalsView(index === 0 ? state.viewModeOriginal === 'normals' : state.viewModeProcessed === 'normals');
       const captured = cameraStates[index];
       if (captured) viewport.restoreCamera(captured);
     });
@@ -1790,19 +1815,26 @@ function bindSunControl(): void {
 
 bindSunControl();
 
-// Preview view enum (Flat / Normals / AO / Lightmap) — single segmented control
-// on the preview canvas. Normals drives the 3D viewport; AO/Lightmap swap the
-// source in both previews.
-previewViewToggle.addEventListener('click', (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-view]');
-  if (!button?.dataset.view) return;
-  const view = button.dataset.view as PreviewViewMode;
-  if (state.viewMode === view) return;
-  state.viewMode = view;
+// Preview view enum (Flat / Normals / AO / Lightmap) — one segmented control
+// per preview pane, each with its own selection. Normals drives that pane's
+// 3D viewport; AO/Lightmap swap the source in that pane's preview.
+function bindViewToggle(toggle: HTMLDivElement, getView: () => PreviewViewMode, setView: (view: PreviewViewMode) => void): void {
+  toggle.addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-view]');
+    if (!button?.dataset.view) return;
+    const view = button.dataset.view as PreviewViewMode;
+    if (getView() === view) return;
+    setView(view);
+    applyViewMode();
+  });
+}
+function applyViewMode(): void {
   renderViewToggle();
-  forEachViewport((viewport) => viewport.setNormalsView(view === 'normals'));
+  applyViewNormals();
   render();
-});
+}
+bindViewToggle(originalViewToggle, () => state.viewModeOriginal, (view) => { state.viewModeOriginal = view; });
+bindViewToggle(processedViewToggle, () => state.viewModeProcessed, (view) => { state.viewModeProcessed = view; });
 const dropZone = document.querySelector<HTMLDivElement>('#dropZone')!;
 bindSlotDragState(dropZone);
 dropZone.addEventListener('drop', (event) => {
