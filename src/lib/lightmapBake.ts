@@ -97,6 +97,11 @@ function computeTangentBasis(
 /**
  * Bakes ambient and shadowed directional illumination into UV-space RGBA pixels.
  * Output contains irradiance only (no albedo), with white representing neutral light.
+ *
+ * Lighting is evaluated per pixel (Phong), not per vertex: the smooth vertex
+ * normal is interpolated at each texel and the Lambert term is taken from that
+ * shading normal, so the sun follows smoothed normals continuously across faces
+ * instead of averaging per-vertex light (Gouraud) and showing faceting seams.
  */
 export function bakeMeshLightmap(scene: Object3D, width: number, height: number, options: BakeLightmapOptions): Uint8ClampedArray {
   const sun = directionToSun(options.sunDirection);
@@ -111,15 +116,15 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
 
   const { vertices, triangles, bvh, epsilon } = collectBakeScene(scene);
 
-  const lights: RGB[] = new Array(vertices.length);
+  // Shadow is sampled per vertex (binary occluder test) and interpolated per
+  // pixel so shadow edges stay soft rather than snapping to face boundaries.
   const visibility = new Float32Array(vertices.length);
   for (let i = 0; i < vertices.length; i += 1) {
     const vertex = vertices[i];
-    const lambert = lambertFactor(vertex.normal, towardSun);
-    let sunVisibility = lambert > 0 && sunScale > 0 ? 1 : 0;
+    const lit = lambertFactor(vertex.normal, towardSun) > 0;
+    let sunVisibility = lit && sunScale > 0 ? 1 : 0;
     if (sunVisibility && bvh && castBakeRay(bvh, vertex.position, vertex.normal, towardSun, epsilon, epsilon)) sunVisibility = 0;
     visibility[i] = sunVisibility;
-    lights[i] = combineLight(ambientColor, sunColor, ambientScale, sunScale, lambert, sunVisibility);
   }
 
   const tangentBases = normalMap
@@ -133,6 +138,17 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
 
   const mapped = new Vector3();
   const pixels = rasterizeBakedPixels(width, height, triangles, 4, (pixels, _px, _py, w0, w1, w2, triangle, offset) => {
+    // Interpolate the smooth vertex normal at this texel, then light that
+    // shading normal per pixel so smoothed normals stay continuous across faces.
+    const na = vertices[triangle.verts[0]].normal;
+    const nb = vertices[triangle.verts[1]].normal;
+    const nc = vertices[triangle.verts[2]].normal;
+    const nx = w0 * na.x + w1 * nb.x + w2 * nc.x;
+    const ny = w0 * na.y + w1 * nb.y + w2 * nc.y;
+    const nz = w0 * na.z + w1 * nb.z + w2 * nc.z;
+    const length = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+    mapped.set(nx / length, ny / length, nz / length);
+
     const basis = tangentBases?.get(triangle);
     if (normalMap && basis) {
       const [uva, uvb, uvc] = triangle.uv;
@@ -140,34 +156,21 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
       const v = w0 * uva[1] + w1 * uvb[1] + w2 * uvc[1];
       const [tx, ty, tz] = sampleNormalMap(normalMap, u, v, normalStrength, normalFlipY);
       const [tangent, bitangent] = basis;
-      const na = vertices[triangle.verts[0]].normal;
-      const nb = vertices[triangle.verts[1]].normal;
-      const nc = vertices[triangle.verts[2]].normal;
-      const nx = w0 * na.x + w1 * nb.x + w2 * nc.x;
-      const ny = w0 * na.y + w1 * nb.y + w2 * nc.y;
-      const nz = w0 * na.z + w1 * nb.z + w2 * nc.z;
-      const length = Math.sqrt(nx * nx + ny * ny + nz * nz);
       mapped.set(
         tangent.x * tx + bitangent.x * ty + (nx / length) * tz,
         tangent.y * tx + bitangent.y * ty + (ny / length) * tz,
         tangent.z * tx + bitangent.z * ty + (nz / length) * tz,
       ).normalize();
-      const lambert = lambertFactor(mapped, towardSun);
-      const sunVisibility = w0 * visibility[triangle.verts[0]]
-        + w1 * visibility[triangle.verts[1]]
-        + w2 * visibility[triangle.verts[2]];
-      const light = combineLight(ambientColor, sunColor, ambientScale, sunScale, lambert, sunVisibility);
-      pixels[offset] = Math.round(light[0] * 255);
-      pixels[offset + 1] = Math.round(light[1] * 255);
-      pixels[offset + 2] = Math.round(light[2] * 255);
-    } else {
-      for (let channel = 0; channel < 3; channel += 1) {
-        const value = w0 * lights[triangle.verts[0]][channel]
-          + w1 * lights[triangle.verts[1]][channel]
-          + w2 * lights[triangle.verts[2]][channel];
-        pixels[offset + channel] = Math.round(value * 255);
-      }
     }
+
+    const lambert = lambertFactor(mapped, towardSun);
+    const sunVisibility = w0 * visibility[triangle.verts[0]]
+      + w1 * visibility[triangle.verts[1]]
+      + w2 * visibility[triangle.verts[2]];
+    const light = combineLight(ambientColor, sunColor, ambientScale, sunScale, lambert, sunVisibility);
+    pixels[offset] = Math.round(light[0] * 255);
+    pixels[offset + 1] = Math.round(light[1] * 255);
+    pixels[offset + 2] = Math.round(light[2] * 255);
   });
   return pixels;
 }

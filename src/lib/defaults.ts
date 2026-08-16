@@ -10,3 +10,11 @@ export const DEFAULT_SMOOTH_ANGLE = 30;
  * disabling ambient still means truly no ambient.
  */
 export const AMBIENT_FLOOR = 0.06;
+
+/**
+ * Maximum dimension (in texels) the lightmap bakes at. Lighting is a smooth,
+ * low-frequency signal, so it is computed per pixel at this coarse resolution and
+ * bilinearly upscaled to the base color at apply time — keeping the per-pixel bake
+ * cheap regardless of how large the source texture is.
+ */
+export const LIGHTMAP_MAX_RESOLUTION = 64;

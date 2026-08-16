@@ -61,6 +61,10 @@ const sunOverlayMarkup = (): string => `
       ${rangeControl('ambientIntensity', 'Intensity', 0, 1, 0.01, DEFAULT_AMBIENT_INTENSITY)}
     </div>
     <div class="lightmap-active-label" role="status">Lightmap Active</div>
+    <div class="lightmap-only-control" title="Show just the lightmap in both previews">
+      <span>Lightmap only</span>
+      ${toggleControl('showLightmapOnly', 'Visualize just the lightmap', false, 'label', 'Visualize just the lightmap in the Original and Dithered previews')}
+    </div>
   </div>
 `;
 
@@ -82,6 +86,7 @@ function defaultState(): State {
   state.showUVOverlap = false;
   state.showUVWireframe = true;
   state.showNormals = false;
+  state.showLightmapOnly = false;
   applyConfigValues(state, defaults);
   return state;
 }
@@ -347,6 +352,7 @@ type SunElements = {
   ambientColor: HTMLInputElement;
   ambientIntensity: HTMLInputElement;
   ambientIntensityValue: HTMLOutputElement;
+  lightmapOnly: HTMLInputElement;
 };
 
 const sunControlElements: SunElements = {
@@ -360,6 +366,7 @@ const sunControlElements: SunElements = {
   ambientColor: document.querySelector<HTMLInputElement>('#ambientColor')!,
   ambientIntensity: document.querySelector<HTMLInputElement>('#ambientIntensity')!,
   ambientIntensityValue: document.querySelector<HTMLOutputElement>('#ambientIntensityValue')!,
+  lightmapOnly: document.querySelector<HTMLInputElement>('#showLightmapOnly')!,
 };
 const sunDirectionValue = document.querySelector<HTMLOutputElement>('#sunDirectionValue')!;
 const cameraDirectionValue = document.querySelector<HTMLOutputElement>('#cameraDirectionValue')!;
@@ -631,6 +638,7 @@ function renderSunControl(): void {
   const lightmapActive = lightmapIsActive(textures);
   sunControlElements.control.classList.toggle('off', !state.sun.enabled || lightmapActive);
   sunControlElements.control.classList.toggle('lightmap-active', lightmapActive);
+  sunControlElements.lightmapOnly.checked = state.showLightmapOnly;
   sunControlElements.orientWithCamera.disabled = !state.sun.enabled || lightmapActive || originalPreviewMode !== '3d' || originalViewport === null;
   syncLightControls(state.sun, sunControlElements.enabled, sunControlElements.color, sunControlElements.intensity, sunControlElements.intensityValue, lightmapActive);
   syncLightControls(state.ambient, sunControlElements.ambientEnabled, sunControlElements.ambientColor, sunControlElements.ambientIntensity, sunControlElements.ambientIntensityValue, lightmapActive);
@@ -765,6 +773,7 @@ function closeModelPreview(): void {
   resetPreview();
   textures.lightmap.image = null;
   textures.lightmap.name = '';
+  state.showLightmapOnly = false;
   renderLightmapControls();
   originalPreviewMode = '2d';
   processedPreviewMode = '2d';
@@ -1653,6 +1662,11 @@ function bindSunControl(): void {
   });
   bindLightColor(sunControlElements.ambientColor, state.ambient);
   bindLightIntensity(sunControlElements.ambientIntensity, state.ambient);
+
+  sunControlElements.lightmapOnly.addEventListener('change', () => {
+    state.showLightmapOnly = sunControlElements.lightmapOnly.checked;
+    render();
+  });
 }
 
 bindSunControl();

@@ -34,6 +34,7 @@ export function createStateFixture(): State {
     showUVOverlap: false,
     showUVWireframe: false,
     showNormals: false,
+    showLightmapOnly: false,
   } as State;
 }
 

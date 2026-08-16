@@ -161,6 +161,40 @@ describe('bakeMeshLightmap', () => {
     expect(rgb[2]).toBeCloseTo(tilt * 255, 0);
   });
 
+  it('lights the interpolated normal per pixel rather than averaging per-vertex light', () => {
+    const scene = new Scene();
+    const geometry = new BufferGeometry();
+    // A right triangle whose three vertex normals point in three different
+    // directions, so per-vertex (Gouraud) averaging diverges from per-pixel
+    // (Phong) shading of the interpolated normal.
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    geometry.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
+    geometry.setAttribute('normal', new Float32BufferAttribute([
+      0, 0, 1, // +Z — fully lit
+      1, 0, 0, // +X — dark
+      0, 1, 0, // +Y — dark
+    ], 3));
+    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+
+    // A zero-strength normal map reduces to the interpolated vertex normal, so it
+    // is the exact per-pixel reference for the unmapped bake.
+    const reference = bakeMeshLightmap(scene, 8, 8, {
+      ...defaults,
+      sunColor: '#ffffff',
+      normalMap: { data: new Uint8ClampedArray([128, 128, 255, 255]), width: 1, height: 1 },
+      normalStrength: 0,
+    });
+    const unmapped = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ffffff' });
+
+    // The unmapped bake must now match the per-pixel reference everywhere — it
+    // used to average the three vertex lights instead.
+    for (let i = 0; i < unmapped.length; i += 4) {
+      for (let channel = 0; channel < 3; channel += 1) {
+        expect(Math.abs(unmapped[i + channel] - reference[i + channel])).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
   it('keeps a full-strength sun at white regardless of ambient', () => {
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));

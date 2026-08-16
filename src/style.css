@@ -104,6 +104,12 @@ button { color: inherit; }
 .sun-overlay.lightmap-active .light-controls,
 .sun-overlay.lightmap-active .orientation-readout { display: none; }
 .sun-overlay.lightmap-active .lightmap-active-label { display: block; }
+.lightmap-only-control {
+  align-items: center; border-top: 1px solid var(--line); display: none; justify-content: space-between;
+  margin-top: 7px; padding-top: 7px; width: 136px;
+}
+.lightmap-only-control > span { color: var(--muted); font: 500 8px 'DM Mono', monospace; text-transform: uppercase; }
+.sun-overlay.lightmap-active .lightmap-only-control { display: flex; }
 .orient-sun-button {
   background: var(--raised); border: 1px solid var(--line); border-radius: 3px; color: var(--paper-dim); cursor: pointer;
   font: 600 8px 'DM Mono', monospace; margin: 7px 0 3px; padding: 7px 8px; text-transform: uppercase; width: 136px;

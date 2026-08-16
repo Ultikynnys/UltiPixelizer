@@ -143,6 +143,23 @@ describe('bakeLighting', () => {
     expect(options.normalMap.data).toEqual(new Uint8ClampedArray([128, 128, 255, 255]));
   });
 
+  it('bakes the lightmap at a low resolution independent of the source size', () => {
+    const scene = new Scene();
+    mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(64 * 32 * 4));
+    const { deps, bake } = setup({ getAOScene: () => scene });
+    const large = new FakeCanvas();
+    large.width = 512;
+    large.height = 256;
+    deps.textures.base.image = asSourceImage(large);
+
+    bake.bakeLighting();
+    vi.advanceTimersByTime(30);
+
+    // 512 × 256 caps to the LIGHTMAP_MAX_RESOLUTION of 64 on the longest side,
+    // preserving aspect ratio (64 × 32).
+    expect(mocks.bakeMeshLightmap).toHaveBeenCalledWith(scene, 64, 32, expect.anything());
+  });
+
   it('reports bake failures through the toast', () => {
     mocks.bakeMeshLightmap.mockImplementation(() => {
       throw new Error('no memory');

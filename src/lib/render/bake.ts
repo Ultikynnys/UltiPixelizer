@@ -1,5 +1,6 @@
 import { bakeMeshAO } from '../aoBake';
 import { factorsToCanvas, pixelsToCanvas } from '../canvas';
+import { LIGHTMAP_MAX_RESOLUTION } from '../defaults';
 import { errorMessage } from '../strings';
 import { bakeMeshLightmap, type BakeLightmapOptions } from '../lightmapBake';
 import { imageNormalMapPixels } from '../normal';
@@ -54,12 +55,25 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     };
   }
 
+  // The lightmap bakes at a coarse resolution: lighting is a smooth signal, so a
+  // low-res bake (bilinearly upscaled at apply time) is visually identical and
+  // keeps the per-pixel pass cheap regardless of the source texture size.
+  function lightmapBakeSize(source: { width: number; height: number }): { width: number; height: number } {
+    const maxDimension = Math.max(source.width, source.height);
+    const scale = maxDimension > LIGHTMAP_MAX_RESOLUTION ? LIGHTMAP_MAX_RESOLUTION / maxDimension : 1;
+    return {
+      width: Math.max(1, Math.round(source.width * scale)),
+      height: Math.max(1, Math.round(source.height * scale)),
+    };
+  }
+
   function bakeLightmapCanvas(): HTMLCanvasElement | null {
     const scene = getAOScene();
     if (!scene || !textures.base.image) return null;
     const baseColor = textures.base.image;
-    const pixels = bakeMeshLightmap(scene, baseColor.width, baseColor.height, currentLightmapBakeOptions());
-    return pixelsToCanvas(pixels, baseColor.width, baseColor.height);
+    const { width, height } = lightmapBakeSize(baseColor);
+    const pixels = bakeMeshLightmap(scene, width, height, currentLightmapBakeOptions());
+    return pixelsToCanvas(pixels, width, height);
   }
 
   function computeAO(): void {
@@ -132,6 +146,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   function clearLightmap(): void {
     textures.lightmap.image = null;
     textures.lightmap.name = '';
+    state.showLightmapOnly = false;
     renderLightmapControls();
     renderNormalControls();
     renderTextureRibbon();

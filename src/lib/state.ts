@@ -45,6 +45,7 @@ export type State = {
   showUVOverlap: boolean;
   showUVWireframe: boolean;
   showNormals: boolean;
+  showLightmapOnly: boolean;
 };
 
 /** True when a lightmap is loaded (the lightmap slot holds an image). Shared by

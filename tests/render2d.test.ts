@@ -72,6 +72,19 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 
+  it('shows the raw lightmap in both panes when lightmap-only mode is on', () => {
+    const lightmap = solidTexture([200, 200, 200, 255]);
+    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: lightmap, name: '' } } });
+    deps.state.showLightmapOnly = true;
+    const shared = sharedState();
+    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+
+    // Original pane shows the unlit lightmap itself (not base × lightmap) at native resolution.
+    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([200, 200, 200, 255]);
+    // Dithered pane quantizes the lightmap (200 → white).
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
+  });
+
   it('draws the UV wireframe onto both panes when enabled and available', () => {
     const drawWireframe = vi.fn();
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
