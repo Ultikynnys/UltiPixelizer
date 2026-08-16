@@ -320,6 +320,20 @@ describe('ModelViewport', () => {
     viewport.dispose();
   });
 
+  it('applySmoothAngle re-smooths normals and no-ops without a model', () => {
+    const viewport = new ModelViewport(host());
+    viewport.applySmoothAngle(30); // no model → no-op
+
+    const model = meshScene(); // stale flipped (-Z) normals
+    viewport.setModel(model, []);
+    viewport.applySmoothAngle(30);
+    const normal = (model.children[0] as Mesh).geometry.getAttribute('normal');
+    expect(normal.getX(0)).toBeCloseTo(0);
+    expect(normal.getY(0)).toBeCloseTo(0);
+    expect(normal.getZ(0)).toBeCloseTo(1);
+    viewport.dispose();
+  });
+
   it('setNormalsView swaps materials and restores the originals', () => {
     const viewport = new ModelViewport(host());
     const model = meshScene();
