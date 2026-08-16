@@ -34,10 +34,12 @@ import { createCanvas } from './canvas';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
 import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, forEachMeshIndexed, materialsOf, prepareSurfaceNormals, recomputeVertexNormals, triangleIndices } from './modelScene';
-import { cameraForwardFromQuaternion, type DirectionVector } from './sunDirection';
+import { cameraForwardFromQuaternion, normalizeDirection, type DirectionVector } from './sunDirection';
 import { UV_OVERLAP_LABEL } from './uvOverlap';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
+
+export type CameraState = { position: Vector3; quaternion: Quaternion; target: Vector3 };
 
 function overlapLabelTexture(): CanvasTexture {
   const { canvas, context } = createCanvas(256, 64);
@@ -333,6 +335,38 @@ export class ModelViewport {
   getCameraForward(): DirectionVector {
     const worldQuaternion = this.camera.getWorldQuaternion(new Quaternion());
     return cameraForwardFromQuaternion(worldQuaternion);
+  }
+
+  /** Orients the orbit camera to look along a world forward direction, keeping
+   * the current orbit distance and target. Used to restore a saved camera angle
+   * after loading settings. */
+  setCameraForward(direction: DirectionVector): void {
+    const forward = normalizeDirection(direction);
+    const target = this.controls.target;
+    const distance = this.camera.position.distanceTo(target);
+    this.camera.position.copy(target).addScaledVector(new Vector3(forward.x, forward.y, forward.z), -distance);
+    this.camera.lookAt(target);
+    this.controls.update();
+    this.onCameraChange?.();
+  }
+
+  /** Snapshot of the orbit camera — position, orientation, and orbit target —
+   * so the user's view can survive a model swap (setModel refits the camera). */
+  captureCamera(): CameraState {
+    return {
+      position: this.camera.position.clone(),
+      quaternion: this.camera.quaternion.clone(),
+      target: this.controls.target.clone(),
+    };
+  }
+
+  /** Restores a snapshot taken by `captureCamera`, re-aiming the orbit controls
+   * at the saved target. */
+  restoreCamera(state: CameraState): void {
+    this.camera.position.copy(state.position);
+    this.camera.quaternion.copy(state.quaternion);
+    this.controls.target.copy(state.target);
+    this.controls.update();
   }
 
   /** Recenters the orbit camera on the model and notifies camera-change

@@ -49,7 +49,18 @@ vi.mock('three', async (importOriginal) => {
 vi.mock('three/addons/controls/OrbitControls.js', () => {
   class FakeOrbitControls {
     listeners = new Map<string, () => void>();
-    target = { copy: vi.fn() };
+    target = {
+      x: 0,
+      y: 0,
+      z: 0,
+      copy: vi.fn((source: { x: number; y: number; z: number }) => {
+        this.target.x = source.x;
+        this.target.y = source.y;
+        this.target.z = source.z;
+        return this.target;
+      }),
+      clone: vi.fn(() => ({ x: this.target.x, y: this.target.y, z: this.target.z })),
+    };
     enableDamping = true;
     constructor(public camera: unknown, public domElement: unknown) {
       mocks.controls.push(this as never);
@@ -238,6 +249,22 @@ describe('ModelViewport', () => {
     expect(mocks.rendererCalls).toContain('size:800x600');
     expect(mocks.controls[0].target.copy).toHaveBeenCalled();
     expect(viewport.onCameraChange).toHaveBeenCalled();
+    viewport.dispose();
+  });
+
+  it('captureCamera/restoreCamera preserve the orbit view across a model swap', () => {
+    const viewport = new ModelViewport(host());
+    const before = viewport.captureCamera();
+
+    viewport.setModel(meshScene(), []); // refits the camera away from its default pose
+    const during = viewport.captureCamera();
+    expect(during.position.equals(before.position)).toBe(false);
+
+    viewport.restoreCamera(before);
+    const after = viewport.captureCamera();
+    expect(after.position.equals(before.position)).toBe(true);
+    expect(after.quaternion.equals(before.quaternion)).toBe(true);
+    expect(after.target).toEqual(before.target);
     viewport.dispose();
   });
 

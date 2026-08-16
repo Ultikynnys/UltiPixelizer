@@ -1648,11 +1648,49 @@ uvWireframeInput.addEventListener('change', () => {
   renderUVWireframeControl();
   render();
 });
-useSourceNormalsInput.addEventListener('change', () => {
+useSourceNormalsInput.addEventListener('change', async () => {
   state.useSourceNormals = useSourceNormalsInput.checked;
   renderNormalControls();
-  if (modelFiles.length) void setModel(modelFiles);
-  else renderNormalsControl();
+  // Reloading the model from scratch tears the viewports down and resets both
+  // orbit cameras. Re-parse the scene and swap it in place instead, restoring
+  // each viewport's camera afterwards so the user's angle is untouched.
+  if (!modelBundle) {
+    renderNormalsControl();
+    return;
+  }
+  try {
+    const loaded = await loadModel(modelBundle, modelFiles, state.worldAxis, {
+      useSourceNormals: state.useSourceNormals,
+      smoothAngle: state.smoothAngle,
+      tessellation: state.tessellation,
+    });
+    const lodPreparation = prepareModelLods(loaded.scene);
+    modelLodLevels = lodPreparation.levels;
+    state.lodLevel = Math.min(state.lodLevel, Math.max(modelLodLevels.length - 1, 0));
+    disposeAOScene(aoBakeScene);
+    aoBakeScene = buildAOScene(loaded.scene);
+    applyLodLevel(aoBakeScene, state.lodLevel);
+    const cameraStates = [originalViewport, processedViewport].map((viewport) => viewport?.captureCamera());
+    [originalViewport, processedViewport].forEach((viewport, index) => {
+      if (!viewport) return;
+      viewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
+      viewport.applyLOD(state.lodLevel);
+      viewport.setNormalsView(state.showNormals);
+      const captured = cameraStates[index];
+      if (captured) viewport.restoreCamera(captured);
+    });
+    if (modelUVChannels.length) applyModelUV(state.uvMap);
+    refreshUVWireframe();
+    disposeModel(loaded.scene);
+    // Normals changed — any bake computed against the old normals is stale.
+    if (lightmapIsActive(textures)) clearLightmap();
+    renderModelControls();
+    render();
+  } catch (error) {
+    state.useSourceNormals = !state.useSourceNormals;
+    renderNormalsControl();
+    toastError(error, 'Could not reload model.');
+  }
 });
 showNormalsInput.addEventListener('change', () => {
   state.showNormals = showNormalsInput.checked;
