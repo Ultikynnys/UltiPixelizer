@@ -1133,7 +1133,7 @@ function serializeConfig(): string {
 
 async function applyConfigFile(file: File): Promise<void> {
   if (file.size > 1_000_000) throw new Error('Settings file is too large.');
-  applyPreset(parsePreset(await file.text()));
+  await applyPreset(parsePreset(await file.text()));
   showToast('Settings loaded');
 }
 
@@ -1179,20 +1179,28 @@ async function loadConfig(): Promise<void> {
   }
 }
 
-function applyPreset(preset: ConversionPreset): void {
+async function applyPreset(preset: ConversionPreset): Promise<void> {
   renderScheduler.cancel();
   const paletteSelection = selectOrCreatePalette(localStorage, paletteCatalog(), preset.palette, preset.paletteKey);
   const paletteKey = paletteSelection.key;
   savedCustomPalettes = paletteSelection.customPalettes;
+  const useSourceNormalsChanged = preset.useSourceNormals !== state.useSourceNormals;
   applyConfigValues(state, preset as unknown as Readonly<Record<string, unknown>>);
   setPaletteKey(paletteKey);
   state.uvMap = preset.uvMap;
   const selectedPalette = paletteCatalog()[paletteKey];
   hydrateEditorForSelection(paletteKey, selectedPalette);
   syncControlsFromState();
+  renderNormalsControl();
   applySun();
-  if (modelBundle) {
+  // Source normals are only applied when a model is loaded from file, so a
+  // change to the toggle needs a reload (mirrors the toggle's change handler).
+  if (useSourceNormalsChanged && modelFiles.length) {
+    await setModel(modelFiles);
+  } else if (modelBundle) {
     applyTessellation(state.tessellation);
+  }
+  if (modelBundle) {
     forEachViewport((viewport) => viewport.setCameraForward(state.cameraDirection));
   }
   updateResolution(preset.resolution, true);
@@ -1569,7 +1577,7 @@ function saveSlotImage(image: SourceImage, name: string): void {
 
 function downloadSlotImage(channel: TextureChannelId): void {
   const data = textures[channel];
-  const name = safeFileName(`${textureLabel(channel)}.png`);
+  const name = `${safeFileName(textureLabel(channel))}.png`;
   if (data.image) {
     saveSlotImage(data.image, name);
     showToast(`Downloaded ${textureLabel(channel)}`);
