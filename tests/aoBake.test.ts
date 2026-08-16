@@ -92,4 +92,27 @@ describe('bakeMeshAO', () => {
     expect(factors[6 * 16 + 1]).toBeLessThan(200);
     expect(factors[6 * 16 + 14]).toBe(255);
   });
+
+  it('pads unwritten texels around a UV island with the island edge value instead of the bright background', () => {
+    const scene = new Scene();
+    const island = new BufferGeometry();
+    island.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    island.setAttribute('uv', new Float32BufferAttribute([0.4, 0.4, 0.6, 0.4, 0.4, 0.6], 2));
+    scene.add(new Mesh(island, new MeshBasicMaterial()));
+    const ceiling = new BufferGeometry();
+    ceiling.setAttribute('position', new Float32BufferAttribute([
+      -2, -2, 0.5,  2, -2, 0.5,  2, 2, 0.5,
+      -2, -2, 0.5,  2, 2, 0.5,  -2, 2, 0.5,
+    ], 3));
+    scene.add(new Mesh(ceiling, new MeshBasicMaterial()));
+
+    const factors = bakeMeshAO(scene, 8, 8, { samples: 16, distance: 1 });
+    // The island itself is occluded by the ceiling…
+    expect(factors[3 * 8 + 3]).toBeLessThan(255);
+    // …and the texel just outside its left edge inherits that occlusion instead
+    // of the bright unoccluded background (the UV-seam light bleed).
+    expect(factors[3 * 8 + 2]).toBeLessThan(255);
+    // A texel far from the island keeps the background.
+    expect(factors[0]).toBe(255);
+  });
 });

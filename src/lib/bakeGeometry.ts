@@ -153,3 +153,61 @@ export function rasterizeBake(
     }
   }
 }
+
+/** Texels of padding spread around UV islands after a bake. The rasterizer only
+ * covers texels whose centers fall inside a triangle, so the sub-texel fringe
+ * along island edges would otherwise keep the bright background fill and show
+ * up as light bleed at UV seams. */
+export const BAKE_PAD_TEXELS = 2;
+
+/**
+ * Dilates a baked UV-space map outward by up to `padTexels`: texels the raster
+ * never wrote (they kept their background fill) inherit the average of their
+ * already-filled 8 neighbors, one ring per pass. `written` (1 = covered by a
+ * bake triangle) is updated in place; `pixels` holds `channels` bytes per
+ * texel. Texels farther than `padTexels` from any island keep the fill.
+ */
+export function dilateUVBake(
+  pixels: Uint8ClampedArray,
+  written: Uint8Array,
+  width: number,
+  height: number,
+  channels: number,
+  padTexels = BAKE_PAD_TEXELS,
+): void {
+  if (padTexels <= 0 || width * height === 0) return;
+  const previous = new Uint8Array(width * height);
+  const sums = new Float64Array(channels);
+  for (let pass = 0; pass < padTexels; pass += 1) {
+    previous.set(written);
+    for (let py = 0; py < height; py += 1) {
+      const rowOffset = py * width;
+      const yMin = Math.max(0, py - 1);
+      const yMax = Math.min(height - 1, py + 1);
+      for (let px = 0; px < width; px += 1) {
+        const index = rowOffset + px;
+        if (previous[index]) continue;
+        const xMin = Math.max(0, px - 1);
+        const xMax = Math.min(width - 1, px + 1);
+        let count = 0;
+        sums.fill(0);
+        for (let ny = yMin; ny <= yMax; ny += 1) {
+          const neighborRow = ny * width;
+          for (let nx = xMin; nx <= xMax; nx += 1) {
+            const neighbor = neighborRow + nx;
+            if (!previous[neighbor]) continue;
+            const pixelOffset = neighbor * channels;
+            for (let c = 0; c < channels; c += 1) sums[c] += pixels[pixelOffset + c];
+            count += 1;
+          }
+        }
+        if (count === 0) continue;
+        const pixelOffset = index * channels;
+        for (let c = 0; c < channels; c += 1) {
+          pixels[pixelOffset + c] = Math.round(sums[c] / count);
+        }
+        written[index] = 1;
+      }
+    }
+  }
+}

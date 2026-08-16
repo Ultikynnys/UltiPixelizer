@@ -35,11 +35,19 @@ export function pixelsToCanvas(pixels: Uint8ClampedArray, width: number, height:
   return canvas;
 }
 
-/** Expands a single-channel factor array into a grayscale RGBA canvas. */
-export function factorsToCanvas(factors: Uint8ClampedArray, width: number, height: number): HTMLCanvasElement {
+/** Expands a single-channel factor array into a grayscale RGBA canvas. Pass an
+ * optional `fill` callback to control the written value per pixel; returning
+ * null leaves the pixel transparent (used for binary mask overlays). */
+export function factorsToCanvas(
+  factors: Uint8Array | Uint8ClampedArray,
+  width: number,
+  height: number,
+  fill: (value: number, index: number) => number | null = (value) => value,
+): HTMLCanvasElement {
   const pixels = new Uint8ClampedArray(width * height * 4);
   for (let i = 0; i < factors.length; i += 1) {
-    const value = factors[i];
+    const value = fill(factors[i], i);
+    if (value === null) continue;
     const offset = i * 4;
     pixels[offset] = value;
     pixels[offset + 1] = value;

@@ -35,6 +35,7 @@ import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
 import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, materialsOf, recomputeVertexNormals } from './modelScene';
 import { cameraForwardFromQuaternion, directionToSun, type DirectionVector } from './sunDirection';
+import { UV_OVERLAP_LABEL } from './uvOverlap';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
 
@@ -48,7 +49,7 @@ function overlapLabelTexture(): CanvasTexture {
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     context.fillStyle = '#ffffff';
-    context.fillText('UV OVERLAP', 128, 32);
+    context.fillText(UV_OVERLAP_LABEL, 128, 32);
   }
   const texture = new CanvasTexture(canvas);
   texture.minFilter = LinearFilter;

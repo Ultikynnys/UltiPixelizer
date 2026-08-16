@@ -1,5 +1,5 @@
 import { DoubleSide, Object3D, Ray, Vector3 } from 'three';
-import { collectBakeScene, rasterizeBake } from './bakeGeometry';
+import { collectBakeScene, dilateUVBake, rasterizeBake } from './bakeGeometry';
 
 export type BakeAOMLOptions = {
   /** Hemisphere samples per vertex. Odd counts round up for paired symmetry. Default 128. */
@@ -76,9 +76,12 @@ export function bakeMeshAO(scene: Object3D, width: number, height: number, optio
   }
 
   const factors = new Uint8ClampedArray(width * height).fill(255);
+  const written = new Uint8Array(width * height);
   rasterizeBake(width, height, triangles, (px, py, w0, w1, w2, triangle) => {
+    written[py * width + px] = 1;
     const value = w0 * ao[triangle.verts[0]] + w1 * ao[triangle.verts[1]] + w2 * ao[triangle.verts[2]];
     factors[py * width + px] = Math.round(value * 255);
   });
+  dilateUVBake(factors, written, width, height, 1);
   return factors;
 }

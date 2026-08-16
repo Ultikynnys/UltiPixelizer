@@ -1,7 +1,7 @@
 import { applyAO, imageAOFactors } from '../ao';
-import { drawImageToCanvas, processLitImageData } from '../canvas';
+import { drawImageToCanvas, imagePixels, processLitImageData } from '../canvas';
 import { processImageData } from '../dither';
-import { applyLightmap, imageLightmapPixels } from '../lightmap';
+import { applyLightmap } from '../lightmap';
 import type { RendererDeps, RenderShared } from './types';
 import type { OverlayView } from './overlay';
 
@@ -30,7 +30,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
 
   function currentLightmapPixels(width: number, height: number): Uint8ClampedArray | null {
     const image = textures.lightmap.image ?? shared.implicitLightmapCanvas;
-    return image ? imageLightmapPixels(image, width, height) : null;
+    return image ? imagePixels(image, width, height) : null;
   }
 
   function applyLighting(data: Uint8ClampedArray, width: number, height: number): void {

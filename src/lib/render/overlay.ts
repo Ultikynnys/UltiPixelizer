@@ -1,6 +1,6 @@
-import { pixelsToCanvas } from '../canvas';
+import { factorsToCanvas } from '../canvas';
 import type { SourceImage } from '../state';
-import { collectUVTriangles, computeUVOverlap, type UVTriangle } from '../uvOverlap';
+import { UV_OVERLAP_LABEL, collectUVTriangles, computeUVOverlap, type UVTriangle } from '../uvOverlap';
 import type { RendererDeps, RenderShared } from './types';
 
 /** The slice of the overlay the 2D renderer depends on. */
@@ -43,16 +43,7 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
   }
 
   function uvOverlapMask(counts: Uint8Array, width: number, height: number): HTMLCanvasElement {
-    const pixels = new Uint8ClampedArray(width * height * 4);
-    for (let i = 0; i < counts.length; i += 1) {
-      if (counts[i] < 2) continue;
-      const offset = i * 4;
-      pixels[offset] = 255;
-      pixels[offset + 1] = 255;
-      pixels[offset + 2] = 255;
-      pixels[offset + 3] = 255;
-    }
-    return pixelsToCanvas(pixels, width, height);
+    return factorsToCanvas(counts, width, height, (value) => value >= 2 ? 255 : null);
   }
 
   function refreshUVWireframe(): void {
@@ -126,7 +117,7 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
     const rows = Math.ceil((height + spacing) / spacing) + 1;
     for (let row = -1; row <= rows; row += 1) {
       for (let col = -1; col <= columns; col += 1) {
-        context.fillText('UV OVERLAP', col * spacing + offset, row * spacing + offset);
+        context.fillText(UV_OVERLAP_LABEL, col * spacing + offset, row * spacing + offset);
       }
     }
     context.restore();

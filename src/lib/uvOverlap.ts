@@ -1,5 +1,8 @@
 import { BufferAttribute, Mesh, Object3D } from 'three';
 
+/** Shared label text for the UV-overlap highlight in both the 2D and 3D views. */
+export const UV_OVERLAP_LABEL = 'UV OVERLAP';
+
 /** A single triangle's UV coordinates plus the mesh/triangle identity needed to
  * map the triangle back onto the source scene for the 3D highlight. */
 export type UVTriangle = {

@@ -164,4 +164,22 @@ describe('bakeMeshLightmap', () => {
     // 0.5 (sun) + 0.25 (ambient) = 0.75 -> 191/255.
     expect(centerRGB(pixels)).toEqual([191, 191, 191]);
   });
+
+  it('pads unwritten texels at UV island edges with island light instead of the bright background', () => {
+    const scene = new Scene();
+    const island = new BufferGeometry();
+    island.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    island.setAttribute('uv', new Float32BufferAttribute([0.4, 0.4, 0.6, 0.4, 0.4, 0.6], 2));
+    scene.add(new Mesh(island, new MeshBasicMaterial()));
+    const pixels = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunEnabled: false, ambientEnabled: false });
+    const rgb = (px: number, py: number): number[] =>
+      Array.from(pixels.slice((py * 8 + px) * 4, (py * 8 + px) * 4 + 3));
+    // No light reaches the island, so it bakes black…
+    expect(rgb(3, 3)).toEqual([0, 0, 0]);
+    // …and the texel just outside its edge inherits that black instead of the
+    // full-light background that used to bleed into the UV seam.
+    expect(rgb(2, 3)).toEqual([0, 0, 0]);
+    // A texel far from the island keeps the full-light background.
+    expect(rgb(0, 0)).toEqual([255, 255, 255]);
+  });
 });

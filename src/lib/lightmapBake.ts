@@ -1,8 +1,9 @@
 import { DoubleSide, Object3D, Ray, Vector3 } from 'three';
 import { hexToRgb, isHexColor } from './palettes';
 import { directionToSun, type DirectionVector } from './sunDirection';
-import { collectBakeScene, rasterizeBake, type BakeTriangle, type UvPair } from './bakeGeometry';
+import { collectBakeScene, dilateUVBake, rasterizeBake, type BakeTriangle, type UvPair } from './bakeGeometry';
 import { AMBIENT_FLOOR } from './defaults';
+import { clamp01 } from './math';
 import { triangleNormal } from './modelScene';
 import { sampleNormalMap, type NormalMapSource } from './normal';
 
@@ -27,10 +28,6 @@ function parseColor(color: string): RGB {
   if (!isHexColor(color)) throw new Error(`Invalid light color: ${color}`);
   const [red, green, blue] = hexToRgb(color);
   return [red / 255, green / 255, blue / 255];
-}
-
-function clamp01(value: number): number {
-  return Math.min(1, Math.max(0, value));
 }
 
 function lambertFactor(normal: Vector3, towardSun: Vector3): number {
@@ -117,7 +114,7 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
   const ambientScale = options.ambientEnabled === false ? 0 : Math.max(AMBIENT_FLOOR, clamp01(options.ambientIntensity));
   const sunScale = options.sunEnabled === false ? 0 : clamp01(options.sunIntensity);
   const normalMap = options.normalMap;
-  const normalStrength = Math.min(1, Math.max(0, options.normalStrength ?? 1));
+  const normalStrength = clamp01(options.normalStrength ?? 1);
   const normalFlipY = options.normalFlipY ?? false;
 
   const { vertices, triangles, bvh, epsilon } = collectBakeScene(scene);
@@ -147,8 +144,10 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
     : null;
 
   const pixels = new Uint8ClampedArray(width * height * 4).fill(255);
+  const written = new Uint8Array(width * height);
   const mapped = new Vector3();
   rasterizeBake(width, height, triangles, (px, py, w0, w1, w2, triangle) => {
+    written[py * width + px] = 1;
     const offset = (py * width + px) * 4;
     const basis = tangentBases?.get(triangle);
     if (normalMap && basis) {
@@ -179,5 +178,6 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
       }
     }
   });
+  dilateUVBake(pixels, written, width, height, 4);
   return pixels;
 }

@@ -8,7 +8,7 @@ import { createModelFileBundle, modelFormat, type ModelFileBundle, type WorldAxi
 import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels } from './lib/modelScene';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
-import { createPreset, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
+import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
 import { lightmapMatchesBaseColor } from './lib/lightmap';
 import type { NormalFormat } from './lib/normal';
 import { AMBIENT_FLOOR, DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY } from './lib/defaults';
@@ -46,7 +46,7 @@ const sunOverlayMarkup = (): string => `
   <div class="sun-overlay" id="sunControl" hidden>
     <div class="sun-overlay-heading">
       <span>Sun</span>
-      <label class="sun-toggle" title="Toggle sun lighting"><input id="sunEnabled" type="checkbox" checked aria-label="Toggle sun lighting" /><span aria-hidden="true"></span></label>
+      ${toggleControl('sunEnabled', 'Toggle sun lighting', true, 'label', 'Toggle sun lighting')}
     </div>
     <button class="orient-sun-button" id="orientSunWithCamera" type="button" title="Copy the Original 3D viewport angle to the sun">Orient Sun with Camera</button>
     <div class="orientation-readout" title="World-space direction (x, y, z)">
@@ -56,7 +56,7 @@ const sunOverlayMarkup = (): string => `
     <div class="light-controls">
       <label class="light-color-control"><span>Sun color</span>${colorControl('#ffffff', 'Sun color', 'id="sunColor"')}</label>
       ${rangeControl('sunIntensity', 'Sun intensity', 0, 1, 0.01, DEFAULT_SUN_INTENSITY)}
-      <div class="light-section-title ambient-heading"><span>Ambient</span><label class="sun-toggle" title="Toggle ambient lighting"><input id="ambientEnabled" type="checkbox" checked aria-label="Toggle ambient lighting" /><span aria-hidden="true"></span></label></div>
+      <div class="light-section-title ambient-heading"><span>Ambient</span>${toggleControl('ambientEnabled', 'Toggle ambient lighting', true, 'label', 'Toggle ambient lighting')}</div>
       <label class="light-color-control"><span>Color</span>${colorControl('#ffffff', 'Ambient light color', 'id="ambientColor"')}</label>
       ${rangeControl('ambientIntensity', 'Intensity', 0, 1, 0.01, DEFAULT_AMBIENT_INTENSITY)}
     </div>
@@ -65,36 +65,25 @@ const sunOverlayMarkup = (): string => `
 `;
 
 function defaultState(): State {
-  return {
-    paletteKey: 'desert',
-    customColors: [],
-    resolution: 128,
-    mode: 'floyd',
-    strength: 0.85,
-    brightness: 0,
-    contrast: 8,
-    saturation: 5,
-    paletteFilter: 'all',
-    uvMap: 'uv',
-    lodLevel: 0,
-    sun: { direction: { ...DEFAULT_SUN_DIRECTION }, enabled: true, color: '#ffffff', intensity: DEFAULT_SUN_INTENSITY },
-    ambient: { color: '#ffffff', intensity: DEFAULT_AMBIENT_INTENSITY, enabled: true },
-    worldAxis: 'blender',
-    useSourceNormals: false,
-    smoothAngle: DEFAULT_SMOOTH_ANGLE,
-    stripeAngle: 45,
-    noiseScale: 1,
-    seed: 1,
-    aoBias: 0,
-    aoScale: 1,
-    aoDistance: 2,
-    lightmapContribution: 1,
-    normalStrength: 1,
-    normalFormat: 'opengl',
-    showUVOverlap: false,
-    showUVWireframe: true,
-    showNormals: false,
-  };
+  // State-only fields (no serialized config equivalent) are set here; the
+  // serializable settings come from the shared CONFIG_FIELDS defaults.
+  const defaults = defaultConfigValues();
+  const state = {} as State;
+  state.paletteKey = 'desert';
+  state.customColors = [];
+  state.paletteFilter = 'all';
+  state.uvMap = 'uv';
+  state.lodLevel = 0;
+  state.sun = { direction: { ...DEFAULT_SUN_DIRECTION }, enabled: true, color: defaults.sunColor as string, intensity: defaults.sunIntensity as number };
+  state.ambient = { color: defaults.ambientColor as string, intensity: defaults.ambientIntensity as number, enabled: true };
+  state.worldAxis = 'blender';
+  state.useSourceNormals = false;
+  state.smoothAngle = DEFAULT_SMOOTH_ANGLE;
+  state.showUVOverlap = false;
+  state.showUVWireframe = true;
+  state.showNormals = false;
+  applyConfigValues(state, defaults);
+  return state;
 }
 
 const state: State = defaultState();
@@ -141,19 +130,19 @@ app.innerHTML = `
             </select></label>
             <label class="uv-overlap-control" id="uvOverlapControl" hidden title="Highlight regions where UV shells overlap">
               <span>UV overlap</span>
-              <span class="sun-toggle"><input id="uvOverlap" type="checkbox" aria-label="Show overlapping UVs" /><span aria-hidden="true"></span></span>
+              ${toggleControl('uvOverlap', 'Show overlapping UVs')}
             </label>
             <label class="uv-overlap-control" id="uvWireframeControl" hidden title="Overlay UV island wireframes on the 2D view">
               <span>UV islands</span>
-              <span class="sun-toggle"><input id="uvWireframe" type="checkbox" checked aria-label="Show UV island wireframes" /><span aria-hidden="true"></span></span>
+              ${toggleControl('uvWireframe', 'Show UV island wireframes', true)}
             </label>
             <label class="uv-overlap-control" id="normalsControl" hidden title="Use the normals embedded in the model file instead of recomputing flat normals">
               <span>Source normals</span>
-              <span class="sun-toggle"><input id="useSourceNormals" type="checkbox" aria-label="Use source normals" /><span aria-hidden="true"></span></span>
+              ${toggleControl('useSourceNormals', 'Use source normals')}
             </label>
             <label class="uv-overlap-control" id="normalsViewControl" hidden title="Render the model with normals as color to inspect normal direction">
               <span>Normals</span>
-              <span class="sun-toggle"><input id="showNormals" type="checkbox" aria-label="Show normals as color" /><span aria-hidden="true"></span></span>
+              ${toggleControl('showNormals', 'Show normals as color')}
             </label>
 
           </div>
@@ -607,8 +596,14 @@ function updateAOControls(): void {
   renderLightmapControls();
 }
 
+// Shared active-state sync for button groups — every data-driven toggle in the app
+// (dither modes, preview modes, palette filters, resolution presets) goes through this.
+function syncActiveButton(root: ParentNode | null, selector: string, isActive: (element: HTMLElement) => boolean): void {
+  root?.querySelectorAll<HTMLElement>(selector).forEach((element) => element.classList.toggle('active', isActive(element)));
+}
+
 function setActiveMode(mode: DitherMode): void {
-  document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.classList.toggle('active', button.dataset.mode === mode));
+  syncActiveButton(document, '[data-mode]', (button) => button.dataset.mode === mode);
 }
 
 function renderTextureRibbon(): void {
@@ -691,9 +686,7 @@ function applyPreviewMode(): void {
     host.hidden = !threeD;
     canvas.hidden = threeD;
     toggle.hidden = modelBundle === null;
-    toggle.querySelectorAll<HTMLButtonElement>('[data-preview-mode]').forEach((button) => {
-      button.classList.toggle('active', button.dataset.previewMode === mode);
-    });
+    syncActiveButton(toggle, '[data-preview-mode]', (button) => button.dataset.previewMode === mode);
   };
   applyPane(originalPreviewMode, originalCanvas, originalModelHost, originalPreviewToggle);
   applyPane(processedPreviewMode, previewCanvas, processedModelHost, processedPreviewToggle);
@@ -854,6 +847,15 @@ function syncColorChip(input: HTMLInputElement): void {
   input.nextElementSibling?.setAttribute('style', `--swatch:${input.value}`);
 }
 
+// Single toggle-switch generator — every checkbox toggle in the app goes through
+// this. `wrapper` is 'label' when the switch is the whole control (sun / ambient,
+// preserving label click-to-toggle) and 'span' when nested inside a label row
+// (UV / normals controls).
+function toggleControl(id: string, ariaLabel: string, checked = false, wrapper: 'label' | 'span' = 'span', title = ''): string {
+  const attrs = `class="sun-toggle"${title ? ` title="${title}"` : ''}`;
+  return `<${wrapper} ${attrs}><input id="${id}" type="checkbox"${checked ? ' checked' : ''} aria-label="${ariaLabel}" /><span aria-hidden="true"></span></${wrapper}>`;
+}
+
 function renderAdjustments(): void {
   const controls: Array<[keyof Pick<State, 'brightness' | 'contrast' | 'saturation'>, string]> = [
     ['brightness', 'Brightness'], ['contrast', 'Contrast'], ['saturation', 'Saturation'],
@@ -919,9 +921,7 @@ function createNewPalette(): void {
 
 function revealPalette(key: string): void {
   state.paletteFilter = 'custom';
-  paletteFilters.querySelectorAll<HTMLButtonElement>('[data-filter]').forEach((button) => {
-    button.classList.toggle('active', button.dataset.filter === state.paletteFilter);
-  });
+  syncActiveButton(paletteFilters, '[data-filter]', (button) => button.dataset.filter === state.paletteFilter);
   renderPalettes();
   requestAnimationFrame(() => {
     const card = paletteGrid.querySelector<HTMLElement>(`[data-palette="${key}"]`);
@@ -1043,28 +1043,10 @@ async function applyConfigFile(file: File): Promise<void> {
 
 function currentConfig() {
   return {
-    resolution: state.resolution,
-    mode: state.mode,
-    strength: state.strength,
-    brightness: state.brightness,
-    contrast: state.contrast,
-    saturation: state.saturation,
+    ...collectConfigValues(state),
     paletteKey: state.paletteKey,
     palette: activePaletteSnapshot(),
     uvMap: state.uvMap,
-    stripeAngle: state.stripeAngle,
-    noiseScale: state.noiseScale,
-    seed: state.seed,
-    aoBias: state.aoBias,
-    aoScale: state.aoScale,
-    aoDistance: state.aoDistance,
-    sunColor: state.sun.color,
-    sunIntensity: state.sun.intensity,
-    ambientColor: state.ambient.color,
-    ambientIntensity: state.ambient.intensity,
-    lightmapContribution: state.lightmapContribution,
-    normalStrength: state.normalStrength,
-    normalFormat: state.normalFormat,
   };
 }
 
@@ -1105,29 +1087,11 @@ function applyPreset(preset: ConversionPreset): void {
   const paletteSelection = selectOrCreatePalette(localStorage, paletteCatalog(), preset.palette, preset.paletteKey);
   const paletteKey = paletteSelection.key;
   savedCustomPalettes = paletteSelection.customPalettes;
-  Object.assign(state, {
-    resolution: preset.resolution,
-    mode: preset.mode,
-    strength: preset.strength,
-    brightness: preset.brightness,
-    contrast: preset.contrast,
-    saturation: preset.saturation,
-    paletteKey,
-    uvMap: preset.uvMap,
-    stripeAngle: preset.stripeAngle,
-    noiseScale: preset.noiseScale,
-    seed: preset.seed,
-    aoBias: preset.aoBias,
-    aoScale: preset.aoScale,
-    aoDistance: preset.aoDistance,
-    sun: { ...state.sun, color: preset.sunColor, intensity: preset.sunIntensity },
-    ambient: { ...state.ambient, color: preset.ambientColor, intensity: preset.ambientIntensity },
-    lightmapContribution: preset.lightmapContribution,
-    normalStrength: preset.normalStrength,
-    normalFormat: preset.normalFormat,
-    paletteSnapshot: undefined,
-    customColors: [],
-  });
+  applyConfigValues(state, preset as unknown as Readonly<Record<string, unknown>>);
+  state.paletteKey = paletteKey;
+  state.uvMap = preset.uvMap;
+  state.paletteSnapshot = undefined;
+  state.customColors = [];
   const selectedCustom = savedCustomPalettes.find((palette) => palette.key === paletteKey);
   const selectedPalette = paletteCatalog()[paletteKey];
   editingCustomKey = selectedCustom?.key ?? null;
@@ -1181,7 +1145,7 @@ function updateResolution(value: number, immediate = false): void {
   state.resolution = value;
   (document.querySelector('#resolution') as HTMLInputElement).value = String(value);
   document.querySelector('#resolutionValue')!.textContent = `${value} px`;
-  document.querySelectorAll<HTMLButtonElement>('[data-resolution]').forEach((button) => button.classList.toggle('active', Number(button.dataset.resolution) === value));
+  syncActiveButton(document, '[data-resolution]', (button) => Number(button.dataset.resolution) === value);
   if (immediate) renderScheduler.flush();
   else renderScheduler.request();
 }
@@ -1405,7 +1369,7 @@ paletteFilters.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-filter]');
   if (!button?.dataset.filter) return;
   state.paletteFilter = button.dataset.filter as PaletteCategory | 'all';
-  paletteFilters.querySelectorAll('button').forEach((item) => item.classList.toggle('active', item === button));
+  syncActiveButton(paletteFilters, 'button', (item) => item === button);
   renderPalettes();
 });
 paletteGrid.addEventListener('click', (event) => {

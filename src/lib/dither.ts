@@ -1,4 +1,5 @@
 import { hexToRgb } from './palettes';
+import { clamp } from './math';
 
 export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'cross' | 'stripes' | 'noise' | 'checker' | 'none';
 
@@ -24,7 +25,6 @@ const BAYER_4 = [
 ];
 
 const thresholdModes = new Set<DitherMode>(['ordered', 'cross', 'stripes', 'noise', 'checker']);
-const clamp = (value: number) => Math.max(0, Math.min(255, value));
 const LUMA = { red: 0.299, green: 0.587, blue: 0.114 };
 
 export function patternThreshold(mode: DitherMode, x: number, y: number, stripeAngle = 45, noiseScale = 1, seed = 0): number {
@@ -85,7 +85,7 @@ export function adjustColor(color: RGB, brightness: number, contrast: number, sa
   red = gray + (red - gray) * saturationFactor;
   green = gray + (green - gray) * saturationFactor;
   blue = gray + (blue - gray) * saturationFactor;
-  return [clamp(red), clamp(green), clamp(blue)];
+  return [clamp(red, 0, 255), clamp(green, 0, 255), clamp(blue, 0, 255)];
 }
 
 export function processImageData(source: ImageData, options: ProcessOptions): ImageData {
@@ -118,7 +118,7 @@ export function processImageData(source: ImageData, options: ProcessOptions): Im
 
       if (thresholdModes.has(options.mode)) {
         const offset = (patternThreshold(options.mode, x, y, options.stripeAngle, options.noiseScale, options.seed) - 0.5) * 96 * options.strength;
-        current = [clamp(current[0] + offset), clamp(current[1] + offset), clamp(current[2] + offset)];
+        current = [clamp(current[0] + offset, 0, 255), clamp(current[1] + offset, 0, 255), clamp(current[2] + offset, 0, 255)];
       }
 
       const matched = nearestColor(current, palette);

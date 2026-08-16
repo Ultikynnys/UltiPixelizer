@@ -1,4 +1,5 @@
 import { imagePixels } from './canvas';
+import { clamp01 } from './math';
 
 export type AOFactorSource = {
   data: Uint8ClampedArray;
@@ -35,7 +36,7 @@ export function redChannelFactors(source: AOFactorSource, invert = false): Uint8
 export function applyAO(data: Uint8ClampedArray, factors: Uint8ClampedArray, bias = 0, scale = 1): void {
   for (let i = 0; i < factors.length; i += 1) {
     const occlusion = 1 - factors[i] / 255;
-    const adjusted = Math.min(1, Math.max(0, bias + scale * occlusion));
+    const adjusted = clamp01(bias + scale * occlusion);
     const multiplier = 1 - adjusted;
     const offset = i * 4;
     data[offset] = data[offset] * multiplier;
