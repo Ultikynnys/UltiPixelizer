@@ -99,14 +99,14 @@ export async function loadModel(
     // manager reports all items complete (textures included) so callers like
     // collectModelTextures see decoded images, not placeholders.
     let textureLoadsStarted = false;
-    let resolveIdle: () => void = () => {};
+    let resolveIdle: (() => void) | undefined;
     const idle = new Promise<void>((resolve) => {
       resolveIdle = resolve;
     });
     manager.onStart = () => {
       textureLoadsStarted = true;
     };
-    manager.onLoad = () => resolveIdle();
+    manager.onLoad = () => resolveIdle?.();
     const loaded = await new FBXLoader(manager).loadAsync(bundle.primaryUrl);
     orientToWorldAxis(loaded, worldAxis);
     if (textureLoadsStarted) await idle;

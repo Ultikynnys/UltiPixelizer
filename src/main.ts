@@ -126,9 +126,9 @@ app.innerHTML = `
             <h1 id="fileName">${textures.base.name}</h1>
           </div>
           <div class="toolbar-actions">
-            <label class="uv-control" id="uvControl" hidden><span>UV map</span><select id="uvMap" aria-label="Model UV map"></select></label>
-            <label class="uv-control" id="lodControl" hidden><span>LOD</span><select id="lodMap" aria-label="Model LOD level"></select></label>
-            <label class="uv-control" id="worldAxisControl" hidden><span>World axis</span><select id="worldAxis" aria-label="Model world axis">
+            <label class="uv-control" id="uvControl" hidden><span>UV map</span><select class="select" id="uvMap" aria-label="Model UV map"></select></label>
+            <label class="uv-control" id="lodControl" hidden><span>LOD</span><select class="select" id="lodMap" aria-label="Model LOD level"></select></label>
+            <label class="uv-control" id="worldAxisControl" hidden><span>World axis</span><select class="select" id="worldAxis" aria-label="Model world axis">
               <option value="blender">Blender · Z-up</option>
               <option value="maya">Maya · Y-up</option>
             </select></label>
@@ -140,15 +140,15 @@ app.innerHTML = `
             <div class="texture-slot" data-texture="${channel.id}" tabindex="0" aria-label="${channel.label} texture slot">
               <span class="texture-slot-preview"><span class="texture-slot-empty-mark">+</span></span>
               <span class="texture-slot-label">+${channel.label}</span>
-              <button class="texture-slot-download" data-download-texture="${channel.id}" type="button" aria-label="Download ${channel.label}" title="Download ${channel.label}">${DOWNLOAD_ICON_SVG}</button>
-              <button class="texture-slot-clear" data-clear-texture="${channel.id}" type="button" aria-label="Clear ${channel.label}">×</button>
-              ${channel.bake ? `<button class="texture-slot-bake" data-bake-texture="${channel.id}" type="button" aria-label="Bake ${channel.label}">Bake</button>` : ''}
+              <button class="icon-button texture-slot-download" data-download-texture="${channel.id}" type="button" aria-label="Download ${channel.label}" title="Download ${channel.label}">${DOWNLOAD_ICON_SVG}</button>
+              <button class="icon-button texture-slot-clear" data-clear-texture="${channel.id}" type="button" aria-label="Clear ${channel.label}">×</button>
+              ${channel.bake ? `<button class="icon-button texture-slot-bake" data-bake-texture="${channel.id}" type="button" aria-label="Bake ${channel.label}">Bake</button>` : ''}
             </div>
           `).join('')}
           <div class="texture-slot texture-slot-model" data-model-slot tabindex="0" aria-label="Model bundle slot">
             <span class="texture-slot-preview"><span class="texture-slot-empty-mark">+</span></span>
             <span class="texture-slot-label">+Model</span>
-            <button class="texture-slot-clear" data-clear-model type="button" aria-label="Clear model">×</button>
+            <button class="icon-button texture-slot-clear" data-clear-model type="button" aria-label="Clear model">×</button>
           </div>
           <input id="textureInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
           <input id="modelInput" type="file" multiple accept=".fbx,.obj,.mtl,.gltf,.glb,.bin,.usdz,image/*" hidden />
@@ -250,17 +250,13 @@ app.innerHTML = `
             <button class="mode-button" data-mode="checker" type="button"><span class="pattern pattern-checker"></span><strong>Checker</strong><small>Alternating grid</small></button>
             <button class="mode-button" data-mode="none" type="button"><span class="pattern pattern-none"></span><strong>Hard map</strong><small>No diffusion</small></button>
           </div>
-          <label class="control-row"><span><strong>Dither strength</strong><small>Error diffusion amount</small></span><output id="strengthValue">85%</output></label>
-          <input class="range" id="strength" type="range" min="0" max="100" value="85" aria-label="Dither strength" />
+          ${rangeControl('strength', 'Dither strength', 0, 100, 1, 85, '85%', 'Error diffusion amount')}
           <div class="stripe-angle-control" id="stripeAngleControl" hidden>
-            <label class="control-row"><span><strong>Stripe angle</strong><small>Band direction</small></span><output id="stripeAngleValue">45°</output></label>
-            <input class="range" id="stripeAngle" type="range" min="0" max="135" value="45" aria-label="Stripe angle" />
+            ${rangeControl('stripeAngle', 'Stripe angle', 0, 135, 1, 45, '45°', 'Band direction')}
           </div>
           <div class="noise-scale-control" id="noiseScaleControl" hidden>
-            <label class="control-row"><span><strong>Noise scale</strong><small>Grain size</small></span><output id="noiseScaleValue">1 px</output></label>
-            <input class="range" id="noiseScale" type="range" min="1" max="32" value="1" aria-label="Noise scale" />
-            <label class="control-row"><span><strong>Seed</strong><small>Noise pattern</small></span><output id="seedValue">1</output></label>
-            <input class="range" id="seed" type="range" min="0" max="9999" value="1" aria-label="Noise seed" />
+            ${rangeControl('noiseScale', 'Noise scale', 1, 32, 1, 1, '1 px', 'Grain size')}
+            ${rangeControl('seed', 'Seed', 0, 9999, 1, 1, '1', 'Noise pattern')}
           </div>
         </section>
 
@@ -286,22 +282,21 @@ app.innerHTML = `
 
         <section class="panel">
           <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING</p><h2>Ambient occlusion</h2></div></div>
-          <label class="control-row"><span><strong>Bias</strong><small>Shift occlusion baseline</small></span><output id="aoBiasValue">+0.00</output></label>
-          <input class="range" id="aoBias" type="range" min="-1" max="1" step="0.01" value="0" aria-label="Ambient occlusion bias" />
-          <label class="control-row"><span><strong>Scale</strong><small>Occlusion strength</small></span><output id="aoScaleValue">1.00×</output></label>
-          <input class="range" id="aoScale" type="range" min="0" max="2" step="0.01" value="1" aria-label="Ambient occlusion scale" />
-          <label class="control-row"><span><strong>Distance</strong><small>Ray reach for generated AO</small></span><output id="aoDistanceValue">2.00×</output></label>
-          <input class="range" id="aoDistance" type="range" min="0.05" max="3" step="0.05" value="2" aria-label="Ambient occlusion distance" />
+          ${rangeControl('aoBias', 'Bias', -1, 1, 0.01, 0, '+0.00', 'Shift occlusion baseline')}
+          ${rangeControl('aoScale', 'Scale', 0, 2, 0.01, 1, '1.00×', 'Occlusion strength')}
+          ${rangeControl('aoDistance', 'Distance', 0.05, 3, 0.05, 2, '2.00×', 'Ray reach for generated AO')}
         </section>
 
         <section class="panel normals-panel">
           <div class="panel-heading compact"><div><p class="eyebrow">SURFACE NORMALS</p><h2>Normals</h2></div></div>
           ${rangeControl('normalStrength', 'Normal strength', 0, 100, 1, 100, '100%')}
-          <label class="control-row"><span><strong>Format</strong><small>Green channel convention</small></span></label>
-          <select class="normal-format-select" id="normalFormat" aria-label="Normal map format">
-            <option value="opengl">OpenGL · +Y up</option>
-            <option value="directx">DirectX · −Y up</option>
-          </select>
+          <div class="control-row">
+            <label for="normalFormat"><span><strong>Format</strong><small>Green channel convention</small></span></label>
+            <select class="select normal-format-select" id="normalFormat" aria-label="Normal map format">
+              <option value="opengl">OpenGL · +Y up</option>
+              <option value="directx">DirectX · −Y up</option>
+            </select>
+          </div>
           <div class="normal-status" id="normalStatus">No normal map loaded</div>
         </section>
 
@@ -862,10 +857,10 @@ function renderPalettes(): void {
       <span class="mini-swatches">${representativeColors(palette.colors).map((color) => `<i style="--swatch:${color}"></i>`).join('')}</span>
       <span class="palette-card-label"><span>${escapeHtml(palette.name)}</span><b>${palette.colors.length}</b></span>
       <span class="palette-card-actions">
-        <button type="button" class="palette-card-duplicate" data-duplicate-palette="${escapeHtml(key)}" aria-label="Duplicate ${escapeHtml(palette.name)}" title="Duplicate ${escapeHtml(palette.name)}"><svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"><rect x="5" y="5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="2" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
+        <button type="button" class="icon-button palette-card-duplicate" data-duplicate-palette="${escapeHtml(key)}" aria-label="Duplicate ${escapeHtml(palette.name)}" title="Duplicate ${escapeHtml(palette.name)}"><svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"><rect x="5" y="5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="2" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
         ${customKeys.has(key) ? `
-          <button type="button" class="palette-card-export" data-export-palette="${escapeHtml(key)}" aria-label="Export ${escapeHtml(palette.name)}" title="Export ${escapeHtml(palette.name)}"><svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 12v-7M4.5 7.5L7 5l2.5 2.5M2.5 11.5h9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-          <button type="button" class="palette-card-delete" data-delete-palette="${escapeHtml(key)}" aria-label="Delete ${escapeHtml(palette.name)}">×</button>` : ''}
+          <button type="button" class="icon-button palette-card-export" data-export-palette="${escapeHtml(key)}" aria-label="Export ${escapeHtml(palette.name)}" title="Export ${escapeHtml(palette.name)}"><svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 12v-7M4.5 7.5L7 5l2.5 2.5M2.5 11.5h9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button type="button" class="icon-button palette-card-delete" data-delete-palette="${escapeHtml(key)}" aria-label="Delete ${escapeHtml(palette.name)}">×</button>` : ''}
       </span>
     </div>
   `).join('') + (state.paletteFilter === 'custom' ? `
@@ -887,7 +882,7 @@ function renderPalettes(): void {
   customColors.innerHTML = selectedColors.map((color, index) => `
     <div class="custom-color">
       <label title="Edit ${color}">${colorControl(color, `Color ${index + 1}, ${color}`, `data-color-index="${index}"`)}</label>
-      <button type="button" data-remove-color="${index}" aria-label="Remove color ${index + 1}">×</button>
+      <button type="button" class="icon-button" data-remove-color="${index}" aria-label="Remove color ${index + 1}">×</button>
     </div>
   `).join('') + `
     <button type="button" class="custom-color-add" data-add-color aria-label="Add color">+</button>
@@ -895,12 +890,12 @@ function renderPalettes(): void {
   paletteEditor.disabled = !activePaletteIsCustom();
 }
 
-// Single slider generator — every range control in the app must go through this.
-// Markup matches the Adjustments panel rows: label (span + output) above a .range input.
-function rangeControl(key: string, label: string, min: number, max: number, step: number | 'any', value: number, display: string = String(value)): string {
+// Single slider generator — every range control in the app goes through this.
+// Renders a .control-row (title + optional hint + output) above a .range input.
+function rangeControl(key: string, label: string, min: number, max: number, step: number | 'any', value: number, display: string = String(value), hint = ''): string {
   return `
-    <div class="adjustment-row">
-      <label for="${key}"><span>${label}</span><output id="${key}Value">${display}</output></label>
+    <div class="control-row">
+      <label for="${key}"><span><strong>${label}</strong>${hint ? `<small>${hint}</small>` : ''}</span><output id="${key}Value">${display}</output></label>
       <input class="range" id="${key}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label}" />
     </div>
   `;
@@ -909,7 +904,7 @@ function rangeControl(key: string, label: string, min: number, max: number, step
 // Single color-picker generator — visually-hidden input + live --swatch chip, matching the palette editor.
 // Every color input in the app goes through this; syncColorChip keeps the chip in lockstep with the value.
 function colorControl(value: string, ariaLabel: string, attrs: string = ''): string {
-  return `<input type="color" value="${value}" aria-label="${ariaLabel}" ${attrs}/><span style="--swatch:${value}"></span>`;
+  return `<input class="hidden-input" type="color" value="${value}" aria-label="${ariaLabel}" ${attrs}/><span class="color-chip" style="--swatch:${value}"></span>`;
 }
 function syncColorChip(input: HTMLInputElement): void {
   input.nextElementSibling?.setAttribute('style', `--swatch:${input.value}`);
@@ -920,8 +915,8 @@ function syncColorChip(input: HTMLInputElement): void {
 // lightmap-only, preserving label click-to-toggle) and 'span' when nested inside
 // a label row (UV / normals controls).
 function toggleControl(id: string, ariaLabel: string, checked = false, wrapper: 'label' | 'span' = 'span', title = ''): string {
-  const attrs = `class="sun-toggle"${title ? ` title="${title}"` : ''}`;
-  return `<${wrapper} ${attrs}><input id="${id}" type="checkbox"${checked ? ' checked' : ''} aria-label="${ariaLabel}" /><span aria-hidden="true"></span></${wrapper}>`;
+  const attrs = `class="toggle"${title ? ` title="${title}"` : ''}`;
+  return `<${wrapper} ${attrs}><input id="${id}" type="checkbox"${checked ? ' checked' : ''} aria-label="${ariaLabel}" /></${wrapper}>`;
 }
 
 function renderAdjustments(): void {

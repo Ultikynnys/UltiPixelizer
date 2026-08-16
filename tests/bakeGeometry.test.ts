@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Object3D, PlaneGeometry } from 'three';
+import { BoxGeometry, BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Object3D, PlaneGeometry, Vector3 } from 'three';
+import { MeshBVH } from 'three-mesh-bvh';
 import {
   BAKE_PAD_TEXELS,
+  castBakeRay,
   collectBakeScene,
   dilateUVBake,
   rasterizeBake,
@@ -264,5 +266,70 @@ describe('dilateUVBake', () => {
       1,
     );
     expect(Array.from(writtenData).filter((value) => value === 1)).toHaveLength(9);
+  });
+});
+
+describe('castBakeRay', () => {
+  /** A 4×4×4-segment box (96 triangles). That is far more than the BVH's
+   * target leaf size, so the root node is an interior node and shapecast
+   * actually exercises the node-bounds test (rayBoxIntersects) instead of
+   * short-circuiting into a single leaf. */
+  function bakedBox(): { bvh: MeshBVH; epsilon: number; maxDistance: number } {
+    const scene = new Object3D();
+    scene.add(new Mesh(new BoxGeometry(4, 4, 4, 4, 4, 4), new MeshBasicMaterial()));
+    const result = collectBakeScene(scene);
+    if (!result.bvh) throw new Error('expected a BVH over the segmented box');
+    return { bvh: result.bvh, epsilon: result.epsilon, maxDistance: result.maxDistance };
+  }
+
+  it('hits the surface from every axis direction', () => {
+    const { bvh, epsilon, maxDistance } = bakedBox();
+    // Origins are offset toward the near face of the box so each ray crosses
+    // the surface cleanly through the interior of a quad (never a vertex or
+    // grid-line edge).
+    const cases: Array<[number, number, number, number, number, number]> = [
+      [0.5, 5, 0.5, 0, -1, 0], // down onto the +Y face
+      [0.5, -5, 0.5, 0, 1, 0], // up onto the -Y face
+      [-5, 0.5, 0.5, 1, 0, 0], // +X onto the -X face
+      [5, 0.5, 0.5, -1, 0, 0], // -X onto the +X face
+      [0.5, 0.5, -5, 0, 0, 1], // +Z onto the -Z face
+      [0.5, 0.5, 5, 0, 0, -1], // -Z onto the +Z face
+    ];
+    for (const [ox, oy, oz, dx, dy, dz] of cases) {
+      expect(
+        castBakeRay(bvh, new Vector3(ox, oy, oz), new Vector3(0, 1, 0), new Vector3(dx, dy, dz), epsilon, 0, maxDistance),
+        `ray (${ox},${oy},${oz}) → (${dx},${dy},${dz})`,
+      ).toBe(true);
+    }
+  });
+
+  it('misses when the ray points away or passes beside the occluder', () => {
+    const { bvh, epsilon, maxDistance } = bakedBox();
+    // Pointing up from above the box.
+    expect(castBakeRay(bvh, new Vector3(0.5, 5, 0.5), new Vector3(0, 1, 0), new Vector3(0, 1, 0), epsilon, 0, maxDistance)).toBe(false);
+    // Passing over the top face at y=5 — never enters the box slab.
+    expect(castBakeRay(bvh, new Vector3(0.5, 5, 0.5), new Vector3(0, 1, 0), new Vector3(1, 0, 0), epsilon, 0, maxDistance)).toBe(false);
+    // Sideways past the box along the z axis at x=5.
+    expect(castBakeRay(bvh, new Vector3(5, 0.5, 0.5), new Vector3(1, 0, 0), new Vector3(0, 0, -1), epsilon, 0, maxDistance)).toBe(false);
+  });
+
+  it('honors the near and far intersection bounds', () => {
+    const { bvh, epsilon, maxDistance } = bakedBox();
+    // The surface is ~3 units away; near=10 excludes it.
+    expect(castBakeRay(bvh, new Vector3(0.5, 5, 0.5), new Vector3(0, 1, 0), new Vector3(0, -1, 0), epsilon, 10, maxDistance)).toBe(false);
+    // far=0.5 excludes the hit as well.
+    expect(castBakeRay(bvh, new Vector3(0.5, 5, 0.5), new Vector3(0, 1, 0), new Vector3(0, -1, 0), epsilon, 0, 0.5)).toBe(false);
+    // near=epsilon mirrors the lightmap bake's self-intersection margin.
+    expect(castBakeRay(bvh, new Vector3(0.5, 5, 0.5), new Vector3(0, 1, 0), new Vector3(0, -1, 0), epsilon, epsilon, maxDistance)).toBe(true);
+  });
+
+  it('tests indexed occluder geometry through the BVH index indirection', () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([-1, 0, -1, 1, 0, -1, 0, 0, 1], 3));
+    geometry.setIndex([0, 1, 2]);
+    const bvh = new MeshBVH(geometry);
+    // The ray drops onto the triangle interior (0, 0, 0).
+    expect(castBakeRay(bvh, new Vector3(0, 2, 0), new Vector3(0, 1, 0), new Vector3(0, -1, 0), 1e-3)).toBe(true);
+    expect(castBakeRay(bvh, new Vector3(0, 2, 0), new Vector3(0, 1, 0), new Vector3(0, 1, 0), 1e-3)).toBe(false);
   });
 });

@@ -488,4 +488,37 @@ describe('ModelViewport', () => {
     // dispose cancels the loop, so no new renders may appear after it.
     expect(mocks.rendererCalls.filter((call) => call === 'render')).toHaveLength(rendersBefore);
   });
+
+  it('applies images through the stashed originals while the normals view is active', () => {
+    const viewport = new ModelViewport(host());
+    viewport.setModel(meshScene(), []);
+    viewport.setNormalsView(true);
+    // texturableMaterials resolves the stashed original material, not the
+    // live normals-as-color material.
+    expect(viewport.applyImage({} as CanvasImageSource)).toBe(1);
+    viewport.dispose();
+  });
+
+  it('handles multi-material meshes while the normals view is active', () => {
+    const viewport = new ModelViewport(host());
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    geometry.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
+    geometry.setAttribute('normal', new Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+    const model = new Object3D();
+    model.add(new Mesh(geometry, [new MeshBasicMaterial(), new MeshBasicMaterial()]));
+    viewport.setModel(model, []);
+    viewport.setNormalsView(true);
+    // The stashed original is a material array — applyImage targets each entry.
+    expect(viewport.applyImage({} as CanvasImageSource)).toBe(2);
+    viewport.dispose();
+  });
+
+  it('animates the UV-overlap overlay time uniform', () => {
+    const viewport = new ModelViewport(host());
+    viewport.setModel(meshScene(), []);
+    viewport.setUVOverlap(new Map([[0, [0]]]));
+    flushRaf(16); // animate runs with the overlay present
+    viewport.dispose();
+  });
 });
