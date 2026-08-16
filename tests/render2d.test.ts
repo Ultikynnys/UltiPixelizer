@@ -85,6 +85,19 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
   });
 
+  it('shows the raw AO map in both panes when AO-only mode is on', () => {
+    const ao = solidTexture([200, 200, 200, 255]);
+    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.showAOOnly = true;
+    const shared = sharedState();
+    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+
+    // Original pane shows the raw AO factors (not base × AO) at native resolution.
+    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([200, 200, 200, 255]);
+    // Dithered pane quantizes the AO map (200 → white).
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
+  });
+
   it('draws the UV wireframe onto both panes when enabled and available', () => {
     const drawWireframe = vi.fn();
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });

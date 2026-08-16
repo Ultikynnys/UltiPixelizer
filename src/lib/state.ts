@@ -45,6 +45,7 @@ export type State = {
   showUVOverlap: boolean;
   showUVWireframe: boolean;
   showNormals: boolean;
+  showAOOnly: boolean;
   showLightmapOnly: boolean;
 };
 

@@ -40,8 +40,9 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
     if (lightmapPixels) applyLightmap(data, lightmapPixels);
   }
 
-  /** Lightmap-only view shows the raw map, so lighting (AO + lightmap multiply)
-   * is skipped — applying the map again would square its values. */
+  /** Inspection views (AO-only / lightmap-only) show the raw map, so lighting
+   * (AO + lightmap multiply) is skipped — applying lighting to the map being
+   * inspected would alter what it shows. */
   function skipLighting(): void {}
 
   function litCanvas(image: CanvasImageSource, width: number, height: number): HTMLCanvasElement {
@@ -55,10 +56,14 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
 
   function render(): void {
     const { width, height } = dimensions();
-    // "Lightmap only" mode swaps the base color for the raw lightmap in both
-    // previews so the map can be inspected (and dithered) on its own.
+    // Inspection modes swap the base color for the raw AO or lightmap in both
+    // previews so the map can be inspected (and dithered) on its own. The two
+    // toggles are mutually exclusive in the UI; AO takes precedence if both
+    // somehow end up set.
+    const aoOnlySource = state.showAOOnly ? textures.ao.image : null;
     const lightmapOnlySource = state.showLightmapOnly ? (textures.lightmap.image ?? shared.implicitLightmapCanvas) : null;
-    const source = lightmapOnlySource ?? textures.base.image!;
+    const onlySource = aoOnlySource ?? lightmapOnlySource;
+    const source = onlySource ?? textures.base.image!;
     const { canvas: nextCanvas, context: renderContext } = drawImageToCanvas(source, width, height);
     shared.renderedCanvas = nextCanvas;
     if (!renderContext) return;
@@ -71,7 +76,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
     };
     const { processed: processedData } = processLitImageData(
       sourceData,
-      lightmapOnlySource ? skipLighting : applyLighting,
+      onlySource ? skipLighting : applyLighting,
       (lit) => processImageData(lit, processedOptions),
     );
     renderContext.putImageData(processedData, 0, 0);
@@ -81,7 +86,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
     previewCanvas.getContext('2d')?.drawImage(shared.renderedCanvas, 0, 0);
 
     // Original pane shows the source at native resolution — the pixel grid slider must not affect it.
-    const litSourceNative = lightmapOnlySource
+    const litSourceNative = onlySource
       ? drawImageToCanvas(source, source.width, source.height).canvas
       : litCanvas(source, source.width, source.height);
     shared.originalBaseCanvas = litSourceNative;

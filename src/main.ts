@@ -61,10 +61,6 @@ const sunOverlayMarkup = (): string => `
       ${rangeControl('ambientIntensity', 'Intensity', 0, 1, 0.01, DEFAULT_AMBIENT_INTENSITY)}
     </div>
     <div class="lightmap-active-label" role="status">Lightmap Active</div>
-    <div class="lightmap-only-control" title="Show just the lightmap in both previews">
-      <span>Lightmap only</span>
-      ${toggleControl('showLightmapOnly', 'Visualize just the lightmap', false, 'label', 'Visualize just the lightmap in the Original and Dithered previews')}
-    </div>
   </div>
 `;
 
@@ -87,6 +83,7 @@ function defaultState(): State {
   state.showUVOverlap = false;
   state.showUVWireframe = true;
   state.showNormals = false;
+  state.showAOOnly = false;
   state.showLightmapOnly = false;
   applyConfigValues(state, defaults);
   return state;
@@ -149,6 +146,14 @@ app.innerHTML = `
             <label class="uv-overlap-control" id="normalsViewControl" hidden title="Render the model with normals as color to inspect normal direction">
               <span>Normals</span>
               ${toggleControl('showNormals', 'Show normals as color')}
+            </label>
+            <label class="uv-overlap-control" id="aoOnlyControl" title="Show just the AO map in both previews">
+              <span>AO only</span>
+              ${toggleControl('showAOOnly', 'Visualize just the AO map', false, 'label', 'Visualize just the AO map in the Original and Dithered previews')}
+            </label>
+            <label class="uv-overlap-control" id="lightmapOnlyControl" title="Show just the lightmap in both previews">
+              <span>Lightmap only</span>
+              ${toggleControl('showLightmapOnly', 'Visualize just the lightmap', false, 'label', 'Visualize just the lightmap in the Original and Dithered previews')}
             </label>
 
           </div>
@@ -283,8 +288,8 @@ app.innerHTML = `
           <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING / 04</p><h2>Ambient occlusion</h2></div></div>
           <label class="control-row"><span><strong>Bias</strong><small>Shift occlusion baseline</small></span><output id="aoBiasValue">+0.00</output></label>
           <input class="range" id="aoBias" type="range" min="-1" max="1" step="0.01" value="0" aria-label="Ambient occlusion bias" />
-          <label class="control-row"><span><strong>Scale</strong><small>Occlusion strength</small></span><output id="aoScaleValue">1.00×</output></label>
-          <input class="range" id="aoScale" type="range" min="0" max="2" step="0.01" value="1" aria-label="Ambient occlusion scale" />
+          <label class="control-row"><span><strong>Scale</strong><small>Occlusion strength</small></span><output id="aoScaleValue">0.20×</output></label>
+          <input class="range" id="aoScale" type="range" min="0" max="2" step="0.01" value="0.2" aria-label="Ambient occlusion scale" />
           <label class="control-row"><span><strong>Distance</strong><small>Ray reach for generated AO</small></span><output id="aoDistanceValue">2.00×</output></label>
           <input class="range" id="aoDistance" type="range" min="0.05" max="3" step="0.05" value="2" aria-label="Ambient occlusion distance" />
           <button class="button button-secondary button-full" id="generateAoButton" type="button">Generate AO</button>
@@ -352,7 +357,6 @@ type SunElements = {
   ambientColor: HTMLInputElement;
   ambientIntensity: HTMLInputElement;
   ambientIntensityValue: HTMLOutputElement;
-  lightmapOnly: HTMLInputElement;
 };
 
 const sunControlElements: SunElements = {
@@ -366,10 +370,13 @@ const sunControlElements: SunElements = {
   ambientColor: document.querySelector<HTMLInputElement>('#ambientColor')!,
   ambientIntensity: document.querySelector<HTMLInputElement>('#ambientIntensity')!,
   ambientIntensityValue: document.querySelector<HTMLOutputElement>('#ambientIntensityValue')!,
-  lightmapOnly: document.querySelector<HTMLInputElement>('#showLightmapOnly')!,
 };
 const sunDirectionValue = document.querySelector<HTMLOutputElement>('#sunDirectionValue')!;
 const cameraDirectionValue = document.querySelector<HTMLOutputElement>('#cameraDirectionValue')!;
+const aoOnlyControl = document.querySelector<HTMLLabelElement>('#aoOnlyControl')!;
+const lightmapOnlyControl = document.querySelector<HTMLLabelElement>('#lightmapOnlyControl')!;
+const aoOnlyInput = document.querySelector<HTMLInputElement>('#showAOOnly')!;
+const lightmapOnlyInput = document.querySelector<HTMLInputElement>('#showLightmapOnly')!;
 const stripeAngleControl = document.querySelector<HTMLDivElement>('#stripeAngleControl')!;
 const stripeAngleInput = document.querySelector<HTMLInputElement>('#stripeAngle')!;
 const stripeAngleValue = document.querySelector<HTMLOutputElement>('#stripeAngleValue')!;
@@ -507,6 +514,22 @@ function renderLightmapControls(): void {
     ? `${textures.lightmap.name} · ${lightmap.width} × ${lightmap.height}`
     : 'No lightmap loaded';
   bakeLightmapButton.disabled = aoBakeScene === null;
+  renderOnlyToggles();
+}
+
+// AO-only / lightmap-only inspection toggles: always visible in the preview
+// toolbar, but only actionable while the inspected texture slot holds an image.
+function renderOnlyToggles(): void {
+  const aoDefined = textures.ao.image !== null;
+  const lightmapDefined = lightmapIsActive(textures);
+  if (!aoDefined && state.showAOOnly) state.showAOOnly = false;
+  if (!lightmapDefined && state.showLightmapOnly) state.showLightmapOnly = false;
+  aoOnlyInput.checked = state.showAOOnly;
+  lightmapOnlyInput.checked = state.showLightmapOnly;
+  aoOnlyControl.classList.toggle('is-disabled', !aoDefined);
+  lightmapOnlyControl.classList.toggle('is-disabled', !lightmapDefined);
+  aoOnlyInput.disabled = !aoDefined;
+  lightmapOnlyInput.disabled = !lightmapDefined;
 }
 
 function renderNormalControls(): void {
@@ -639,7 +662,6 @@ function renderSunControl(): void {
   const lightmapActive = lightmapIsActive(textures);
   sunControlElements.control.classList.toggle('off', !state.sun.enabled || lightmapActive);
   sunControlElements.control.classList.toggle('lightmap-active', lightmapActive);
-  sunControlElements.lightmapOnly.checked = state.showLightmapOnly;
   sunControlElements.orientWithCamera.disabled = !state.sun.enabled || lightmapActive || originalPreviewMode !== '3d' || originalViewport === null;
   syncLightControls(state.sun, sunControlElements.enabled, sunControlElements.color, sunControlElements.intensity, sunControlElements.intensityValue, lightmapActive);
   syncLightControls(state.ambient, sunControlElements.ambientEnabled, sunControlElements.ambientColor, sunControlElements.ambientIntensity, sunControlElements.ambientIntensityValue, lightmapActive);
@@ -693,6 +715,7 @@ function renderTextureRibbon(): void {
     modelSlot.classList.toggle('filled', !!modelBundle);
     if (label) label.textContent = modelBundle ? modelBundle.primary.name : '+Model';
   }
+  renderOnlyToggles();
 }
 
 function applyModelUV(channel: string): void {
@@ -1236,6 +1259,7 @@ function clearTexture(channel: TextureChannelId): void {
   } else {
     textures[channel].image = null;
     textures[channel].name = '';
+    if (channel === 'ao') state.showAOOnly = false;
     if (channel === 'normal') {
       renderNormalControls();
       scheduleNormalAdjustedLighting();
@@ -1676,14 +1700,22 @@ function bindSunControl(): void {
   });
   bindLightColor(sunControlElements.ambientColor, state.ambient);
   bindLightIntensity(sunControlElements.ambientIntensity, state.ambient);
-
-  sunControlElements.lightmapOnly.addEventListener('change', () => {
-    state.showLightmapOnly = sunControlElements.lightmapOnly.checked;
-    render();
-  });
 }
 
 bindSunControl();
+
+// AO-only and lightmap-only inspection modes are mutually exclusive — enabling
+// one clears the other so the previews never show a mixed source.
+aoOnlyInput.addEventListener('change', () => {
+  state.showAOOnly = aoOnlyInput.checked;
+  if (state.showAOOnly) state.showLightmapOnly = false;
+  render();
+});
+lightmapOnlyInput.addEventListener('change', () => {
+  state.showLightmapOnly = lightmapOnlyInput.checked;
+  if (state.showLightmapOnly) state.showAOOnly = false;
+  render();
+});
 const dropZone = document.querySelector<HTMLDivElement>('#dropZone')!;
 bindSlotDragState(dropZone);
 dropZone.addEventListener('drop', (event) => {
