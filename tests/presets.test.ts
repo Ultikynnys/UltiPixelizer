@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { palettes } from '../src/lib/palettes';
 import {
   PRESET_STORAGE_KEY,
+  applyConfigValues,
+  collectConfigValues,
   createPreset,
+  defaultConfigValues,
   deletePreset,
   isConversionPreset,
   loadPresetLibrary,
@@ -13,6 +16,7 @@ import {
   type ConversionConfig,
   type StorageLike,
 } from '../src/lib/presets';
+import type { State } from '../src/lib/state';
 
 class MemoryStorage implements StorageLike {
   data = new Map<string, string>();
@@ -131,6 +135,14 @@ describe('conversion presets', () => {
     expect(parsed.normalFormat).toBe('opengl');
   });
 
+  it('renames legacy diagonal and vertical dither modes to stripes', () => {
+    const current = createPreset('Legacy modes', '', config);
+    const { mode: _removed, ...legacy } = current;
+    expect(parsePreset(JSON.stringify({ ...legacy, mode: 'diagonal' })).mode).toBe('stripes');
+    expect(parsePreset(JSON.stringify({ ...legacy, mode: 'vertical' })).mode).toBe('stripes');
+    expect(parsePreset(JSON.stringify({ ...legacy, mode: 'vertical' })).stripeAngle).toBe(0);
+  });
+
   it('validates normal strength and format bounds', () => {
     const base = createPreset('Normals', '', config);
     expect(isConversionPreset({ ...base, normalStrength: 0 })).toBe(true);
@@ -164,5 +176,120 @@ describe('conversion presets', () => {
 
   it('refuses to save invalid library entries', () => {
     expect(() => savePresetLibrary(storage, [{} as never])).toThrow('invalid data');
+  });
+});
+
+describe('shared settings schema (CONFIG_FIELDS)', () => {
+  /** A State carrying only the serializable settings; the rest is irrelevant here. */
+  function stateFixture(): State {
+    return {
+      resolution: 128,
+      mode: 'checker',
+      strength: 0.75,
+      brightness: 12,
+      contrast: -8,
+      saturation: 25,
+      stripeAngle: 45,
+      noiseScale: 1,
+      seed: 1,
+      aoBias: 0,
+      aoScale: 1,
+      aoDistance: 2,
+      sun: { color: '#ffd8a8', intensity: 0.9, direction: { x: -0.5, y: -0.7071067811865476, z: -0.5 }, enabled: true },
+      ambient: { color: '#8fb4ff', intensity: 0.6, enabled: true },
+      lightmapContribution: 0.75,
+      normalStrength: 0.6,
+      normalFormat: 'opengl',
+    } as State;
+  }
+
+  it('derives initial defaults for every serializable setting', () => {
+    const defaults = defaultConfigValues();
+    expect(Object.keys(defaults)).toHaveLength(19);
+    expect(defaults).toEqual({
+      resolution: 128,
+      mode: 'floyd',
+      strength: 0.85,
+      brightness: 0,
+      contrast: 8,
+      saturation: 5,
+      stripeAngle: 45,
+      noiseScale: 1,
+      seed: 1,
+      aoBias: 0,
+      aoScale: 1,
+      aoDistance: 2,
+      sunColor: '#ffffff',
+      sunIntensity: 1,
+      ambientColor: '#ffffff',
+      ambientIntensity: 0.7,
+      lightmapContribution: 1,
+      normalStrength: 1,
+      normalFormat: 'opengl',
+    });
+    // Catalog/structural fields are deliberately not part of the table.
+    expect('paletteKey' in defaults).toBe(false);
+    expect('uvMap' in defaults).toBe(false);
+    expect('palette' in defaults).toBe(false);
+  });
+
+  it('collects flat and nested settings out of a State object', () => {
+    expect(collectConfigValues(stateFixture())).toEqual({
+      resolution: 128,
+      mode: 'checker',
+      strength: 0.75,
+      brightness: 12,
+      contrast: -8,
+      saturation: 25,
+      stripeAngle: 45,
+      noiseScale: 1,
+      seed: 1,
+      aoBias: 0,
+      aoScale: 1,
+      aoDistance: 2,
+      sunColor: '#ffd8a8',
+      sunIntensity: 0.9,
+      ambientColor: '#8fb4ff',
+      ambientIntensity: 0.6,
+      lightmapContribution: 0.75,
+      normalStrength: 0.6,
+      normalFormat: 'opengl',
+    });
+  });
+
+  it('applies flat config values into a State, creating nested light objects as needed', () => {
+    const state = {} as State;
+    applyConfigValues(state, {
+      resolution: 64,
+      sunColor: '#ff0000',
+      sunIntensity: 0.5,
+      ambientIntensity: 0.3,
+      lightmapContribution: 0.25,
+      normalFormat: 'directx',
+    });
+    expect(state.resolution).toBe(64);
+    expect(state.sun.color).toBe('#ff0000');
+    expect(state.sun.intensity).toBe(0.5);
+    expect(state.ambient.intensity).toBe(0.3);
+    expect(state.lightmapContribution).toBe(0.25);
+    expect(state.normalFormat).toBe('directx');
+    // Fields not present in the table are left untouched.
+    expect((state as unknown as Record<string, unknown>).paletteKey).toBeUndefined();
+  });
+
+  it('skips undefined values and leaves existing nested objects intact', () => {
+    const state = stateFixture();
+    const sunBefore = state.sun;
+    applyConfigValues(state, { resolution: undefined, sunColor: undefined, ambientIntensity: 0.2 });
+    expect(state.resolution).toBe(128);
+    expect(state.sun).toBe(sunBefore);
+    expect(state.sun.color).toBe('#ffd8a8');
+    expect(state.ambient.intensity).toBe(0.2);
+  });
+
+  it('round-trips state -> config -> state without loss', () => {
+    const applied = {} as State;
+    applyConfigValues(applied, collectConfigValues(stateFixture()));
+    expect(collectConfigValues(applied)).toEqual(collectConfigValues(stateFixture()));
   });
 });
