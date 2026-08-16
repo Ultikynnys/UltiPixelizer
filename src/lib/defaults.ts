@@ -10,11 +10,3 @@ export const DEFAULT_SMOOTH_ANGLE = 30;
  * curvature more closely on coarse meshes.
  */
 export const DEFAULT_TESSELLATION = 1;
-
-/**
- * Minimum ambient fill on the [0, 1] intensity scale. Keeps shadowed regions from
- * collapsing to pure black when the ambient intensity slider is at 0.00 — the sun
- * term is independent and never affected. Only applies while ambient is enabled;
- * disabling ambient still means truly no ambient.
- */
-export const AMBIENT_FLOOR = 0.06;

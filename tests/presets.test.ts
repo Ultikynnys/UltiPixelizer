@@ -36,8 +36,6 @@ const config: ConversionConfig = {
   normalStrength: 0.6,
   normalFormat: 'opengl',
   sunDirection: { x: -0.5, y: -0.7071067811865476, z: -0.5 },
-  sunEnabled: true,
-  ambientEnabled: true,
   smoothAngle: 30,
   tessellation: 2,
   cameraDirection: { x: 0, y: 0, z: -1 },
@@ -153,12 +151,10 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...base, normalFormat: 'vulkan' })).toBe(false);
   });
 
-  it('migrates presets saved before sun direction, toggles, camera, and source normals existed', () => {
+  it('migrates presets saved before sun direction, camera, and source normals existed', () => {
     const current = createPreset('Legacy', '', config);
     const {
       sunDirection: _sunDirection,
-      sunEnabled: _sunEnabled,
-      ambientEnabled: _ambientEnabled,
       smoothAngle: _smoothAngle,
       tessellation: _tessellation,
       cameraDirection: _cameraDirection,
@@ -167,12 +163,27 @@ describe('conversion presets', () => {
     } = current;
     const parsed = parsePreset(JSON.stringify(legacy));
     expect(parsed.sunDirection).toEqual(DEFAULT_SUN_DIRECTION);
-    expect(parsed.sunEnabled).toBe(true);
-    expect(parsed.ambientEnabled).toBe(true);
     expect(parsed.smoothAngle).toBe(30);
     expect(parsed.tessellation).toBe(1);
     expect(parsed.cameraDirection).toEqual(DEFAULT_CAMERA_DIRECTION);
     expect(parsed.useSourceNormals).toBe(false);
+  });
+
+  it('folds a disabled sun or ambient into zero intensity when migrating v5 presets', () => {
+    const current = createPreset('Legacy toggles', '', config);
+    const disabled = {
+      ...current,
+      version: 5,
+      sunEnabled: false,
+      ambientEnabled: false,
+      sunIntensity: 0.8,
+      ambientIntensity: 0.5,
+    };
+    const parsed = parsePreset(JSON.stringify(disabled));
+    expect(parsed.sunIntensity).toBe(0);
+    expect(parsed.ambientIntensity).toBe(0);
+    expect('sunEnabled' in parsed).toBe(false);
+    expect('ambientEnabled' in parsed).toBe(false);
   });
 
 });
@@ -193,8 +204,8 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       aoBias: 0,
       aoScale: 1,
       aoDistance: 2,
-      sun: { color: '#ffd8a8', intensity: 0.9, direction: { x: -0.5, y: -0.7071067811865476, z: -0.5 }, enabled: true },
-      ambient: { color: '#8fb4ff', intensity: 0.6, enabled: true },
+      sun: { color: '#ffd8a8', intensity: 0.9, direction: { x: -0.5, y: -0.7071067811865476, z: -0.5 } },
+      ambient: { color: '#8fb4ff', intensity: 0.6 },
       normalStrength: 0.6,
       normalFormat: 'opengl',
       smoothAngle: 30,
@@ -206,7 +217,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(25);
+    expect(Object.keys(defaults)).toHaveLength(23);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -227,8 +238,6 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       normalStrength: 1,
       normalFormat: 'opengl',
       sunDirection: DEFAULT_SUN_DIRECTION,
-      sunEnabled: true,
-      ambientEnabled: true,
       smoothAngle: 30,
       tessellation: 1,
       cameraDirection: DEFAULT_CAMERA_DIRECTION,
@@ -261,8 +270,6 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       normalStrength: 0.6,
       normalFormat: 'opengl',
       sunDirection: { x: -0.5, y: -0.7071067811865476, z: -0.5 },
-      sunEnabled: true,
-      ambientEnabled: true,
       smoothAngle: 30,
       tessellation: 2,
       cameraDirection: { x: 0, y: 0, z: -1 },

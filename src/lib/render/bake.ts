@@ -47,10 +47,8 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
       sunDirection: state.sun.direction,
       sunColor: state.sun.color,
       sunIntensity: state.sun.intensity,
-      sunEnabled: state.sun.enabled,
       ambientColor: state.ambient.color,
       ambientIntensity: state.ambient.intensity,
-      ambientEnabled: state.ambient.enabled,
       ...normalMapOptions(),
     };
   }

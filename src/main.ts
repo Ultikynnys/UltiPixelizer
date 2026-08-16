@@ -5,6 +5,7 @@ import type { DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
 import { createModelFileBundle, modelFormat, type ModelFileBundle, type WorldAxis } from './lib/modelFiles';
+import { collectModelTextures, type ExtractedModelTextures } from './lib/modelTextures';
 import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels, prepareSurfaceNormals, recomputeVertexNormals } from './lib/modelScene';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
@@ -50,7 +51,6 @@ const sunOverlayMarkup = (): string => `
   <div class="sun-overlay" id="sunControl" hidden>
     <div class="sun-overlay-heading">
       <span>Sun</span>
-      ${toggleControl('sunEnabled', 'Toggle sun lighting', true, 'label', 'Toggle sun lighting')}
     </div>
     <button class="orient-sun-button" id="orientSunWithCamera" type="button" title="Copy the Original 3D viewport angle to the sun">Orient Sun with Camera</button>
     <div class="orientation-readout" title="World-space direction (x, y, z)">
@@ -60,7 +60,7 @@ const sunOverlayMarkup = (): string => `
     <div class="light-controls">
       <label class="light-color-control"><span>Sun color</span>${colorControl('#ffffff', 'Sun color', 'id="sunColor"')}</label>
       ${rangeControl('sunIntensity', 'Sun intensity', 0, 1, 0.01, DEFAULT_SUN_INTENSITY)}
-      <div class="light-section-title ambient-heading"><span>Ambient</span>${toggleControl('ambientEnabled', 'Toggle ambient lighting', true, 'label', 'Toggle ambient lighting')}</div>
+      <div class="light-section-title"><span>Ambient</span></div>
       <label class="light-color-control"><span>Color</span>${colorControl('#ffffff', 'Ambient light color', 'id="ambientColor"')}</label>
       ${rangeControl('ambientIntensity', 'Intensity', 0, 1, 0.01, DEFAULT_AMBIENT_INTENSITY)}
     </div>
@@ -78,8 +78,8 @@ function defaultState(): State {
   state.paletteFilter = 'all';
   state.uvMap = 'uv';
   state.lodLevel = 0;
-  state.sun = { direction: { ...DEFAULT_SUN_DIRECTION }, enabled: true, color: defaults.sunColor as string, intensity: defaults.sunIntensity as number };
-  state.ambient = { color: defaults.ambientColor as string, intensity: defaults.ambientIntensity as number, enabled: true };
+  state.sun = { direction: { ...DEFAULT_SUN_DIRECTION }, color: defaults.sunColor as string, intensity: defaults.sunIntensity as number };
+  state.ambient = { color: defaults.ambientColor as string, intensity: defaults.ambientIntensity as number };
   state.worldAxis = 'blender';
   state.useSourceNormals = false;
   state.smoothAngle = DEFAULT_SMOOTH_ANGLE;
@@ -278,13 +278,15 @@ app.innerHTML = `
             <output class="value-pill" id="resolutionValue">128 px</output>
           </div>
           <div class="resolution-block">
-            <input class="range" id="resolution" type="range" min="24" max="512" step="8" value="128" aria-label="Pixelization width" />
+            <input class="range" id="resolution" type="range" min="24" max="2048" step="8" value="128" aria-label="Pixelization width" />
             <div class="range-labels"><span>CHUNKY</span><span>FINE</span></div>
             <div class="resolution-presets" role="group" aria-label="Resolution presets">
-              <button type="button" data-resolution="32">32</button>
               <button type="button" data-resolution="64">64</button>
               <button class="active" type="button" data-resolution="128">128</button>
               <button type="button" data-resolution="256">256</button>
+              <button type="button" data-resolution="512">512</button>
+              <button type="button" data-resolution="1024">1024</button>
+              <button type="button" data-resolution="2048">2048</button>
             </div>
           </div>
           <div id="adjustmentControls"></div>
@@ -303,7 +305,6 @@ app.innerHTML = `
 
         <section class="panel normals-panel">
           <div class="panel-heading compact"><div><p class="eyebrow">SURFACE NORMALS / 05</p><h2>Normals</h2></div></div>
-          <p class="panel-description">Smooth mesh normals where the face angle is below the threshold, subdivide coarse meshes for denser interpolation, then perturb lighting with a normal map.</p>
           ${rangeControl('smoothAngle', 'Smooth angle', 0, 180, 1, DEFAULT_SMOOTH_ANGLE, `${DEFAULT_SMOOTH_ANGLE}°`)}
           ${rangeControl('tessellation', 'Tessellation', 1, 4, 1, DEFAULT_TESSELLATION, 'Off')}
           ${rangeControl('normalStrength', 'Normal strength', 0, 100, 1, 100, '100%')}
@@ -317,7 +318,6 @@ app.innerHTML = `
 
         <section class="panel lightmap-panel">
           <div class="panel-heading compact"><div><p class="eyebrow">LIGHTMAP BAKE / 06</p><h2>Baked lighting</h2></div></div>
-          <p class="panel-description">Bake the current sun and ambient lighting into UV space, or load a matching custom lightmap.</p>
           <div class="lightmap-status" id="lightmapStatus">No lightmap loaded</div>
           <button class="button button-secondary button-full" id="bakeLightmapButton" type="button">Generate Lighting</button>
         </section>
@@ -354,12 +354,10 @@ const normalsViewControl = document.querySelector<HTMLLabelElement>('#normalsVie
 const showNormalsInput = document.querySelector<HTMLInputElement>('#showNormals')!;
 type SunElements = {
   control: HTMLDivElement;
-  enabled: HTMLInputElement;
   orientWithCamera: HTMLButtonElement;
   color: HTMLInputElement;
   intensity: HTMLInputElement;
   intensityValue: HTMLOutputElement;
-  ambientEnabled: HTMLInputElement;
   ambientColor: HTMLInputElement;
   ambientIntensity: HTMLInputElement;
   ambientIntensityValue: HTMLOutputElement;
@@ -367,12 +365,10 @@ type SunElements = {
 
 const sunControlElements: SunElements = {
   control: document.querySelector<HTMLDivElement>('#sunControl')!,
-  enabled: document.querySelector<HTMLInputElement>('#sunEnabled')!,
   orientWithCamera: document.querySelector<HTMLButtonElement>('#orientSunWithCamera')!,
   color: document.querySelector<HTMLInputElement>('#sunColor')!,
   intensity: document.querySelector<HTMLInputElement>('#sunIntensity')!,
   intensityValue: document.querySelector<HTMLOutputElement>('#sunIntensityValue')!,
-  ambientEnabled: document.querySelector<HTMLInputElement>('#ambientEnabled')!,
   ambientColor: document.querySelector<HTMLInputElement>('#ambientColor')!,
   ambientIntensity: document.querySelector<HTMLInputElement>('#ambientIntensity')!,
   ambientIntensityValue: document.querySelector<HTMLOutputElement>('#ambientIntensityValue')!,
@@ -641,22 +637,19 @@ function renderOrientationReadout(): void {
     : '—';
 }
 
-// Shared sync for a sun/ambient light group (enabled toggle, color picker + chip,
-// intensity slider + readout). These controls feed the lighting bake — the
-// viewports carry no realtime lights — so `renderSunControl` syncs both groups
-// through this one place.
+// Shared sync for a sun/ambient light group (color picker + chip, intensity
+// slider + readout). These controls feed the lighting bake — the viewports
+// carry no realtime lights — so `renderSunControl` syncs both groups through
+// this one place.
 function syncLightControls(
   light: LightState,
-  enabled: HTMLInputElement,
   color: HTMLInputElement,
   intensity: HTMLInputElement,
   intensityValue: HTMLOutputElement,
   lightmapActive: boolean,
 ): void {
-  enabled.checked = light.enabled;
-  enabled.disabled = lightmapActive;
-  color.disabled = !light.enabled || lightmapActive;
-  intensity.disabled = !light.enabled || lightmapActive;
+  color.disabled = lightmapActive;
+  intensity.disabled = lightmapActive;
   color.value = light.color;
   syncColorChip(color);
   intensity.value = String(light.intensity);
@@ -666,11 +659,10 @@ function syncLightControls(
 function renderSunControl(): void {
   sunControlElements.control.hidden = modelBundle === null || (originalPreviewMode !== '3d' && processedPreviewMode !== '3d');
   const lightmapActive = lightmapIsActive(textures);
-  sunControlElements.control.classList.toggle('off', !state.sun.enabled || lightmapActive);
   sunControlElements.control.classList.toggle('lightmap-active', lightmapActive);
-  sunControlElements.orientWithCamera.disabled = !state.sun.enabled || lightmapActive || originalPreviewMode !== '3d' || originalViewport === null;
-  syncLightControls(state.sun, sunControlElements.enabled, sunControlElements.color, sunControlElements.intensity, sunControlElements.intensityValue, lightmapActive);
-  syncLightControls(state.ambient, sunControlElements.ambientEnabled, sunControlElements.ambientColor, sunControlElements.ambientIntensity, sunControlElements.ambientIntensityValue, lightmapActive);
+  sunControlElements.orientWithCamera.disabled = lightmapActive || originalPreviewMode !== '3d' || originalViewport === null;
+  syncLightControls(state.sun, sunControlElements.color, sunControlElements.intensity, sunControlElements.intensityValue, lightmapActive);
+  syncLightControls(state.ambient, sunControlElements.ambientColor, sunControlElements.ambientIntensity, sunControlElements.ambientIntensityValue, lightmapActive);
 }
 
 function updatePatternControls(): void {
@@ -839,6 +831,7 @@ async function setModel(files: File[]): Promise<void> {
     applyLodLevel(aoBakeScene, state.lodLevel);
     refreshUVWireframe();
     renderLightmapControls();
+    applyExtractedModelTextures(collectModelTextures(loaded.scene), bundle.primary.name);
     originalViewport = new ModelViewport(originalModelHost);
     processedViewport = new ModelViewport(processedModelHost);
     originalViewport.onCameraChange = renderOrientationReadout;
@@ -865,6 +858,32 @@ async function setModel(files: File[]): Promise<void> {
     if (modelBundle === bundle) closeModelPreview();
     bundle?.revoke();
     toastError(error, 'Could not load model.');
+  }
+}
+
+/**
+ * Copies textures embedded in the imported model into the base/AO/normal slots.
+ * Runs after the AO bake scene is built (so normal-map lighting re-bakes work)
+ * but before the loaded scene is disposed, since the pixels are copied into
+ * fresh canvases that survive texture disposal.
+ */
+function applyExtractedModelTextures(extracted: ExtractedModelTextures, modelName: string): void {
+  const stem = modelName.replace(/\.[^.]+$/, '');
+  if (extracted.base) {
+    textures.base.image = extracted.base;
+    textures.base.name = `${stem}_BaseColor.png`;
+    updateFileMeta(textures.base.name, extracted.base.width, extracted.base.height, false);
+    refreshUVOverlap();
+  }
+  if (extracted.normal) {
+    textures.normal.image = extracted.normal;
+    textures.normal.name = `${stem}_Normal.png`;
+    renderNormalControls();
+    scheduleNormalAdjustedLighting();
+  }
+  if (extracted.ao) {
+    textures.ao.image = extracted.ao;
+    textures.ao.name = `${stem}_AO.png`;
   }
 }
 
@@ -941,9 +960,9 @@ function syncColorChip(input: HTMLInputElement): void {
 }
 
 // Single toggle-switch generator — every checkbox toggle in the app goes through
-// this. `wrapper` is 'label' when the switch is the whole control (sun / ambient,
-// preserving label click-to-toggle) and 'span' when nested inside a label row
-// (UV / normals controls).
+// this. `wrapper` is 'label' when the switch is the whole control (AO-only /
+// lightmap-only, preserving label click-to-toggle) and 'span' when nested inside
+// a label row (UV / normals controls).
 function toggleControl(id: string, ariaLabel: string, checked = false, wrapper: 'label' | 'span' = 'span', title = ''): string {
   const attrs = `class="sun-toggle"${title ? ` title="${title}"` : ''}`;
   return `<${wrapper} ${attrs}><input id="${id}" type="checkbox"${checked ? ' checked' : ''} aria-label="${ariaLabel}" /><span aria-hidden="true"></span></${wrapper}>`;
@@ -1781,16 +1800,8 @@ function bindSunControl(): void {
     });
   };
 
-  sunControlElements.enabled.addEventListener('change', () => {
-    state.sun.enabled = sunControlElements.enabled.checked;
-    applySun();
-  });
   bindLightColor(sunControlElements.color, state.sun);
   bindLightIntensity(sunControlElements.intensity, state.sun);
-  sunControlElements.ambientEnabled.addEventListener('change', () => {
-    state.ambient.enabled = sunControlElements.ambientEnabled.checked;
-    applySun();
-  });
   bindLightColor(sunControlElements.ambientColor, state.ambient);
   bindLightIntensity(sunControlElements.ambientIntensity, state.ambient);
 }

@@ -12,7 +12,7 @@ export type PreviewMode = '2d' | '3d';
 
 export type TextureSlot = { image: SourceImage | null; name: string };
 
-export type LightState = { color: string; intensity: number; enabled: boolean };
+export type LightState = { color: string; intensity: number };
 export type SunState = LightState & { direction: DirectionVector };
 
 export type State = {

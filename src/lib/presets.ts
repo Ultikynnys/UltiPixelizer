@@ -8,7 +8,7 @@ import type { NormalFormat } from './normal';
 import { DEFAULT_CAMERA_DIRECTION, DEFAULT_SUN_DIRECTION, type DirectionVector } from './sunDirection';
 import type { State } from './state';
 
-export const PRESET_VERSION = 5;
+export const PRESET_VERSION = 6;
 
 export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'none'];
 
@@ -35,8 +35,6 @@ export type ConversionConfig = {
   normalStrength: number;
   normalFormat: NormalFormat;
   sunDirection: DirectionVector;
-  sunEnabled: boolean;
-  ambientEnabled: boolean;
   smoothAngle: number;
   tessellation: number;
   cameraDirection: DirectionVector;
@@ -109,8 +107,6 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'normalStrength', path: ['normalStrength'], default: 1, migrateDefault: 1, validate: inRange(0, 1) },
   { key: 'normalFormat', path: ['normalFormat'], default: 'opengl', migrateDefault: 'opengl', validate: isEnum(['opengl', 'directx']) },
   { key: 'sunDirection', path: ['sun', 'direction'], default: DEFAULT_SUN_DIRECTION, migrateDefault: DEFAULT_SUN_DIRECTION, validate: isDirectionVector },
-  { key: 'sunEnabled', path: ['sun', 'enabled'], default: true, migrateDefault: true, validate: isBoolean },
-  { key: 'ambientEnabled', path: ['ambient', 'enabled'], default: true, migrateDefault: true, validate: isBoolean },
   { key: 'smoothAngle', path: ['smoothAngle'], default: DEFAULT_SMOOTH_ANGLE, migrateDefault: DEFAULT_SMOOTH_ANGLE, validate: inRange(0, 180) },
   { key: 'tessellation', path: ['tessellation'], default: DEFAULT_TESSELLATION, migrateDefault: DEFAULT_TESSELLATION, validate: inRange(1, 4) },
   { key: 'cameraDirection', path: ['cameraDirection'], default: DEFAULT_CAMERA_DIRECTION, migrateDefault: DEFAULT_CAMERA_DIRECTION, validate: isDirectionVector },
@@ -204,6 +200,17 @@ function migratePreset(value: unknown): unknown {
       version: PRESET_VERSION,
       sunIntensity: typeof preset.sunIntensity === 'number' ? clamp01(preset.sunIntensity / Math.PI) : preset.sunIntensity,
       ambientIntensity: typeof preset.ambientIntensity === 'number' ? clamp01(preset.ambientIntensity / Math.PI) : preset.ambientIntensity,
+    };
+  }
+  if (preset.version === 5) {
+    // v6 removed the sun/ambient enable toggles — intensity 0 now means "off".
+    // Fold a disabled light into a zero intensity so saved presets keep their look.
+    const { sunEnabled, ambientEnabled, ...rest } = preset;
+    preset = {
+      ...rest,
+      version: PRESET_VERSION,
+      sunIntensity: sunEnabled === false ? 0 : rest.sunIntensity,
+      ambientIntensity: ambientEnabled === false ? 0 : rest.ambientIntensity,
     };
   }
   if (preset.version !== PRESET_VERSION) return value;

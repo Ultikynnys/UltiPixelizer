@@ -128,7 +128,6 @@ button { color: inherit; }
 .light-color-control input { cursor: pointer; height: 1px; opacity: 0; position: absolute; width: 1px; }
 .light-color-control input + span { background: var(--swatch); border: 1px solid var(--line); cursor: pointer; display: block; height: 18px; width: 28px; }
 .light-section-title { border-top: 1px solid var(--line); color: var(--paper); font: 600 8px 'DM Mono', monospace; letter-spacing: .1em; margin-top: 2px; padding-top: 6px; text-transform: uppercase; }
-.light-section-title.ambient-heading { align-items: center; display: flex; justify-content: space-between; }
 .light-controls input:disabled { cursor: not-allowed; opacity: .35; }
 .light-controls input:disabled + span { opacity: .35; }
 
@@ -199,7 +198,7 @@ button { color: inherit; }
 .range::-moz-range-progress { background: var(--line); height: 2px; }
 .range::-moz-range-thumb { background: var(--paper); border: 0; border-radius: 0; height: 14px; width: 8px; }
 .range-labels { color: var(--faint); display: flex; font: 400 8px 'DM Mono', monospace; justify-content: space-between; margin-top: 5px; }
-.resolution-presets { display: grid; gap: 5px; grid-template-columns: repeat(4,1fr); margin-top: 14px; }
+.resolution-presets { display: grid; gap: 5px; grid-template-columns: repeat(3,1fr); margin-top: 14px; }
 .resolution-presets button { background: var(--card); border: 1px solid var(--line); border-radius: 2px; color: var(--muted); cursor: pointer; font: 500 10px 'DM Mono', monospace; padding: 8px; }
 .resolution-presets button.active, .resolution-presets button:hover { background: var(--paper); border-color: var(--paper); color: var(--ink); }
 .resolution-block { margin-bottom: 18px; }

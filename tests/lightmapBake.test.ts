@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, PlaneGeometry, Scene, SphereGeometry, Vector3 } from 'three';
-import { AMBIENT_FLOOR } from '../src/lib/defaults';
 import { bakeMeshLightmap, type BakeLightmapOptions } from '../src/lib/lightmapBake';
 import { prepareSurfaceNormals } from '../src/lib/modelScene';
 
@@ -24,37 +23,23 @@ describe('bakeMeshLightmap', () => {
     scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
     const pixels = bakeMeshLightmap(scene, 8, 8, {
       ...defaults,
-      sunEnabled: false,
+      sunIntensity: 0,
       ambientColor: '#804020',
       ambientIntensity: 1,
     });
     expect(centerRGB(pixels)).toEqual([128, 64, 32]);
   });
 
-  it('treats a disabled ambient as no ambient rather than full white', () => {
+  it('lets ambient intensity 0 bake pure black with no minimum fill', () => {
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
     const pixels = bakeMeshLightmap(scene, 8, 8, {
       ...defaults,
-      sunEnabled: false,
-      ambientEnabled: false,
-      ambientColor: '#ffffff',
-      ambientIntensity: 1,
-    });
-    expect(centerRGB(pixels)).toEqual([0, 0, 0]);
-  });
-
-  it('keeps a minimum ambient fill at zero intensity so shadows never go pure black', () => {
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
-    const pixels = bakeMeshLightmap(scene, 8, 8, {
-      ...defaults,
-      sunEnabled: false,
+      sunIntensity: 0,
       ambientColor: '#ffffff',
       ambientIntensity: 0,
     });
-    const fill = Math.round(AMBIENT_FLOOR * 255);
-    expect(centerRGB(pixels)).toEqual([fill, fill, fill]);
+    expect(centerRGB(pixels)).toEqual([0, 0, 0]);
   });
 
   it('lights a camera-facing surface when orthographic rays travel toward it', () => {
@@ -225,7 +210,7 @@ describe('bakeMeshLightmap', () => {
     island.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
     island.setAttribute('uv', new Float32BufferAttribute([0.4, 0.4, 0.6, 0.4, 0.4, 0.6], 2));
     scene.add(new Mesh(island, new MeshBasicMaterial()));
-    const pixels = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunEnabled: false, ambientEnabled: false });
+    const pixels = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunIntensity: 0 });
     const rgb = (px: number, py: number): number[] =>
       Array.from(pixels.slice((py * 8 + px) * 4, (py * 8 + px) * 4 + 3));
     // No light reaches the island, so it bakes black…
