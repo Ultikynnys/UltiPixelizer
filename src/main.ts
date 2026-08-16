@@ -136,10 +136,6 @@ app.innerHTML = `
               <option value="blender">Blender · Z-up</option>
               <option value="maya">Maya · Y-up</option>
             </select></label>
-            <label class="uv-overlap-control" id="uvWireframeControl" hidden title="Overlay UV island wireframes on the 2D view">
-              <span>UV islands</span>
-              ${toggleControl('uvWireframe', 'Show UV island wireframes', true)}
-            </label>
             <label class="uv-overlap-control" id="normalsControl" hidden title="Use the normals embedded in the model file instead of recomputing flat normals">
               <span>Source normals</span>
               ${toggleControl('useSourceNormals', 'Use source normals')}
@@ -193,6 +189,10 @@ app.innerHTML = `
                 <label class="uv-overlap-control" id="uvOverlapControl" hidden title="Highlight regions where UV shells overlap">
                   <span>UV overlap</span>
                   ${toggleControl('uvOverlap', 'Show overlapping UVs')}
+                </label>
+                <label class="uv-overlap-control" id="uvWireframeControl" hidden title="Overlay UV island wireframes on the 2D view">
+                  <span>UV islands</span>
+                  ${toggleControl('uvWireframe', 'Show UV island wireframes', true)}
                 </label>
               </div>
             </figure>
@@ -591,7 +591,7 @@ function renderUVOverlapControl(): void {
 }
 
 function renderUVWireframeControl(): void {
-  syncCheckboxControl(uvWireframeControl, uvWireframeInput, modelUVChannels.length > 0, state.showUVWireframe);
+  syncCheckboxControl(uvWireframeControl, uvWireframeInput, modelUVChannels.length > 0 && originalPreviewMode === '2d', state.showUVWireframe);
 }
 
 function renderLodControl(): void {
@@ -790,6 +790,7 @@ function applyPreviewMode(): void {
   applyPane(processedPreviewMode, previewCanvas, processedModelHost, processedPreviewToggle);
   renderSunControl();
   renderUVOverlapControl();
+  renderUVWireframeControl();
 }
 
 function closeModelPreview(): void {

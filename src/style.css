@@ -152,7 +152,9 @@ button { color: inherit; }
   display: flex; gap: 2px; padding: 3px; position: absolute; right: 8px; top: 8px; z-index: 10;
 }
 .preview-mode-toggle[hidden] { display: none; }
-#uvOverlapControl { background: color-mix(in srgb, var(--ink) 92%, transparent); padding: 3px 6px; position: absolute; right: 8px; top: 42px; z-index: 10; }
+#uvOverlapControl, #uvWireframeControl { background: color-mix(in srgb, var(--ink) 92%, transparent); padding: 3px 6px; position: absolute; right: 8px; z-index: 10; }
+#uvOverlapControl { top: 42px; }
+#uvWireframeControl { top: 62px; }
 .preview-mode-toggle button {
   background: transparent; border: 0; color: var(--muted); cursor: pointer;
   font: 700 9px 'Manrope', system-ui, sans-serif; letter-spacing: .08em; padding: 6px 12px;
