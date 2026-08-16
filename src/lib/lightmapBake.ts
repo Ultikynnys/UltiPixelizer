@@ -1,7 +1,8 @@
 import { DoubleSide, Object3D, Ray, Vector3 } from 'three';
 import { hexToRgb, isHexColor } from './palettes';
-import { normalizeDirection, type DirectionVector } from './sunDirection';
+import { directionToSun, type DirectionVector } from './sunDirection';
 import { collectBakeScene, rasterizeBake, type BakeTriangle, type UvPair } from './bakeGeometry';
+import { triangleNormal } from './modelScene';
 import { sampleNormalMap, type NormalMapSource } from './normal';
 
 export type BakeLightmapOptions = {
@@ -29,6 +30,10 @@ function parseColor(color: string): RGB {
 
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
+}
+
+function lambertFactor(normal: Vector3, towardSun: Vector3): number {
+  return Math.max(0, normal.dot(towardSun));
 }
 
 /**
@@ -67,7 +72,7 @@ function computeTangentBasis(
 ): [Vector3, Vector3, Vector3] {
   const e1 = new Vector3().subVectors(p1, p0);
   const e2 = new Vector3().subVectors(p2, p0);
-  const normal = new Vector3().crossVectors(e1, e2);
+  const normal = triangleNormal(p0, p1, p2, new Vector3());
   const du1 = uv1[0] - uv0[0];
   const dv1 = uv1[1] - uv0[1];
   const du2 = uv2[0] - uv0[0];
@@ -104,8 +109,8 @@ function computeTangentBasis(
  * Output contains irradiance only (no albedo), with white representing neutral light.
  */
 export function bakeMeshLightmap(scene: Object3D, width: number, height: number, options: BakeLightmapOptions): Uint8ClampedArray {
-  const rayDirection = normalizeDirection(options.sunDirection);
-  const directionToSun = new Vector3(-rayDirection.x, -rayDirection.y, -rayDirection.z);
+  const sun = directionToSun(options.sunDirection);
+  const towardSun = new Vector3(sun.x, sun.y, sun.z);
   const sunColor = parseColor(options.sunColor);
   const ambientColor: RGB = options.ambientEnabled === false ? [1, 1, 1] : parseColor(options.ambientColor);
   const ambientScale = options.ambientEnabled === false ? 1 : clamp01(options.ambientIntensity);
@@ -120,11 +125,11 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
   const visibility = new Float32Array(vertices.length);
   for (let i = 0; i < vertices.length; i += 1) {
     const vertex = vertices[i];
-    const lambert = Math.max(0, vertex.normal.dot(directionToSun));
+    const lambert = lambertFactor(vertex.normal, towardSun);
     let sunVisibility = lambert > 0 && sunScale > 0 ? 1 : 0;
     if (sunVisibility && bvh) {
       _ray.origin.copy(vertex.position).addScaledVector(vertex.normal, epsilon);
-      _ray.direction.copy(directionToSun);
+      _ray.direction.copy(towardSun);
       if (bvh.raycastFirst(_ray, DoubleSide, epsilon)) sunVisibility = 0;
     }
     visibility[i] = sunVisibility;
@@ -156,7 +161,7 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
         tangent.y * tx + bitangent.y * ty + normal.y * tz,
         tangent.z * tx + bitangent.z * ty + normal.z * tz,
       ).normalize();
-      const lambert = Math.max(0, mapped.dot(directionToSun));
+      const lambert = lambertFactor(mapped, towardSun);
       const sunVisibility = w0 * visibility[triangle.verts[0]]
         + w1 * visibility[triangle.verts[1]]
         + w2 * visibility[triangle.verts[2]];

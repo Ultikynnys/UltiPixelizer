@@ -30,9 +30,9 @@ export type BakeScene = {
  * normal), bake triangles, and a BVH over the occluders.
  *
  * Every mesh contributes to occlusion; only meshes that carry both a `uv` and a
- * `normal` attribute are baked. May call `computeVertexNormals` on geometries
- * missing normals, so pass a disposable scene (a clone) if you need to keep the
- * original untouched.
+ * `normal` attribute are baked. Meshes missing normals are recomputed via
+ * `computeSmoothNormals`, so pass a disposable scene (a clone) if you need to
+ * keep the original untouched.
  */
 export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
   scene.updateMatrixWorld(true);

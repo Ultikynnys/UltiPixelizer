@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Euler, Quaternion, Vector3 } from 'three';
-import { cameraForwardFromQuaternion, DEFAULT_SUN_DIRECTION, normalizeDirection } from '../src/lib/sunDirection';
+import { cameraForwardFromQuaternion, DEFAULT_SUN_DIRECTION, directionToSun, normalizeDirection } from '../src/lib/sunDirection';
 
 describe('sun world direction', () => {
   it('normalizes a camera-forward vector without changing its orientation', () => {
@@ -60,9 +60,25 @@ describe('sun world direction', () => {
     expect(normalizeDirection({ x: Number.NaN, y: 0, z: 0 })).toEqual(DEFAULT_SUN_DIRECTION);
   });
 
+  it('directionToSun negates the light-travel direction toward the sun', () => {
+    const sun = directionToSun(DEFAULT_SUN_DIRECTION);
+    expect(sun.x).toBeCloseTo(-DEFAULT_SUN_DIRECTION.x);
+    expect(sun.y).toBeCloseTo(-DEFAULT_SUN_DIRECTION.y);
+    expect(sun.z).toBeCloseTo(-DEFAULT_SUN_DIRECTION.z);
+    expect(Math.hypot(sun.x, sun.y, sun.z)).toBeCloseTo(1);
+  });
+
+  it('directionToSun normalizes then negates arbitrary input', () => {
+    const result = directionToSun({ x: -2, y: 3, z: -4 });
+    const length = Math.hypot(2, 3, 4);
+    expect(result.x).toBeCloseTo(2 / length);
+    expect(result.y).toBeCloseTo(-3 / length);
+    expect(result.z).toBeCloseTo(4 / length);
+  });
+
   it('defaults to a sun above the +X/+Z octant so those faces start lit', () => {
     // `sunDirection` is light-TRAVEL direction: negative components mean the sun
-    // sits on the positive side of that axis (see bakeMeshLightmap's `directionToSun = -sunDirection`).
+    // sits on the positive side of that axis (see `directionToSun`).
     expect(DEFAULT_SUN_DIRECTION.x).toBeLessThan(0);
     expect(DEFAULT_SUN_DIRECTION.y).toBeLessThan(0);
     expect(DEFAULT_SUN_DIRECTION.z).toBeLessThan(0);

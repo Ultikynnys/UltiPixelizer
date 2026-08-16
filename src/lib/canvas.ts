@@ -2,6 +2,53 @@ export function cloneImageData(source: ImageData): ImageData {
   return new ImageData(new Uint8ClampedArray(source.data), source.width, source.height, { colorSpace: source.colorSpace });
 }
 
+/** Draws an image into a fresh canvas at the given size and returns the canvas
+ * plus its 2D context (null if a context can't be created). Shared by every
+ * image→pixels / image→canvas reader in the renderer. */
+export function drawImageToCanvas(image: CanvasImageSource, width: number, height: number): { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D | null } {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (context) context.drawImage(image, 0, 0, width, height);
+  return { canvas, context };
+}
+
+/** Draws an image at the given size and returns its RGBA pixel data. Shared by
+ * the AO, lightmap, and normal-map image readers. */
+export function imagePixels(image: CanvasImageSource, width: number, height: number): Uint8ClampedArray {
+  const { context } = drawImageToCanvas(image, width, height);
+  if (!context) throw new Error('Canvas is unavailable.');
+  return context.getImageData(0, 0, width, height).data;
+}
+
+/** Writes RGBA pixel data into a fresh canvas at the given size. */
+export function pixelsToCanvas(pixels: Uint8ClampedArray, width: number, height: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas is unavailable.');
+  const imageData = context.createImageData(width, height);
+  imageData.data.set(pixels);
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+/** Expands a single-channel factor array into a grayscale RGBA canvas. */
+export function factorsToCanvas(factors: Uint8ClampedArray, width: number, height: number): HTMLCanvasElement {
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < factors.length; i += 1) {
+    const value = factors[i];
+    const offset = i * 4;
+    pixels[offset] = value;
+    pixels[offset + 1] = value;
+    pixels[offset + 2] = value;
+    pixels[offset + 3] = 255;
+  }
+  return pixelsToCanvas(pixels, width, height);
+}
+
 export function processLitImageData(
   source: ImageData,
   applyLighting: (pixels: Uint8ClampedArray, width: number, height: number) => void,

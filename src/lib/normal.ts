@@ -1,3 +1,5 @@
+import { imagePixels } from './canvas';
+
 export type NormalFormat = 'opengl' | 'directx';
 
 export type NormalMapSource = {
@@ -13,14 +15,8 @@ export type NormalMapSource = {
  * decode time via the `flipY` flag.
  */
 export function imageNormalMapPixels(image: CanvasImageSource & { width: number; height: number }): NormalMapSource {
-  const canvas = document.createElement('canvas');
-  canvas.width = image.width;
-  canvas.height = image.height;
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) throw new Error('Canvas is unavailable.');
-  context.drawImage(image, 0, 0);
   return {
-    data: context.getImageData(0, 0, image.width, image.height).data,
+    data: imagePixels(image, image.width, image.height),
     width: image.width,
     height: image.height,
   };

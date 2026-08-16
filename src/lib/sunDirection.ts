@@ -6,7 +6,7 @@ export type DirectionVector = { x: number; y: number; z: number };
  * Default sun: light travels downward and toward −X/−Z, i.e. the sun sits above
  * in the +X/+Z octant so the +X and +Z faces start lit. `sunDirection` is the
  * direction light TRAVELS (from the sun toward the scene), not the direction
- * toward the light — see `bakeMeshLightmap` (`directionToSun = -sunDirection`).
+ * toward the light — see `directionToSun`.
  */
 export const DEFAULT_SUN_DIRECTION: Readonly<DirectionVector> = Object.freeze({
   x: -0.5,
@@ -23,6 +23,12 @@ export function normalizeDirection(direction: DirectionVector): DirectionVector 
     y: direction.y / length,
     z: direction.z / length,
   };
+}
+
+/** Direction FROM the scene TOWARD the sun — the negation of the light-travel direction. */
+export function directionToSun(direction: DirectionVector): DirectionVector {
+  const ray = normalizeDirection(direction);
+  return { x: -ray.x, y: -ray.y, z: -ray.z };
 }
 
 /** Transforms camera-local forward (-Z) by a normalized world quaternion. */

@@ -1,3 +1,5 @@
+import { imagePixels } from './canvas';
+
 export type LightmapSource = {
   data: Uint8ClampedArray;
   width: number;
@@ -24,11 +26,5 @@ export function applyLightmap(data: Uint8ClampedArray, lightmap: Uint8ClampedArr
 
 /** Draws a lightmap image at target dimensions and returns its RGBA pixels. */
 export function imageLightmapPixels(image: CanvasImageSource, width: number, height: number): Uint8ClampedArray {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) throw new Error('Canvas is unavailable.');
-  context.drawImage(image, 0, 0, width, height);
-  return context.getImageData(0, 0, width, height).data;
+  return imagePixels(image, width, height);
 }

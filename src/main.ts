@@ -1,21 +1,19 @@
 import './style.css';
-import { createSampleTexture, downloadCanvas, downloadText, loadImageFile, processLitImageData } from './lib/canvas';
+import { createSampleTexture, downloadCanvas, downloadText, loadImageFile } from './lib/canvas';
 import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomPalettes, parseCustomPalette, selectOrCreatePalette, serializeCustomPalette, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
-import { processImageData, type DitherMode } from './lib/dither';
+import type { DitherMode } from './lib/dither';
 import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
 import { createRenderScheduler } from './lib/renderScheduler';
 import { createModelFileBundle, modelFormat, type ModelFileBundle, type WorldAxis } from './lib/modelFiles';
 import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels } from './lib/modelScene';
-import { collectUVTriangles, computeUVOverlap, type UVTriangle } from './lib/uvOverlap';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
 import { createPreset, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
-import { applyAO, imageAOFactors } from './lib/ao';
-import { bakeMeshAO } from './lib/aoBake';
-import { applyLightmap, imageLightmapPixels, lightmapMatchesBaseColor } from './lib/lightmap';
-import { bakeMeshLightmap, type BakeLightmapOptions } from './lib/lightmapBake';
+import { lightmapMatchesBaseColor } from './lib/lightmap';
+import type { NormalFormat } from './lib/normal';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SMOOTH_ANGLE, DEFAULT_SUN_INTENSITY } from './lib/defaults';
-import { imageNormalMapPixels, type NormalFormat } from './lib/normal';
+import { createRenderer } from './lib/render';
+import type { LightState, PreviewMode, State, TextureChannelId, TextureSlot } from './lib/state';
 import { safeFileName } from './lib/strings';
 import { DEFAULT_SUN_DIRECTION, type DirectionVector } from './lib/sunDirection';
 import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
@@ -23,54 +21,12 @@ import exampleModelUrl from '../Example/Book.fbx?url';
 import exampleBaseColorUrl from '../Example/Book_BaseColor.png?url';
 import exampleNormalUrl from '../Example/Book_NormalMap.png?url';
 
-type SourceImage = CanvasImageSource & { width: number; height: number };
-
-type TextureChannelId = 'base' | 'ao' | 'normal' | 'lightmap';
-
-type PreviewMode = '2d' | '3d';
-
-type TextureSlot = { image: SourceImage | null; name: string };
-
-type LightState = { color: string; intensity: number; enabled: boolean };
-type SunState = LightState & { direction: DirectionVector };
-
 const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string }> = [
   { id: 'base', label: 'BaseColor' },
   { id: 'ao', label: 'AO' },
   { id: 'normal', label: 'Normal' },
   { id: 'lightmap', label: 'Lightmap' },
 ];
-
-type State = {
-  paletteKey: string;
-  customColors: string[];
-  paletteSnapshot?: Palette;
-  resolution: number;
-  mode: DitherMode;
-  strength: number;
-  brightness: number;
-  contrast: number;
-  saturation: number;
-  paletteFilter: PaletteCategory | 'all';
-  uvMap: string;
-  lodLevel: number;
-  sun: SunState;
-  ambient: LightState;
-  worldAxis: WorldAxis;
-  useSourceNormals: boolean;
-  smoothAngle: number;
-  stripeAngle: number;
-  noiseScale: number;
-  seed: number;
-  aoBias: number;
-  aoScale: number;
-  aoDistance: number;
-  lightmapContribution: number;
-  normalStrength: number;
-  normalFormat: NormalFormat;
-  showUVOverlap: boolean;
-  showUVWireframe: boolean;
-};
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('Application root not found.');
@@ -137,6 +93,7 @@ function defaultState(): State {
     normalFormat: 'opengl',
     showUVOverlap: false,
     showUVWireframe: true,
+    showNormals: false,
   };
 }
 
@@ -193,6 +150,10 @@ app.innerHTML = `
             <label class="uv-overlap-control" id="normalsControl" hidden title="Use the normals embedded in the model file instead of recomputing flat normals">
               <span>Source normals</span>
               <span class="sun-toggle"><input id="useSourceNormals" type="checkbox" aria-label="Use source normals" /><span aria-hidden="true"></span></span>
+            </label>
+            <label class="uv-overlap-control" id="normalsViewControl" hidden title="Render the model with normals as color to inspect normal direction">
+              <span>Normals</span>
+              <span class="sun-toggle"><input id="showNormals" type="checkbox" aria-label="Show normals as color" /><span aria-hidden="true"></span></span>
             </label>
 
           </div>
@@ -384,6 +345,8 @@ const uvWireframeControl = document.querySelector<HTMLLabelElement>('#uvWirefram
 const uvWireframeInput = document.querySelector<HTMLInputElement>('#uvWireframe')!;
 const normalsControl = document.querySelector<HTMLLabelElement>('#normalsControl')!;
 const useSourceNormalsInput = document.querySelector<HTMLInputElement>('#useSourceNormals')!;
+const normalsViewControl = document.querySelector<HTMLLabelElement>('#normalsViewControl')!;
+const showNormalsInput = document.querySelector<HTMLInputElement>('#showNormals')!;
 type SunElements = {
   control: HTMLDivElement;
   enabled: HTMLInputElement;
@@ -447,7 +410,6 @@ const smoothAngleValue = document.querySelector<HTMLOutputElement>('#smoothAngle
 let savedCustomPalettes = loadCustomPalettes(localStorage);
 let editingCustomKey: string | null = null;
 let toastTimer = 0;
-let renderedCanvas = document.createElement('canvas');
 let modelBundle: ModelFileBundle | null = null;
 let modelFiles: File[] = [];
 let originalPreviewMode: PreviewMode = '2d';
@@ -462,14 +424,6 @@ function forEachViewport(callback: (viewport: ModelViewport) => void): void {
 let modelUVChannels: string[] = [];
 let modelLodLevels: number[] = [];
 let aoBakeScene: Object3D | null = null;
-let uvOverlapMaskCanvas: HTMLCanvasElement | null = null;
-let uvWireframeTriangles: UVTriangle[] | null = null;
-let uvWaveCanvas: HTMLCanvasElement | null = null;
-let uvOverlayComposite: HTMLCanvasElement | null = null;
-let uvOverlayFrame = 0;
-let originalBaseCanvas: HTMLCanvasElement | null = null;
-let implicitLightmapCanvas: HTMLCanvasElement | null = null;
-let implicitLightmapTimer = 0;
 let pendingTextureChannel: TextureChannelId | null = null;
 
 function escapeHtml(value: string): string {
@@ -515,44 +469,6 @@ function updatePreviewBadge(width?: number, height?: number): void {
   }
 }
 
-const AO_BAKE_SAMPLES = 128;
-
-function factorsToCanvas(factors: Uint8ClampedArray, width: number, height: number): HTMLCanvasElement {
-  const pixels = new Uint8ClampedArray(width * height * 4);
-  for (let i = 0; i < factors.length; i += 1) {
-    const value = factors[i];
-    const offset = i * 4;
-    pixels[offset] = value;
-    pixels[offset + 1] = value;
-    pixels[offset + 2] = value;
-    pixels[offset + 3] = 255;
-  }
-  return pixelsToCanvas(pixels, width, height);
-}
-
-function currentAOFactors(width: number, height: number): Uint8ClampedArray | null {
-  const source = textures.ao.image;
-  if (!source) return null;
-  return imageAOFactors(source, width, height);
-}
-
-function currentLightmapPixels(width: number, height: number): Uint8ClampedArray | null {
-  const image = textures.lightmap.image ?? implicitLightmapCanvas;
-  return image ? imageLightmapPixels(image, width, height) : null;
-}
-
-function pixelsToCanvas(pixels: Uint8ClampedArray, width: number, height: number): HTMLCanvasElement {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('Canvas is unavailable.');
-  const imageData = context.createImageData(width, height);
-  imageData.data.set(pixels);
-  context.putImageData(imageData, 0, 0);
-  return canvas;
-}
-
 const formatPercent = (value: number): string => `${value}%`;
 const formatDegrees = (value: number): string => `${value}°`;
 const formatPixels = (value: number): string => `${value} px`;
@@ -589,126 +505,6 @@ function renderNormalControls(): void {
     : 'No normal map loaded';
 }
 
-function computeAO(): void {
-  const scene = aoBakeScene;
-  if (!scene) {
-    textures.ao.image = null;
-    textures.ao.name = '';
-    return;
-  }
-  const baseColor = textures.base.image!;
-  textures.ao.image = factorsToCanvas(
-    bakeMeshAO(scene, baseColor.width, baseColor.height, { samples: AO_BAKE_SAMPLES, distance: state.aoDistance }),
-    baseColor.width,
-    baseColor.height,
-  );
-  textures.ao.name = 'Generated AO';
-}
-
-function normalMapOptions() {
-  const image = textures.normal.image;
-  if (!image) return { normalStrength: state.normalStrength, normalFlipY: state.normalFormat === 'directx' };
-  return {
-    normalMap: imageNormalMapPixels(image),
-    normalStrength: state.normalStrength,
-    normalFlipY: state.normalFormat === 'directx',
-  };
-}
-
-function scheduleNormalAdjustedLighting(): void {
-  scheduleImplicitLightmapBake();
-}
-
-function currentLightmapBakeOptions(): BakeLightmapOptions {
-  return {
-    sunDirection: state.sun.direction,
-    sunColor: state.sun.color,
-    sunIntensity: state.sun.intensity,
-    sunEnabled: state.sun.enabled,
-    ambientColor: state.ambient.color,
-    ambientIntensity: state.ambient.intensity,
-    ambientEnabled: state.ambient.enabled,
-    ...normalMapOptions(),
-  };
-}
-
-function bakeLighting(): void {
-  if (!aoBakeScene) {
-    showToast('Load a model to bake lighting');
-    return;
-  }
-  showToast('Baking lighting…');
-  window.setTimeout(() => {
-    try {
-      const baseColor = textures.base.image!;
-      const pixels = bakeMeshLightmap(aoBakeScene!, baseColor.width, baseColor.height, currentLightmapBakeOptions());
-      textures.lightmap.image = pixelsToCanvas(pixels, baseColor.width, baseColor.height);
-      textures.lightmap.name = 'Baked lighting';
-      renderLightmapControls();
-      renderNormalControls();
-      renderTextureRibbon();
-      applySun();
-      render();
-      showToast('Lighting baked');
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Could not bake lighting.');
-    }
-  }, 30);
-}
-
-function clearLightmap(): void {
-  textures.lightmap.image = null;
-  textures.lightmap.name = '';
-  renderLightmapControls();
-  renderNormalControls();
-  renderTextureRibbon();
-  applySun();
-  render();
-}
-
-function bakeImplicitLightmap(): void {
-  if (!aoBakeScene || !textures.base.image || textures.lightmap.image) {
-    implicitLightmapCanvas = null;
-    return;
-  }
-  try {
-    const baseColor = textures.base.image;
-    const pixels = bakeMeshLightmap(aoBakeScene, baseColor.width, baseColor.height, currentLightmapBakeOptions());
-    implicitLightmapCanvas = pixelsToCanvas(pixels, baseColor.width, baseColor.height);
-    render();
-  } catch {
-    implicitLightmapCanvas = null;
-  }
-}
-
-function scheduleImplicitLightmapBake(): void {
-  if (implicitLightmapTimer) window.clearTimeout(implicitLightmapTimer);
-  implicitLightmapTimer = 0;
-  if (textures.lightmap.image !== null || aoBakeScene === null) return;
-  implicitLightmapTimer = window.setTimeout(() => {
-    implicitLightmapTimer = 0;
-    bakeImplicitLightmap();
-  }, 200);
-}
-
-function generateAo(): void {
-  if (!aoBakeScene) {
-    showToast('Load a model to generate AO');
-    return;
-  }
-  showToast('Generating AO…');
-  window.setTimeout(() => {
-    try {
-      computeAO();
-      renderTextureRibbon();
-      render();
-      showToast('Ambient occlusion generated');
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Could not generate ambient occlusion.');
-    }
-  }, 30);
-}
-
 function buildAOScene(source: Object3D): Object3D {
   const clone = cloneModelScene(source);
   const dummy = new MeshBasicMaterial();
@@ -723,74 +519,6 @@ function disposeAOScene(scene: Object3D | null): void {
   scene.traverse((child) => {
     if (child instanceof Mesh) child.geometry.dispose();
   });
-}
-
-function applyLighting(data: Uint8ClampedArray, width: number, height: number): void {
-  const aoFactors = currentAOFactors(width, height);
-  if (aoFactors) applyAO(data, aoFactors, state.aoBias, state.aoScale);
-  const lightmapPixels = currentLightmapPixels(width, height);
-  if (lightmapPixels) applyLightmap(data, lightmapPixels, state.lightmapContribution);
-}
-
-function litCanvas(image: CanvasImageSource, width: number, height: number): HTMLCanvasElement {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) return canvas;
-  context.drawImage(image, 0, 0, width, height);
-  const data = context.getImageData(0, 0, width, height);
-  applyLighting(data.data, width, height);
-  context.putImageData(data, 0, 0);
-  return canvas;
-}
-
-function render(): void {
-  const { width, height } = dimensions();
-  const source = textures.base.image!;
-  renderedCanvas = document.createElement('canvas');
-  renderedCanvas.width = width;
-  renderedCanvas.height = height;
-  const renderContext = renderedCanvas.getContext('2d', { willReadFrequently: true });
-  if (!renderContext) return;
-  renderContext.drawImage(source, 0, 0, width, height);
-  const sourceData = renderContext.getImageData(0, 0, width, height);
-
-  const processedOptions = {
-    palette: currentColors(), mode: state.mode, strength: state.strength,
-    brightness: state.brightness, contrast: state.contrast, saturation: state.saturation,
-    stripeAngle: state.stripeAngle, noiseScale: state.noiseScale, seed: state.seed,
-  };
-  const { processed: processedData } = processLitImageData(
-    sourceData,
-    applyLighting,
-    (lit) => processImageData(lit, processedOptions),
-  );
-  renderContext.putImageData(processedData, 0, 0);
-
-  previewCanvas.width = width;
-  previewCanvas.height = height;
-  previewCanvas.getContext('2d')?.drawImage(renderedCanvas, 0, 0);
-
-  // Original pane shows the source at native resolution — the pixel grid slider must not affect it.
-  const litSourceNative = litCanvas(source, source.width, source.height);
-  originalBaseCanvas = litSourceNative;
-  originalCanvas.width = source.width;
-  originalCanvas.height = source.height;
-  originalCanvas.getContext('2d')?.drawImage(litSourceNative, 0, 0);
-
-  if (state.showUVWireframe && uvWireframeTriangles?.length) {
-    const originalContext = originalCanvas.getContext('2d');
-    if (originalContext) drawUVWireframe(originalContext, source.width, source.height);
-    const previewContext = previewCanvas.getContext('2d');
-    if (previewContext) drawUVWireframe(previewContext, width, height);
-  }
-
-  updatePreviewBadge(width, height);
-  if (originalViewport && processedViewport) {
-    originalViewport.applyImage(litSourceNative);
-    processedViewport.applyImage(renderedCanvas);
-  }
 }
 
 function renderUVControl(): void {
@@ -822,6 +550,11 @@ function renderWorldAxisControl(): void {
 function renderNormalsControl(): void {
   normalsControl.hidden = modelBundle === null;
   useSourceNormalsInput.checked = state.useSourceNormals;
+}
+
+function renderNormalsViewControl(): void {
+  normalsViewControl.hidden = modelBundle === null;
+  showNormalsInput.checked = state.showNormals;
 }
 
 function formatDirection(vector: DirectionVector): string {
@@ -908,170 +641,6 @@ function renderTextureRibbon(): void {
   }
 }
 
-function uvOverlapResolution(source: SourceImage): { width: number; height: number } {
-  const maxDimension = Math.max(source.width, source.height);
-  const scale = maxDimension > 1024 ? 1024 / maxDimension : 1;
-  return {
-    width: Math.max(1, Math.round(source.width * scale)),
-    height: Math.max(1, Math.round(source.height * scale)),
-  };
-}
-
-function uvOverlapMask(counts: Uint8Array, width: number, height: number): HTMLCanvasElement {
-  const pixels = new Uint8ClampedArray(width * height * 4);
-  for (let i = 0; i < counts.length; i += 1) {
-    if (counts[i] < 2) continue;
-    const offset = i * 4;
-    pixels[offset] = 255;
-    pixels[offset + 1] = 255;
-    pixels[offset + 2] = 255;
-    pixels[offset + 3] = 255;
-  }
-  return pixelsToCanvas(pixels, width, height);
-}
-
-function refreshUVWireframe(): void {
-  uvWireframeTriangles = aoBakeScene ? collectUVTriangles(aoBakeScene) : null;
-}
-
-function refreshUVOverlap(): void {
-  uvOverlapMaskCanvas = null;
-  forEachViewport((viewport) => viewport.setUVOverlap(null));
-  refreshUVWireframe();
-  if (!state.showUVOverlap || !aoBakeScene) {
-    stopUVOverlayAnimation();
-    return;
-  }
-  const source = textures.base.image!;
-  const { width, height } = uvOverlapResolution(source);
-  const result = computeUVOverlap(aoBakeScene, width, height);
-  uvOverlapMaskCanvas = uvOverlapMask(result.counts, width, height);
-  forEachViewport((viewport) => viewport.setUVOverlap(result.overlapping));
-  startUVOverlayAnimation();
-}
-
-function renderWaveTile(time: number): HTMLCanvasElement {
-  const size = 256;
-  if (!uvWaveCanvas) {
-    uvWaveCanvas = document.createElement('canvas');
-    uvWaveCanvas.width = size;
-    uvWaveCanvas.height = size;
-  }
-  const context = uvWaveCanvas.getContext('2d');
-  if (!context) return uvWaveCanvas;
-  const image = context.createImageData(size, size);
-  const data = image.data;
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const a = 0.5 + 0.5 * Math.sin((x + y) * 0.14 - time * 0.004);
-      const b = 0.5 + 0.5 * Math.sin((x - y) * 0.1 - time * 0.003);
-      const intensity = a * 0.7 + b * 0.3;
-      const offset = (y * size + x) * 4;
-      data[offset] = 255;
-      data[offset + 1] = Math.round(40 + intensity * 190);
-      data[offset + 2] = Math.round(110 + intensity * 145);
-      data[offset + 3] = Math.round(70 + intensity * 185);
-    }
-  }
-  context.putImageData(image, 0, 0);
-  return uvWaveCanvas;
-}
-
-function overlayCompositeCanvas(width: number, height: number): HTMLCanvasElement {
-  if (!uvOverlayComposite) uvOverlayComposite = document.createElement('canvas');
-  if (uvOverlayComposite.width !== width || uvOverlayComposite.height !== height) {
-    uvOverlayComposite.width = width;
-    uvOverlayComposite.height = height;
-  }
-  return uvOverlayComposite;
-}
-
-function drawOverlapLabels(context: CanvasRenderingContext2D, width: number, height: number, time: number): void {
-  const fontSize = Math.max(14, Math.round(Math.min(width, height) / 14));
-  const spacing = Math.max(fontSize * 8, 120);
-  const offset = (time * 0.05) % spacing;
-  context.save();
-  context.font = `700 ${fontSize}px "DM Mono", monospace`;
-  context.textAlign = 'center';
-  context.textBaseline = 'middle';
-  context.fillStyle = 'rgba(255, 240, 230, 0.95)';
-  const columns = Math.ceil((width + spacing) / spacing) + 1;
-  const rows = Math.ceil((height + spacing) / spacing) + 1;
-  for (let row = -1; row <= rows; row += 1) {
-    for (let col = -1; col <= columns; col += 1) {
-      context.fillText('UV OVERLAP', col * spacing + offset, row * spacing + offset);
-    }
-  }
-  context.restore();
-}
-
-function drawUVWireframe(context: CanvasRenderingContext2D, width: number, height: number): void {
-  const triangles = uvWireframeTriangles;
-  if (!triangles || triangles.length === 0) return;
-  context.save();
-  context.beginPath();
-  for (const triangle of triangles) {
-    const [a, b, c] = triangle.uv;
-    context.moveTo(a[0] * width, (1 - a[1]) * height);
-    context.lineTo(b[0] * width, (1 - b[1]) * height);
-    context.lineTo(c[0] * width, (1 - c[1]) * height);
-    context.closePath();
-  }
-  context.lineJoin = 'round';
-  context.lineCap = 'round';
-  context.strokeStyle = 'rgba(10, 12, 16, 0.6)';
-  context.lineWidth = 2;
-  context.stroke();
-  context.strokeStyle = 'rgba(255, 255, 255, 0.92)';
-  context.lineWidth = 1;
-  context.stroke();
-  context.restore();
-}
-
-function drawAnimatedOverlay(canvas: HTMLCanvasElement, base: HTMLCanvasElement | null, time: number): void {
-  if (!base || !uvOverlapMaskCanvas) return;
-  const context = canvas.getContext('2d');
-  if (!context) return;
-  const { width, height } = canvas;
-  context.drawImage(base, 0, 0, width, height);
-  if (state.showUVWireframe) drawUVWireframe(context, width, height);
-
-  const composite = overlayCompositeCanvas(width, height);
-  const compContext = composite.getContext('2d');
-  if (!compContext) return;
-  compContext.clearRect(0, 0, width, height);
-  compContext.drawImage(renderWaveTile(time), 0, 0, width, height);
-  drawOverlapLabels(compContext, width, height, time);
-  compContext.globalCompositeOperation = 'destination-in';
-  compContext.drawImage(uvOverlapMaskCanvas, 0, 0, width, height);
-  compContext.globalCompositeOperation = 'source-over';
-
-  context.globalCompositeOperation = 'lighter';
-  context.drawImage(composite, 0, 0);
-  context.globalCompositeOperation = 'source-over';
-}
-
-function tickUVOverlayAnimation(time: number): void {
-  if (!state.showUVOverlap || !aoBakeScene || !uvOverlapMaskCanvas) {
-    uvOverlayFrame = 0;
-    return;
-  }
-  if (originalPreviewMode === '2d') drawAnimatedOverlay(originalCanvas, originalBaseCanvas, time);
-  if (processedPreviewMode === '2d') drawAnimatedOverlay(previewCanvas, renderedCanvas, time);
-  uvOverlayFrame = requestAnimationFrame(tickUVOverlayAnimation);
-}
-
-function startUVOverlayAnimation(): void {
-  if (uvOverlayFrame) return;
-  uvOverlayFrame = requestAnimationFrame(tickUVOverlayAnimation);
-}
-
-function stopUVOverlayAnimation(): void {
-  if (!uvOverlayFrame) return;
-  cancelAnimationFrame(uvOverlayFrame);
-  uvOverlayFrame = 0;
-}
-
 function applyModelUV(channel: string): void {
   if (channel !== state.uvMap && textures.lightmap.image) clearLightmap();
   state.uvMap = channel;
@@ -1143,14 +712,9 @@ function closeModelPreview(): void {
   modelLodLevels = [];
   disposeAOScene(aoBakeScene);
   aoBakeScene = null;
-  uvOverlapMaskCanvas = null;
-  uvWireframeTriangles = null;
-  stopUVOverlayAnimation();
+  resetPreview();
   textures.lightmap.image = null;
   textures.lightmap.name = '';
-  implicitLightmapCanvas = null;
-  if (implicitLightmapTimer) window.clearTimeout(implicitLightmapTimer);
-  implicitLightmapTimer = 0;
   renderLightmapControls();
   originalPreviewMode = '2d';
   processedPreviewMode = '2d';
@@ -1163,6 +727,7 @@ function closeModelPreview(): void {
   renderOrientationReadout();
   renderWorldAxisControl();
   renderNormalsControl();
+  renderNormalsViewControl();
 }
 
 async function setModel(files: File[]): Promise<void> {
@@ -1189,6 +754,8 @@ async function setModel(files: File[]): Promise<void> {
     processedViewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
     originalViewport.applyLOD(state.lodLevel);
     processedViewport.applyLOD(state.lodLevel);
+    originalViewport.setNormalsView(state.showNormals);
+    processedViewport.setNormalsView(state.showNormals);
     disposeModel(loaded.scene);
     originalPreviewMode = '3d';
     processedPreviewMode = '3d';
@@ -1200,6 +767,7 @@ async function setModel(files: File[]): Promise<void> {
     renderSunControl();
     renderWorldAxisControl();
     renderNormalsControl();
+    renderNormalsViewControl();
     applySun();
     if (modelUVChannels.length) applyModelUV(state.uvMap);
     renderTextureRibbon();
@@ -1574,6 +1142,39 @@ function applyPreset(preset: ConversionPreset): void {
   }
 }
 
+const renderer = createRenderer({
+  state,
+  textures,
+  previewCanvas,
+  originalCanvas,
+  getAOScene: () => aoBakeScene,
+  forEachViewport,
+  getOriginalViewport: () => originalViewport,
+  getProcessedViewport: () => processedViewport,
+  getOriginalPreviewMode: () => originalPreviewMode,
+  getProcessedPreviewMode: () => processedPreviewMode,
+  dimensions,
+  currentColors,
+  updatePreviewBadge,
+  showToast,
+  renderLightmapControls,
+  renderNormalControls,
+  renderTextureRibbon,
+  applySun,
+});
+
+const {
+  render,
+  generateAo,
+  bakeLighting,
+  clearLightmap,
+  scheduleImplicitLightmapBake,
+  scheduleNormalAdjustedLighting,
+  refreshUVWireframe,
+  refreshUVOverlap,
+  resetPreview,
+} = renderer;
+
 const renderScheduler = createRenderScheduler(render);
 
 function updateResolution(value: number, immediate = false): void {
@@ -1680,6 +1281,9 @@ function reset(): void {
   renderUVOverlapControl();
   renderUVWireframeControl();
   renderNormalsControl();
+  renderNormalsViewControl();
+  originalViewport?.setNormalsView(state.showNormals);
+  processedViewport?.setNormalsView(state.showNormals);
   updateResolution(128, true);
   showToast('Settings reset');
 }
@@ -2003,6 +1607,12 @@ useSourceNormalsInput.addEventListener('change', () => {
   if (modelFiles.length) void setModel(modelFiles);
   else renderNormalsControl();
 });
+showNormalsInput.addEventListener('change', () => {
+  state.showNormals = showNormalsInput.checked;
+  renderNormalsViewControl();
+  originalViewport?.setNormalsView(state.showNormals);
+  processedViewport?.setNormalsView(state.showNormals);
+});
 smoothAngleInput.addEventListener('input', () => {
   state.smoothAngle = Number(smoothAngleInput.value);
   smoothAngleValue.textContent = formatDegrees(state.smoothAngle);
@@ -2066,6 +1676,7 @@ document.querySelector('#loadButton')!.addEventListener('click', loadConfig);
 document.querySelector('#resetButton')!.addEventListener('click', reset);
 document.querySelector('#exportButton')!.addEventListener('click', () => {
   const safeName = safeFileName(textures.base.name.replace(/\.[^.]+$/, ''));
-  downloadCanvas(renderedCanvas, `${safeName}-dithered.png`);
-  showToast(`Exported ${renderedCanvas.width} × ${renderedCanvas.height} PNG`);
+  const rendered = renderer.getRenderedCanvas();
+  downloadCanvas(rendered, `${safeName}-dithered.png`);
+  showToast(`Exported ${rendered.width} × ${rendered.height} PNG`);
 });

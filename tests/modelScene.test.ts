@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture } from 'three';
-import { applyTextureToModel, applyUVChannel, cloneModelScene, computeSmoothNormals, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, recomputeVertexNormals, uvChannelIndex } from '../src/lib/modelScene';
+import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshPhongMaterial, MeshStandardMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture, Vector3 } from 'three';
+import { applyTextureToModel, applyUVChannel, cloneModelScene, computeSmoothNormals, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, recomputeVertexNormals, stripSpecularFromModel, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
 
 function mesh(channels: string[], materials = 1): Mesh {
   const geometry = new BufferGeometry();
@@ -168,6 +168,31 @@ describe('model scene processing', () => {
     expect(normal.getY(0)).toBeCloseTo(0);
     expect(normal.getZ(0)).toBeCloseTo(Math.SQRT1_2);
     expect(normal.getX(5)).toBeCloseTo(1);
+  });
+
+  it('triangleNormal returns (B−A)×(C−A) with magnitude 2×area', () => {
+    const a = new Vector3(0, 0, 0);
+    const b = new Vector3(1, 0, 0);
+    const c = new Vector3(0, 1, 0);
+    const target = new Vector3();
+    expect(triangleNormal(a, b, c, target)).toBe(target);
+    expect(target.x).toBeCloseTo(0);
+    expect(target.y).toBeCloseTo(0);
+    expect(target.z).toBeCloseTo(1);
+  });
+
+  it('stripSpecularFromModel removes Phong specular and PBR sheen from every material', () => {
+    const phong = new MeshPhongMaterial({ specular: 0xffffff, shininess: 60 });
+    const standard = new MeshStandardMaterial({ metalness: 1, roughness: 0 });
+    const root = new Object3D();
+    root.add(new Mesh(new BufferGeometry(), phong));
+    root.add(new Mesh(new BufferGeometry(), standard));
+
+    expect(stripSpecularFromModel(root)).toBe(2);
+    expect(phong.specular.getHex()).toBe(0x000000);
+    expect(phong.shininess).toBe(0);
+    expect(standard.metalness).toBe(0);
+    expect(standard.roughness).toBe(1);
   });
 
   it('disposes geometry, materials, and textures without closing shared image sources', () => {

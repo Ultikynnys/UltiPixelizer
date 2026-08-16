@@ -44,8 +44,8 @@ function orthonormalBasis(normal: Vector3): [Vector3, Vector3] {
  * the mesh's UV coordinates so it aligns with the dithered texture.
  *
  * Every mesh contributes to occlusion; only meshes that carry both a `uv` and a
- * `normal` attribute are baked. May call `computeVertexNormals` on geometries
- * missing normals, so pass a disposable scene (a clone) if you need to keep the
+ * `normal` attribute are baked. Missing normals are recomputed during scene
+ * collection, so pass a disposable scene (a clone) if you need to keep the
  * original untouched.
  */
 export function bakeMeshAO(scene: Object3D, width: number, height: number, options: BakeAOMLOptions = {}): Uint8ClampedArray {

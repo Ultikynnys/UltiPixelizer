@@ -12,12 +12,15 @@ import {
   Float32BufferAttribute,
   LinearFilter,
   LoadingManager,
+  Material,
   Mesh,
+  MeshNormalMaterial,
   Object3D,
   PerspectiveCamera,
   Quaternion,
   Scene,
   ShaderMaterial,
+  Texture,
   Timer,
   Vector3,
   WebGLRenderer,
@@ -30,8 +33,8 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
-import { applyTextureToModel, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject, materialsOf, recomputeVertexNormals } from './modelScene';
-import { cameraForwardFromQuaternion, normalizeDirection, type DirectionVector } from './sunDirection';
+import { applyTextureToMaterial, applyUVChannel, createPixelTexture, disposeModel, fitCameraToObject, materialsOf, recomputeVertexNormals, stripSpecularFromModel } from './modelScene';
+import { cameraForwardFromQuaternion, directionToSun, type DirectionVector } from './sunDirection';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
 
@@ -110,6 +113,7 @@ export async function loadModel(
   }
 
   if (!options.useSourceNormals) recomputeVertexNormals(scene, options.smoothAngle);
+  stripSpecularFromModel(scene);
   return { scene, animations };
 }
 
@@ -126,6 +130,9 @@ export class ModelViewport {
   private model: Object3D | null = null;
   private mixer: AnimationMixer | null = null;
   private overlapOverlay: Mesh | null = null;
+  private readonly normalMaterial = new MeshNormalMaterial({ side: DoubleSide });
+  private readonly originalMaterials = new WeakMap<Mesh, Material | Material[]>();
+  private normalsView = false;
   private frame = 0;
 
   /** Invoked whenever the orbit camera moves (drag, damping, or programmatic fit). */
@@ -152,6 +159,7 @@ export class ModelViewport {
 
   setModel(model: Object3D, animations: AnimationClip[]): void {
     if (this.model) {
+      this.setNormalsView(false);
       this.scene.remove(this.model);
       disposeModel(this.model);
     }
@@ -180,19 +188,35 @@ export class ModelViewport {
 
   applyImage(image: CanvasImageSource): number {
     if (!this.model) return 0;
-    const previousTextures = new Set<import('three').Texture>();
+    const previousTextures = new Set<Texture>();
     this.model.traverse((child) => {
-      if (!('isMesh' in child)) return;
-      const mesh = child as import('three').Mesh;
-      materialsOf(mesh).forEach((material) => {
-        const map = (material as import('three').Material & { map?: import('three').Texture | null }).map;
+      if (!(child instanceof Mesh)) return;
+      this.texturableMaterials(child).forEach((material) => {
+        const map = (material as Material & { map?: Texture | null }).map;
         if (map) previousTextures.add(map);
       });
     });
     const texture = createPixelTexture(image);
-    const count = applyTextureToModel(this.model, texture);
+    let count = 0;
+    this.model.traverse((child) => {
+      if (!(child instanceof Mesh)) return;
+      this.texturableMaterials(child).forEach((material) => {
+        applyTextureToMaterial(material, texture);
+        count += 1;
+      });
+    });
     previousTextures.forEach((previous) => previous.dispose());
     return count;
+  }
+
+  /** The materials that carry the baked texture — the live materials, or the
+   * originals stashed while the normals debug view is active. */
+  private texturableMaterials(mesh: Mesh): Material[] {
+    if (this.normalsView) {
+      const original = this.originalMaterials.get(mesh);
+      return original ? (Array.isArray(original) ? original : [original]) : [];
+    }
+    return materialsOf(mesh);
   }
 
   applyUV(name: string): { fallbackMeshes: number; missingMeshes: number } {
@@ -201,6 +225,26 @@ export class ModelViewport {
 
   applyLOD(level: number): number {
     return this.model ? applyLodLevel(this.model, level) : 0;
+  }
+
+  /** Swaps every mesh to a normals-as-color material for visual debugging, and
+   * restores the originals when disabled. */
+  setNormalsView(enabled: boolean): void {
+    if (!this.model || this.normalsView === enabled) return;
+    this.normalsView = enabled;
+    this.model.traverse((child) => {
+      if (!(child instanceof Mesh)) return;
+      if (enabled) {
+        this.originalMaterials.set(child, child.material);
+        child.material = this.normalMaterial;
+      } else {
+        const original = this.originalMaterials.get(child);
+        if (original) {
+          child.material = original;
+          this.originalMaterials.delete(child);
+        }
+      }
+    });
   }
 
   /**
@@ -291,11 +335,11 @@ export class ModelViewport {
   }
 
   setSunDirection(direction: DirectionVector): void {
-    const rayDirection = normalizeDirection(direction);
-    this.sun.position.copy(this.sun.target.position).sub(new Vector3(
-      rayDirection.x,
-      rayDirection.y,
-      rayDirection.z,
+    const towardSun = directionToSun(direction);
+    this.sun.position.copy(this.sun.target.position).add(new Vector3(
+      towardSun.x,
+      towardSun.y,
+      towardSun.z,
     ));
   }
 
@@ -351,7 +395,9 @@ export class ModelViewport {
     this.controls.dispose();
     this.timer.dispose();
     this.removeOverlapOverlay();
+    this.setNormalsView(false);
     if (this.model) disposeModel(this.model);
+    this.normalMaterial.dispose();
     this.axes.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

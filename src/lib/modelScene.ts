@@ -67,6 +67,15 @@ export function materialsOf(mesh: Mesh): Material[] {
   return Array.isArray(mesh.material) ? mesh.material : [mesh.material];
 }
 
+const _faceEdge = new Vector3();
+
+/** Face normal for triangle (A, B, C) via (B − A) × (C − A). Magnitude = 2 ×
+ * triangle area; winding matches Three's `computeVertexNormals`. */
+export function triangleNormal(pA: Vector3, pB: Vector3, pC: Vector3, target: Vector3): Vector3 {
+  _faceEdge.subVectors(pC, pA);
+  return target.subVectors(pB, pA).cross(_faceEdge);
+}
+
 /** Recomputes vertex normals with angle-based smoothing, discarding any existing
  * normal attribute. Adjacent faces sharing an edge are smoothed (share a normal)
  * only when the angle between their face normals is below `angleDeg`; otherwise
@@ -96,16 +105,13 @@ export function computeSmoothNormals(geometry: BufferGeometry, angleDeg = DEFAUL
   const pB = new Vector3();
   const pC = new Vector3();
   const cb = new Vector3();
-  const ab = new Vector3();
 
   for (let tri = 0; tri < triangleCount; tri += 1) {
     const base = tri * 3;
     pA.fromBufferAttribute(position, index.getX(base));
     pB.fromBufferAttribute(position, index.getX(base + 1));
     pC.fromBufferAttribute(position, index.getX(base + 2));
-    cb.subVectors(pC, pB);
-    ab.subVectors(pA, pB);
-    cb.cross(ab);
+    triangleNormal(pA, pB, pC, cb);
     const area = cb.length();
     if (area > 1e-12) cb.divideScalar(area);
     else cb.set(0, 0, 0);
@@ -249,29 +255,55 @@ export function createPixelTexture(image: CanvasImageSource): CanvasTexture<Canv
   return texture;
 }
 
-function applyTextureToMaterial(material: Material, texture: Texture): void {
-  const textured = material as Material & {
-    map?: Texture | null;
-    color?: Color;
-    transparent?: boolean;
+/** Neutralises every specular / gloss channel a Three material can carry so the
+ * model renders fully matte — no Blinn-Phong highlight, no PBR sheen. Idempotent. */
+function stripMaterialSpecular(material: Material): void {
+  const matte = material as Material & {
     specular?: Color;
     shininess?: number;
     metalness?: number;
     roughness?: number;
     clearcoat?: number;
+    clearcoatRoughness?: number;
     specularIntensity?: number;
+    sheen?: number;
+  };
+  if ('specular' in matte) matte.specular?.set(0x000000);
+  if ('shininess' in matte) matte.shininess = 0;
+  if ('metalness' in matte) matte.metalness = 0;
+  if ('roughness' in matte) matte.roughness = 1;
+  if ('clearcoat' in matte) matte.clearcoat = 0;
+  if ('clearcoatRoughness' in matte) matte.clearcoatRoughness = 1;
+  if ('specularIntensity' in matte) matte.specularIntensity = 0;
+  if ('sheen' in matte) matte.sheen = 0;
+  matte.needsUpdate = true;
+}
+
+/** Strips specularity from every material in a model subtree. Returns the count. */
+export function stripSpecularFromModel(object: Object3D): number {
+  let materialCount = 0;
+  object.traverse((child) => {
+    if (!(child instanceof Mesh)) return;
+    materialsOf(child).forEach((material) => {
+      stripMaterialSpecular(material);
+      materialCount += 1;
+    });
+  });
+  return materialCount;
+}
+
+export function applyTextureToMaterial(material: Material, texture: Texture): void {
+  const textured = material as Material & {
+    map?: Texture | null;
+    color?: Color;
+    transparent?: boolean;
   };
   if (!('map' in textured)) return;
   textured.map = texture;
   textured.color?.set(0xffffff);
   textured.transparent = true;
   textured.side = DoubleSide;
-  if ('specular' in textured) textured.specular?.set(0x000000);
-  if ('shininess' in textured) textured.shininess = 0;
-  if ('metalness' in textured) textured.metalness = 0;
-  if ('roughness' in textured) textured.roughness = 1;
-  if ('clearcoat' in textured) textured.clearcoat = 0;
-  if ('specularIntensity' in textured) textured.specularIntensity = 0;
+  stripMaterialSpecular(material);
   textured.needsUpdate = true;
 }
 

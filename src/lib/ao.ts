@@ -1,3 +1,5 @@
+import { imagePixels } from './canvas';
+
 export type AOFactorSource = {
   data: Uint8ClampedArray;
   width: number;
@@ -47,12 +49,5 @@ export function applyAO(data: Uint8ClampedArray, factors: Uint8ClampedArray, bia
  * map. DOM-dependent — used only from the browser.
  */
 export function imageAOFactors(image: CanvasImageSource, width: number, height: number, invert = false): Uint8ClampedArray {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) throw new Error('Canvas is unavailable.');
-  context.drawImage(image, 0, 0, width, height);
-  const frame = context.getImageData(0, 0, width, height);
-  return redChannelFactors(frame, invert);
+  return redChannelFactors({ data: imagePixels(image, width, height), width, height }, invert);
 }
