@@ -29,6 +29,16 @@ export function normalizeDirection(direction: DirectionVector): DirectionVector 
   };
 }
 
+/**
+ * Default camera forward — the direction the orbit camera looks after
+ * `fitCameraToObject` (position offset `(1.1, 0.65, 1.6)`, negated and
+ * normalized). Used as the backfill value for settings saved before the camera
+ * direction was persisted, and as the initial camera angle before a model loads.
+ */
+export const DEFAULT_CAMERA_DIRECTION: Readonly<DirectionVector> = Object.freeze(
+  normalizeDirection({ x: -1.1, y: -0.65, z: -1.6 }),
+);
+
 /** Direction FROM the scene TOWARD the sun — the negation of the light-travel direction. */
 export function directionToSun(direction: DirectionVector): DirectionVector {
   const ray = normalizeDirection(direction);

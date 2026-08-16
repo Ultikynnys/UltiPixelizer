@@ -34,6 +34,7 @@ export type State = {
   useSourceNormals: boolean;
   smoothAngle: number;
   tessellation: number;
+  cameraDirection: DirectionVector;
   stripeAngle: number;
   noiseScale: number;
   seed: number;
