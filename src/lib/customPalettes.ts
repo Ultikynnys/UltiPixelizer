@@ -63,6 +63,80 @@ export function serializeCustomPalette(palette: CustomPalette): string {
   return serializeJsonFile(palette, isCustomPalette, 'Cannot export an invalid custom palette.');
 }
 
+const hexColorToken = /#([0-9a-f]{6}|[0-9a-f]{3})\b|\b([0-9a-f]{6})\b/gi;
+
+/** Normalizes a hex token (bare or "#"-prefixed, 3 or 6 digits) to an uppercase
+ * "#RRGGBB" string, expanding shorthand. Returns null for anything else. */
+function normalizeHex(raw: string): string | null {
+  const digits = raw.replace(/^#/, '').toLowerCase();
+  if (/^[0-9a-f]{3}$/.test(digits)) {
+    return `#${digits[0]}${digits[0]}${digits[1]}${digits[1]}${digits[2]}${digits[2]}`.toUpperCase();
+  }
+  if (/^[0-9a-f]{6}$/.test(digits)) return `#${digits.toUpperCase()}`;
+  return null;
+}
+
+/** Extracts every hex color from arbitrary text (e.g. a Lospec `.hex` list) as
+ * an ordered, de-duplicated array of "#RRGGBB" strings. Accepts bare and
+ * "#"-prefixed values, plus "#RGB" shorthand. */
+export function extractHexColors(text: string): string[] {
+  const colors: string[] = [];
+  const seen = new Set<string>();
+  for (const match of text.matchAll(hexColorToken)) {
+    const color = normalizeHex(match[0]);
+    if (!color || seen.has(color)) continue;
+    seen.add(color);
+    colors.push(color);
+  }
+  return colors;
+}
+
+/** Derives a palette name from a file name, falling back when absent. */
+function paletteNameFromFile(fileName: string | undefined): string {
+  const base = (fileName ?? '').replace(/\.[^.]+$/, '').trim();
+  return base || 'Imported palette';
+}
+
+/**
+ * Parses a palette import in any supported format:
+ * - the app's own `.palette.json` (CustomPalette round-trip),
+ * - Lospec `.json` (`{ name, author, colors }`),
+ * - plain-text hex lists (Lospec `.hex`, `.txt`).
+ */
+export function paletteFromImport(text: string, fileName?: string): CustomPalette {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    let value: unknown;
+    try {
+      value = JSON.parse(trimmed);
+    } catch (error) {
+      throw new Error('Palette file is not valid JSON.', { cause: error });
+    }
+    if (isCustomPalette(value)) return { ...value, colors: [...value.colors] };
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const record = value as Record<string, unknown>;
+      if (Array.isArray(record.colors)) {
+        const colors: string[] = [];
+        for (const entry of record.colors) {
+          const normalized = typeof entry === 'string' ? normalizeHex(entry) : null;
+          if (!normalized) throw new Error('Palette file has no valid colors.');
+          colors.push(normalized);
+        }
+        if (colors.length < 2 || colors.length > 256) throw new Error('Palette file has no valid colors.');
+        const name = (typeof record.name === 'string' && record.name.trim() ? record.name : paletteNameFromFile(fileName)).slice(0, 60);
+        const author = typeof record.author === 'string' && record.author.trim() ? ` · ${record.author.trim()}` : '';
+        const description = `Imported palette${author}`.slice(0, 160);
+        return createCustomPalette(name, description, colors);
+      }
+    }
+    throw new Error('Palette file has invalid or unsupported data.');
+  }
+
+  const colors = extractHexColors(trimmed);
+  if (colors.length < 2 || colors.length > 256) throw new Error('Palette file has no valid colors.');
+  return createCustomPalette(paletteNameFromFile(fileName).slice(0, 60), 'Imported from hex file', colors);
+}
+
 export function matchingPaletteKey(catalog: Record<string, Palette>, colors: string[], preferredKey?: string): string | null {
   const matches = (palette: Palette | undefined): boolean => palette?.colors.length === colors.length
     && palette.colors.every((color, index) => color.toLowerCase() === colors[index].toLowerCase());

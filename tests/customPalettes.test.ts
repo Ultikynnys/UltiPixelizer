@@ -5,9 +5,11 @@ import {
   createCustomPalette,
   deleteCustomPalette,
   duplicatePalette,
+  extractHexColors,
   isCustomPalette,
   loadCustomPalettes,
   matchingPaletteKey,
+  paletteFromImport,
   parseCustomPalette,
   selectOrCreatePalette,
   serializeCustomPalette,
@@ -111,5 +113,39 @@ describe('custom palettes', () => {
     storage.data.set(CUSTOM_PALETTE_STORAGE_KEY, JSON.stringify([{}, valid]));
     expect(loadCustomPalettes(storage)).toEqual([valid]);
   });
+});
 
+describe('palette import', () => {
+  it('extracts bare, #-prefixed, and shorthand hex from text, de-duplicating in order', () => {
+    expect(extractHexColors('1a1c2c\n1A1C2C\n5d275d')).toEqual(['#1A1C2C', '#5D275D']);
+    expect(extractHexColors('#fff #123456 ffcc00')).toEqual(['#FFFFFF', '#123456', '#FFCC00']);
+    expect(extractHexColors('deadbeef')).toEqual([]);
+    expect(extractHexColors('no colors here')).toEqual([]);
+  });
+
+  it('imports a plain-text Lospec .hex list, naming the palette from the file', () => {
+    const palette = paletteFromImport('1a1c2c\n5d275d\nb13e53\n', 'sweetie-16.hex');
+    expect(palette.name).toBe('sweetie-16');
+    expect(palette.description).toBe('Imported from hex file');
+    expect(palette.colors).toEqual(['#1A1C2C', '#5D275D', '#B13E53']);
+    expect(isCustomPalette(palette)).toBe(true);
+  });
+
+  it('imports a Lospec .json payload with name and author', () => {
+    expect(paletteFromImport('{"name":"Sweetie 16","author":"","colors":["1a1c2c","5d275d"]}').name).toBe('Sweetie 16');
+    expect(paletteFromImport('{"name":"Apollo","author":"AdamCYounis","colors":["172038","253a5e"]}').description).toBe('Imported palette · AdamCYounis');
+  });
+
+  it('round-trips the app own .palette.json format', () => {
+    const original = createCustomPalette('My Colors', 'For stone', ['#000000', '#ffffff'], new Date('2026-01-02T03:04:05Z'));
+    expect(paletteFromImport(serializeCustomPalette(original))).toEqual(original);
+  });
+
+  it('rejects invalid, empty, and unsupported imports', () => {
+    expect(() => paletteFromImport('', 'empty.hex')).toThrow('no valid colors');
+    expect(() => paletteFromImport('#ffffff', 'one.hex')).toThrow('no valid colors');
+    expect(() => paletteFromImport('{bad', 'bad.json')).toThrow('not valid JSON');
+    expect(() => paletteFromImport('{}', 'empty.json')).toThrow('invalid or unsupported');
+    expect(() => paletteFromImport('{"colors":["nothex"]}', 'bad.json')).toThrow('no valid colors');
+  });
 });
