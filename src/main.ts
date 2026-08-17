@@ -157,7 +157,7 @@ app.innerHTML = `
           </div>
         </div>
 
-        <div class="canvas-stage" id="dropZone">
+        <div class="canvas-stage">
           <div class="comparison-grid" aria-label="Original and dithered texture comparison">
             <figure class="preview-pane original-pane">
               <figcaption><span>01</span> Original <span class="fig-dims" id="sourceDimensions">640 × 461</span></figcaption>
@@ -1667,21 +1667,57 @@ function droppedFiles(event: DragEvent): File[] {
   return Array.from(event.dataTransfer?.files ?? []);
 }
 
-function bindSlotDragState(slot: HTMLElement): void {
-  ['dragenter', 'dragover'].forEach((type) => slot.addEventListener(type, (event) => {
+// Drag highlight, delegated to the ribbon: a single "active" slot so the
+// white outline always tracks the slot actually under the pointer.
+// dragenter/dragover (both bubble up from slot children) re-derive the
+// hovered slot; dragleave only clears it when the pointer truly left that
+// slot — a leave into the slot's own descendants is ignored. Per-slot
+// enter/leave handlers flicker because every child-boundary crossing fires a
+// dragleave on the slot, so the highlight is owned by the ribbon instead.
+const textureRibbonElement = document.querySelector<HTMLElement>('#textureRibbon')!;
+let activeDragSlot: HTMLElement | null = null;
+function highlightDragSlot(slot: HTMLElement): void {
+  if (activeDragSlot === slot) return;
+  activeDragSlot?.classList.remove('dragging');
+  activeDragSlot = slot;
+  slot.classList.add('dragging');
+}
+function clearDragHighlight(): void {
+  activeDragSlot?.classList.remove('dragging');
+  activeDragSlot = null;
+}
+function slotUnderDrag(event: Event): HTMLElement | null {
+  const target = event.target;
+  return target instanceof Element ? target.closest<HTMLElement>('.texture-slot') : null;
+}
+function bindRibbonDragState(): void {
+  ['dragenter', 'dragover'].forEach((type) => textureRibbonElement.addEventListener(type, (event) => {
+    const slot = slotUnderDrag(event);
     // Disabled slots are not valid targets: no highlight, and no
     // preventDefault, so the browser shows its native no-drop cursor.
-    if (slot.classList.contains('disabled')) return;
+    if (!slot || slot.classList.contains('disabled')) return;
     event.preventDefault();
-    slot.classList.add('dragging');
+    highlightDragSlot(slot);
   }));
-  ['dragleave', 'drop'].forEach((type) => slot.addEventListener(type, (event) => { event.preventDefault(); slot.classList.remove('dragging'); }));
+  textureRibbonElement.addEventListener('dragleave', (event) => {
+    const slot = slotUnderDrag(event);
+    if (!slot || slot !== activeDragSlot) return;
+    const related = (event as DragEvent).relatedTarget;
+    if (related instanceof Node && slot.contains(related)) return;
+    clearDragHighlight();
+  });
+  // Drop must be allowed and the highlight cleared even when the drop lands
+  // on the ribbon's own surface; the per-slot drop handlers do the work.
+  textureRibbonElement.addEventListener('drop', (event) => {
+    event.preventDefault();
+    clearDragHighlight();
+  });
 }
+bindRibbonDragState();
 
 TEXTURE_CHANNELS.forEach((channel) => {
   const slot = document.querySelector<HTMLElement>(`[data-texture="${channel.id}"]`);
   if (!slot) return;
-  bindSlotDragState(slot);
   slot.addEventListener('drop', (event) => {
     if (slot.classList.contains('disabled')) return;
     const files = droppedFiles(event);
@@ -1691,7 +1727,6 @@ TEXTURE_CHANNELS.forEach((channel) => {
 });
 const modelSlot = document.querySelector<HTMLElement>('[data-model-slot]');
 if (modelSlot) {
-  bindSlotDragState(modelSlot);
   modelSlot.addEventListener('drop', (event) => {
     const files = droppedFiles(event);
     if (files.some((file) => modelFormat(file.name))) void setModel(files);
@@ -1803,13 +1838,6 @@ function applyViewMode(): void {
 bindViewToggle(originalViewToggle, () => state.viewModeOriginal, (view) => {
   state.viewModeOriginal = view;
   state.viewModeProcessed = view;
-});
-const dropZone = document.querySelector<HTMLDivElement>('#dropZone')!;
-bindSlotDragState(dropZone);
-dropZone.addEventListener('drop', (event) => {
-  const files = droppedFiles(event);
-  if (files.some((file) => modelFormat(file.name))) void setModel(files);
-  else if (files[0]) void setTexture('base', files[0]);
 });
 loadConfigInput.addEventListener('change', async () => {
   const file = loadConfigInput.files?.[0];
