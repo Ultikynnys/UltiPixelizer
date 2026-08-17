@@ -59,15 +59,18 @@ jobs:
 
       # The build version badge (topbar) is stamped at build time by Vite. The
       # installer version is generated from the SAME git build count via
-      # scripts/build-version.mjs (v124 -> 1.2.4: hundreds split into three)
-      # and written to src-tauri/tauri.version.json, which tauri-action merges
-      # into the bundle config with --config — no version is hardcoded here,
-      # in tauri.conf.json, or in any env file; local `npm run tauri:build`
-      # derives it the exact same way.
+      # scripts/build-version.mjs (count + 199-commit offset — the history was
+      # squashed to one commit, so the raw count would map to 0.0.1; the
+      # offset keeps versions at 2.0.0+ — v200 -> 2.0.0: hundreds split into
+      # three) and written to src-tauri/tauri.version.json, which tauri-action
+      # merges into the bundle config with --config — no version is hardcoded
+      # here, in tauri.conf.json, or in any env file; local `npm run
+      # tauri:build` derives it the exact same way. The badge count is offset
+      # identically so the badge number matches the version's digits.
       - name: Set build version
         shell: bash
         run: |
-          BUILD_NUMBER=$(git rev-list --count HEAD)
+          BUILD_NUMBER=$(node scripts/build-version.mjs --count)
           echo "VITE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "VITE_COMMIT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
           node scripts/write-tauri-version.mjs

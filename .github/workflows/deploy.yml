@@ -35,7 +35,7 @@ jobs:
         run: npm run typecheck
       - name: Set build version
         run: |
-          echo "VITE_BUILD_NUMBER=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
+          echo "VITE_BUILD_NUMBER=$(node scripts/build-version.mjs --count)" >> "$GITHUB_ENV"
           echo "VITE_COMMIT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
       - name: Build
         run: npm run build
