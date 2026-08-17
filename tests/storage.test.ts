@@ -133,10 +133,10 @@ describe('createStoredCollection', () => {
     expect(replaced).toEqual([{ id: 'a', label: 'new' }]);
     const added = entries.upsert(storage, { id: 'b', label: 'fresh' }, key);
     expect(added).toHaveLength(2);
-    expect(added[0]).toEqual({ id: 'b', label: 'fresh' });
+    expect(added[1]).toEqual({ id: 'b', label: 'fresh' });
     expect(JSON.parse(storage.data.get('entries')!)).toEqual([
-      { id: 'b', label: 'fresh' },
       { id: 'a', label: 'new' },
+      { id: 'b', label: 'fresh' },
     ]);
   });
 

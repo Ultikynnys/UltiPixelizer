@@ -29,6 +29,30 @@ export function drawImageToCanvas(image: CanvasImageSource, width: number, heigh
   return { canvas, context };
 }
 
+/** Object-fit "contain" rect: scales `content` to fit inside `container`
+ * (centered, never cropped) and returns the fitted position, size, and the
+ * uniform scale. Mirrors CSS `object-fit: contain`, so the 2D preview pan/zoom,
+ * the UV wireframe overlay, and eyedropper sampling all derive their geometry
+ * from this one place instead of re-deriving letterbox math independently. */
+export interface ContainRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  /** Uniform scale applied to the content (content size → fitted size). */
+  scale: number;
+}
+
+export function computeContainRect(containerWidth: number, containerHeight: number, contentWidth: number, contentHeight: number): ContainRect {
+  if (containerWidth <= 0 || containerHeight <= 0 || contentWidth <= 0 || contentHeight <= 0) {
+    return { left: 0, top: 0, width: 0, height: 0, scale: 0 };
+  }
+  const scale = Math.min(containerWidth / contentWidth, containerHeight / contentHeight);
+  const width = contentWidth * scale;
+  const height = contentHeight * scale;
+  return { left: (containerWidth - width) / 2, top: (containerHeight - height) / 2, width, height, scale };
+}
+
 /** Nearest-neighbor (pixelized) resize of an image to the given size —
  * smoothing disabled so source pixels stay crisp, matching the dithered
  * pipeline's pixelated look. Always returns a fresh canvas at the target

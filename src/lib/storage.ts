@@ -103,7 +103,7 @@ export function createStoredCollection<T>(options: StoredCollectionOptions<T>): 
     const entries = load(storage);
     const index = entries.findIndex((existing) => keyOf(existing) === keyOf(entry));
     if (index >= 0) entries[index] = entry;
-    else entries.unshift(entry);
+    else entries.push(entry);
     save(storage, entries);
     return entries;
   }

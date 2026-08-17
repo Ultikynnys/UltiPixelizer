@@ -1,5 +1,5 @@
 import type { Object3D } from 'three';
-import { createCanvas, factorsToCanvas } from '../canvas';
+import { computeContainRect, createCanvas, factorsToCanvas } from '../canvas';
 import type { SourceImage } from '../state';
 import { UV_OVERLAP_LABEL, collectUVTriangles, computeUVOverlap, type UVTriangle } from '../uvOverlap';
 import type { RendererDeps, RenderShared } from './types';
@@ -198,19 +198,18 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
     // Replicate the bitmap's object-fit: contain draw rect inside the canvas
     // element box (offsetWidth/offsetHeight are the post-layout, transform-
     // independent box), then offset by the box within the frame (flex
-    // centering). The overlay shares the texture canvas's zoom/pan transform,
-    // so drawing in untransformed frame space stays aligned at any zoom.
+    // centering). This is the same fitted rect the 2D preview (preview2d.ts)
+    // computes for its transform, so the overlay stays glued to the texture at
+    // any zoom.
     const boxWidth = canvas.offsetWidth;
     const boxHeight = canvas.offsetHeight;
     if (boxWidth <= 0 || boxHeight <= 0) return;
-    const scale = Math.min(boxWidth / canvas.width, boxHeight / canvas.height);
-    const drawWidth = canvas.width * scale;
-    const drawHeight = canvas.height * scale;
+    const inner = computeContainRect(boxWidth, boxHeight, canvas.width, canvas.height);
     drawWireframe(context, triangles, {
-      left: (frameWidth - boxWidth) / 2 + (boxWidth - drawWidth) / 2,
-      top: (frameHeight - boxHeight) / 2 + (boxHeight - drawHeight) / 2,
-      width: drawWidth,
-      height: drawHeight,
+      left: (frameWidth - boxWidth) / 2 + inner.left,
+      top: (frameHeight - boxHeight) / 2 + inner.top,
+      width: inner.width,
+      height: inner.height,
     });
   }
 

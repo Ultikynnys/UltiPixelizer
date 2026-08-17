@@ -18,6 +18,7 @@ import { lightmapMatchesBaseColor } from './lib/lightmap';
 import type { NormalFormat } from './lib/normal';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY } from './lib/defaults';
 import { createRenderer } from './lib/render';
+import { createPreview2D, type Preview2DApi } from './lib/preview2d';
 import { lightmapIsActive, type LightState, type PreviewMode, type PreviewViewMode, type SourceImage, type State, type TextureChannelId, type TextureSlot } from './lib/state';
 import { safeFileName } from './lib/strings';
 import { DEFAULT_CAMERA_DIRECTION, DEFAULT_SUN_DIRECTION, type DirectionVector } from './lib/sunDirection';
@@ -79,19 +80,39 @@ const sunOverlayMarkup = (): string => `
     <div class="sun-overlay-heading">
       <span>Lighting controls</span>
     </div>
-    <button class="orient-sun-button" id="orientSunWithCamera" type="button" title="Copy the Original 3D viewport angle to the sun">Orient Sun with Camera</button>
+    <button class="orient-sun-button" id="orientSunWithCamera" type="button" title="Copy the 3D viewport angle to the sun">Orient Sun with Camera</button>
     <div class="orientation-readout" title="World-space direction (x, y, z)">
       <div class="orientation-row"><span class="orientation-label">Sun</span><output id="sunDirectionValue">—</output></div>
-      <div class="orientation-row"><span class="orientation-label">Camera</span><output id="cameraDirectionValue">—</output></div>
+      <div class="orientation-row"><span class="orientation-label">Cam</span><output id="cameraDirectionValue">—</output></div>
     </div>
     <div class="light-controls">
-      <label class="light-color-control"><span>Sun color</span>${colorControl('#ffffff', 'Sun color', 'id="sunColor"')}</label>
-      ${rangeControl('sunIntensity', 'Sun intensity', 0, 2, 0.01, DEFAULT_SUN_INTENSITY)}
-      <div class="light-section-title"><span>Ambient</span></div>
-      <label class="light-color-control"><span>Color</span>${colorControl('#ffffff', 'Ambient light color', 'id="ambientColor"')}</label>
-      ${rangeControl('ambientIntensity', 'Intensity', 0, 1, 0.01, DEFAULT_AMBIENT_INTENSITY)}
-      <div class="light-section-title"><span>Normals</span></div>
-      ${rangeControl('normalStrength', 'Strength', 0, 1, 0.01, DEFAULT_NORMAL_STRENGTH, '1.00', 'Normal-map influence on lighting')}
+      <div class="light-group">
+        <div class="light-heading">
+          <span class="light-label">Sun</span>
+          <span class="light-heading-end">
+            <output id="sunIntensityValue">${DEFAULT_SUN_INTENSITY.toFixed(2)}</output>
+            <label class="light-swatch" title="Sun color">${colorControl('#ffffff', 'Sun color', 'id="sunColor"')}</label>
+          </span>
+        </div>
+        <input class="range" id="sunIntensity" type="range" min="0" max="2" step="0.01" value="${DEFAULT_SUN_INTENSITY}" aria-label="Sun intensity" />
+      </div>
+      <div class="light-group">
+        <div class="light-heading">
+          <span class="light-label">Ambient</span>
+          <span class="light-heading-end">
+            <output id="ambientIntensityValue">${DEFAULT_AMBIENT_INTENSITY.toFixed(2)}</output>
+            <label class="light-swatch" title="Ambient light color">${colorControl('#ffffff', 'Ambient light color', 'id="ambientColor"')}</label>
+          </span>
+        </div>
+        <input class="range" id="ambientIntensity" type="range" min="0" max="1" step="0.01" value="${DEFAULT_AMBIENT_INTENSITY}" aria-label="Ambient intensity" />
+      </div>
+      <div class="light-group">
+        <div class="light-heading">
+          <span class="light-label">Normals</span>
+          <output id="normalStrengthValue">${DEFAULT_NORMAL_STRENGTH.toFixed(2)}</output>
+        </div>
+        <input class="range" id="normalStrength" type="range" min="0" max="1" step="0.01" value="${DEFAULT_NORMAL_STRENGTH}" aria-label="Normal strength" />
+      </div>
     </div>
   </div>
 `;
@@ -211,7 +232,7 @@ app.innerHTML = `
               </div>
             </figure>
             <figure class="preview-pane processed-pane">
-              <figcaption><span>02</span> Dithered <span class="fig-dims" id="processedDimensions">128 × 92</span></figcaption>
+              <figcaption><span>02</span> Dithered <span class="fig-dims" id="processedDimensions">128 × 92</span><button class="fig-zoom" id="processedZoomBadge" type="button" title="Zoom level — scroll over the preview to zoom, drag to pan, double-click to reset">100%</button></figcaption>
               <div class="canvas-frame">
                 <canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas>
                 <canvas class="wireframe-overlay" id="processedWireframeOverlay" aria-hidden="true" hidden></canvas>
@@ -247,16 +268,8 @@ app.innerHTML = `
           </div>
           <div class="palette-grid" id="paletteGrid"></div>
           <div class="custom-palette">
-            <div class="custom-palette-title">Custom palette editor</div>
             <fieldset class="palette-editor" id="paletteEditor">
-              <div class="palette-editor-fields">
-                <label><span>Name</span><input id="customPaletteName" maxlength="60" placeholder="Palette name" /></label>
-              </div>
               <div class="color-picker" id="colorPicker">
-                <div class="color-picker-head">
-                  <span class="color-picker-swatch" id="colorPickerSwatch" style="--swatch:#ffffff"></span>
-                  <input id="colorPickerHex" class="color-picker-hex" maxlength="7" spellcheck="false" aria-label="Hex color" />
-                </div>
                 <div class="color-picker-body">
                   <div class="color-picker-field" id="colorPickerField"></div>
                   <div class="color-picker-side">
@@ -274,15 +287,15 @@ app.innerHTML = `
         <section class="panel">
           <div class="panel-heading compact"><div><p class="eyebrow">DITHER MATRIX</p><h2>Pattern</h2></div></div>
           <div class="mode-grid" role="group" aria-label="Dithering algorithm">
-            <button class="mode-button active" data-mode="floyd" type="button"><span class="pattern pattern-noise"></span><strong>Floyd–Steinberg</strong><small>Organic grain</small></button>
-            <button class="mode-button" data-mode="atkinson" type="button"><span class="pattern pattern-atkinson"></span><strong>Atkinson</strong><small>Crisp contrast</small></button>
-            <button class="mode-button" data-mode="ordered" type="button"><span class="pattern pattern-grid"></span><strong>Ordered 4×4</strong><small>Regular matrix</small></button>
-            <button class="mode-button" data-mode="cross" type="button"><span class="pattern pattern-cross"></span><strong>Cross</strong><small>Intersecting bands</small></button>
-            <button class="mode-button" data-mode="stripes" type="button"><span class="pattern pattern-stripes"></span><strong>Stripes</strong><small>Directional bands</small></button>
-            <button class="mode-button" data-mode="noise" type="button"><span class="pattern pattern-random"></span><strong>Noise</strong><small>Randomized grain</small></button>
-            <button class="mode-button" data-mode="checker" type="button"><span class="pattern pattern-checker"></span><strong>Checker</strong><small>Alternating grid</small></button>
-            <button class="mode-button" data-mode="halftone" type="button"><span class="pattern pattern-halftone"></span><strong>Halftone</strong><small>Print-style dots</small></button>
-            <button class="mode-button" data-mode="none" type="button"><span class="pattern pattern-none"></span><strong>Hard map</strong><small>No diffusion</small></button>
+            <button class="mode-button active" data-mode="floyd" type="button"><span class="pattern pattern-noise"></span><strong>Floyd–Steinberg</strong></button>
+            <button class="mode-button" data-mode="atkinson" type="button"><span class="pattern pattern-atkinson"></span><strong>Atkinson</strong></button>
+            <button class="mode-button" data-mode="ordered" type="button"><span class="pattern pattern-grid"></span><strong>Ordered 4×4</strong></button>
+            <button class="mode-button" data-mode="cross" type="button"><span class="pattern pattern-cross"></span><strong>Cross</strong></button>
+            <button class="mode-button" data-mode="stripes" type="button"><span class="pattern pattern-stripes"></span><strong>Stripes</strong></button>
+            <button class="mode-button" data-mode="noise" type="button"><span class="pattern pattern-random"></span><strong>Noise</strong></button>
+            <button class="mode-button" data-mode="checker" type="button"><span class="pattern pattern-checker"></span><strong>Checker</strong></button>
+            <button class="mode-button" data-mode="halftone" type="button"><span class="pattern pattern-halftone"></span><strong>Halftone</strong></button>
+            <button class="mode-button" data-mode="none" type="button"><span class="pattern pattern-none"></span><strong>Hard map</strong></button>
           </div>
           ${rangeControl('strength', 'Dither strength', 0, 100, 1, 85, '85%', 'Error diffusion amount')}
           <div class="stripe-angle-control" id="stripeAngleControl" hidden>
@@ -338,190 +351,16 @@ app.innerHTML = `
 const previewCanvas = document.querySelector<HTMLCanvasElement>('#previewCanvas')!;
 const originalCanvas = document.querySelector<HTMLCanvasElement>('#originalCanvas')!;
 
-// 2D preview pan/zoom. The texture canvases are laid out fitted (object-fit
-// contain fills the frame); zooming/panning applies a CSS transform to the
-// canvas element itself, so `image-rendering: pixelated` keeps texels crisp at
-// any scale and the eyedropper's canvasPixelCoords stays correct (its
-// object-fit math is invariant under uniform scale). Wheel zooms anchored at
-// the cursor, primary-drag pans, double-click resets to fit, two-finger pinch
-// zooms on touch, and the Original pane's caption badge mirrors the zoom
-// (click resets). The badge is optional — the dithered pane has none.
-// Pan/zoom input listens on the whole .canvas-frame (the canvas, the
-// wireframe overlay, and the backdrop revealed when the image slides off the
-// frame), so dragging in the empty parts of the view pans too.
-const ZOOM_MIN = 0.1;
-const ZOOM_MAX = 64;
-// Px of the image that must stay in view when panning, so the image can be
-// slid past the frame edges (revealing background) but never lost entirely.
-const PAN_MARGIN = 48;
-
-function createPreviewZoom(canvas: HTMLCanvasElement, frame: HTMLElement, badge: HTMLButtonElement | null, overlay: HTMLElement | null = null): void {
-  let scale = 1;
-  let panX = 0;
-  let panY = 0;
-  const pointers = new Map<number, { x: number; y: number }>();
-  let pinchDistance = 0;
-  let dragging = false;
-  const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
-
-  function apply(): void {
-    canvas.style.transformOrigin = '0 0';
-    canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
-    // The UV wireframe overlay fills the same frame and is drawn in
-    // untransformed frame space, so it must track the canvas exactly.
-    if (overlay) {
-      overlay.style.transformOrigin = '0 0';
-      overlay.style.transform = canvas.style.transform;
-    }
-    if (badge) badge.textContent = `${Math.round(scale * 100)}%`;
-  }
-
-  /** Allow panning freely, even past the image edges (so the pane's
-   * background shows around the image), but keep a sliver of the image in
-   * view so it can never be lost entirely. */
-  function clampPan(): void {
-    const width = canvas.offsetWidth;
-    const height = canvas.offsetHeight;
-    const scaledWidth = width * scale;
-    const scaledHeight = height * scale;
-    // The image may slide out of the frame by up to (frame - margin), leaving
-    // at least PAN_MARGIN px visible. The image's right edge is at
-    // panX + scaledWidth, so the lower bound keeps that edge from passing the
-    // left of the frame (margin - scaledWidth) and the upper bound keeps the
-    // left edge from passing the right (width - margin) — both edges of the
-    // image stay reachable in every direction. Shrink the margin on tiny
-    // frames.
-    const margin = Math.min(PAN_MARGIN, width, height);
-    const minX = margin - scaledWidth;
-    const maxX = width - margin;
-    const minY = margin - scaledHeight;
-    const maxY = height - margin;
-    // If the scaled image is smaller than the sliding window (inverted range),
-    // pin it centered rather than clamping to an arbitrary edge.
-    panX = minX > maxX ? (width - scaledWidth) / 2 : clamp(panX, minX, maxX);
-    panY = minY > maxY ? (height - scaledHeight) / 2 : clamp(panY, minY, maxY);
-  }
-
-  /** Zooms so the frame-space point (cursorX, cursorY) — relative to the
-   * canvas's untransformed top-left — stays under the cursor. */
-  function zoomAt(cursorX: number, cursorY: number, nextScale: number): void {
-    const factor = nextScale / scale;
-    panX = cursorX - (cursorX - panX) * factor;
-    panY = cursorY - (cursorY - panY) * factor;
-    scale = nextScale;
-    clampPan();
-    apply();
-  }
-
-  function reset(): void {
-    scale = 1;
-    panX = 0;
-    panY = 0;
-    apply();
-  }
-
-  const interactionsBlocked = (): boolean => document.body.classList.contains('eyedropping');
-
-  // Cursor position in frame space: the transformed rect minus the current pan
-  // recovers the canvas's untransformed top-left in the viewport.
-  const cursorInFrame = (clientX: number, clientY: number): { x: number; y: number } => {
-    const rect = canvas.getBoundingClientRect();
-    return { x: clientX - (rect.left - panX), y: clientY - (rect.top - panY) };
-  };
-
-  // Only presses on the pan surface itself start a pan: the canvas, the
-  // wireframe overlay when visible, or the frame's backdrop. The frame's
-  // control chips (preview mode, UV toggles, export, texel density, sun)
-  // sit on top of the backdrop and are not pan surfaces.
-  const isPanSurface = (target: EventTarget | null): boolean =>
-    target === frame || target === canvas || target === overlay;
-
-  frame.addEventListener('wheel', (event) => {
-    if (interactionsBlocked() || canvas.hidden || !isPanSurface(event.target)) return;
-    // preventDefault also stops the webview's ctrl+wheel page zoom.
-    event.preventDefault();
-    const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
-    const factor = Math.exp(-delta * 0.002);
-    const { x, y } = cursorInFrame(event.clientX, event.clientY);
-    zoomAt(x, y, clamp(scale * factor, ZOOM_MIN, ZOOM_MAX));
-  }, { passive: false });
-
-  frame.addEventListener('pointerdown', (event) => {
-    if (interactionsBlocked() || canvas.hidden || event.button !== 0 || !isPanSurface(event.target)) return;
-    // No preventDefault here: canceling pointerdown would suppress the
-    // compatibility mouse events, killing double-click-to-reset.
-    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (pointers.size === 2) {
-      const [first, second] = Array.from(pointers.values());
-      pinchDistance = Math.hypot(first.x - second.x, first.y - second.y);
-      dragging = false;
-    } else if (pointers.size === 1) {
-      dragging = true;
-    }
-  });
-
-  // Drag moves listen on the window, not the canvas: WebView2 does not
-  // reliably deliver pointermove to a captured element, so a canvas-bound
-  // listener would leave drag-pan dead in the desktop app. Window-level
-  // listeners (the same pattern as the color-picker drag) see every move no
-  // matter where the pointer travels.
-  window.addEventListener('pointermove', (event) => {
-    if (interactionsBlocked() || canvas.hidden) return;
-    // A pointerup was missed (button released outside the window): end the drag.
-    if (event.pointerType === 'mouse' && !(event.buttons & 1)) {
-      endPointer(event);
-      return;
-    }
-    const previous = pointers.get(event.pointerId);
-    if (!previous) return;
-    const current = { x: event.clientX, y: event.clientY };
-    pointers.set(event.pointerId, current);
-    if (pointers.size === 2) {
-      const [first, second] = Array.from(pointers.values());
-      const distance = Math.hypot(first.x - second.x, first.y - second.y);
-      if (pinchDistance > 0) {
-        const { x, y } = cursorInFrame((first.x + second.x) / 2, (first.y + second.y) / 2);
-        zoomAt(x, y, clamp(scale * (distance / pinchDistance), ZOOM_MIN, ZOOM_MAX));
-      }
-      pinchDistance = distance;
-      return;
-    }
-    if (!dragging) return;
-    panX += current.x - previous.x;
-    panY += current.y - previous.y;
-    clampPan();
-    apply();
-  });
-
-  const endPointer = (event: PointerEvent): void => {
-    pointers.delete(event.pointerId);
-    if (pointers.size < 2) pinchDistance = 0;
-    if (pointers.size === 0) dragging = false;
-  };
-  window.addEventListener('pointerup', endPointer);
-  window.addEventListener('pointercancel', endPointer);
-
-  frame.addEventListener('dblclick', (event) => {
-    if (interactionsBlocked() || canvas.hidden || !isPanSurface(event.target)) return;
-    event.preventDefault();
-    reset();
-  });
-
-  badge?.addEventListener('click', reset);
-  window.addEventListener('resize', () => {
-    if (canvas.hidden) return;
-    clampPan();
-    apply();
-  });
-
-  apply();
-}
-
+// 2D preview pan/zoom lives in lib/preview2d.ts; each pane gets its own
+// preview so zoom/pan state stays independent. The wireframe overlay tracks
+// the canvas transform so the UV islands stay glued to the texture at any
+// zoom.
 const originalZoomBadge = document.querySelector<HTMLButtonElement>('#originalZoomBadge')!;
 const originalWireframeOverlay = document.querySelector<HTMLCanvasElement>('#originalWireframeOverlay')!;
 const processedWireframeOverlay = document.querySelector<HTMLCanvasElement>('#processedWireframeOverlay')!;
-createPreviewZoom(originalCanvas, originalCanvas.parentElement!, originalZoomBadge, originalWireframeOverlay);
-createPreviewZoom(previewCanvas, previewCanvas.parentElement!, null, processedWireframeOverlay);
+const processedZoomBadge = document.querySelector<HTMLButtonElement>('#processedZoomBadge')!;
+const originalPreview2D = createPreview2D({ canvas: originalCanvas, frame: originalCanvas.parentElement!, badge: originalZoomBadge, overlay: originalWireframeOverlay });
+const processedPreview2D = createPreview2D({ canvas: previewCanvas, frame: previewCanvas.parentElement!, badge: processedZoomBadge, overlay: processedWireframeOverlay });
 const aoBakeOverlay = document.querySelector<HTMLDivElement>('#aoBakeOverlay')!;
 const aoBakeFill = document.querySelector<HTMLDivElement>('#aoBakeFill')!;
 const aoBakePercent = document.querySelector<HTMLParagraphElement>('#aoBakePercent')!;
@@ -529,10 +368,7 @@ const paletteGrid = document.querySelector<HTMLDivElement>('#paletteGrid')!;
 const paletteFilters = document.querySelector<HTMLDivElement>('#paletteFilters')!;
 const customPaletteSection = document.querySelector<HTMLDivElement>('.custom-palette')!;
 const customColors = document.querySelector<HTMLDivElement>('#customColors')!;
-const customPaletteName = document.querySelector<HTMLInputElement>('#customPaletteName')!;
 const paletteEditor = document.querySelector<HTMLFieldSetElement>('#paletteEditor')!;
-const colorPickerSwatch = document.querySelector<HTMLSpanElement>('#colorPickerSwatch')!;
-const colorPickerHex = document.querySelector<HTMLInputElement>('#colorPickerHex')!;
 const colorPickerField = document.querySelector<HTMLDivElement>('#colorPickerField')!;
 const colorPickerHue = document.querySelector<HTMLDivElement>('#colorPickerHue')!;
 const colorPickerButton = document.querySelector<HTMLButtonElement>('#colorPickerButton')!;
@@ -588,11 +424,12 @@ const originalPaneFrame = document.querySelector<HTMLDivElement>('.original-pane
 const processedPaneFrame = document.querySelector<HTMLDivElement>('.processed-pane .canvas-frame')!;
 const sharedPaneControls: HTMLElement[] = [
   originalViewToggle,
-  worldAxisToggle,
   uvOverlapControl,
   uvWireframeControl,
-  sunControlElements.control,
 ];
+// The lighting overlay (#sunControl) is deliberately NOT in the shared set:
+// when the Original pane drops out at narrow widths the lighting controls
+// hide along with it instead of crowding the dithered pane.
 const narrowLayout = window.matchMedia('(max-width: 900px)');
 function relocateSharedControls(narrow: boolean): void {
   const target = narrow ? processedPaneFrame : originalPaneFrame;
@@ -600,6 +437,17 @@ function relocateSharedControls(narrow: boolean): void {
 }
 relocateSharedControls(narrowLayout.matches);
 narrowLayout.addEventListener('change', (event) => relocateSharedControls(event.matches));
+// The Orient Sun with Camera button is the one lighting control worth keeping
+// in the single-pane layout — it tucks under the texel density chip in the
+// dithered pane, and returns to the lighting overlay when the window widens.
+const sunOverlayHeading = sunControlElements.control.querySelector<HTMLDivElement>('.sun-overlay-heading')!;
+function relocateOrientSunButton(narrow: boolean): void {
+  const button = sunControlElements.orientWithCamera;
+  if (narrow) processedPaneFrame.append(button);
+  else sunOverlayHeading.after(button);
+}
+relocateOrientSunButton(narrowLayout.matches);
+narrowLayout.addEventListener('change', (event) => relocateOrientSunButton(event.matches));
 const sunDirectionValue = document.querySelector<HTMLOutputElement>('#sunDirectionValue')!;const cameraDirectionValue = document.querySelector<HTMLOutputElement>('#cameraDirectionValue')!;
 const stripeAngleControl = document.querySelector<HTMLDivElement>('#stripeAngleControl')!;
 const stripeAngleInput = document.querySelector<HTMLInputElement>('#stripeAngle')!;
@@ -633,6 +481,9 @@ try {
   console.error('Custom palettes could not be loaded from storage.', error);
 }
 let editingCustomKey: string | null = null;
+// The current draft's palette name lives here — the editable name field moved
+// onto the palette card, so there's no separate editor input anymore.
+let draftName = '';
 let modelBundle: ModelFileBundle | null = null;
 let originalPreviewMode: PreviewMode = '2d';
 let processedPreviewMode: PreviewMode = '2d';
@@ -915,14 +766,23 @@ function renderModelControls(): void {
 }
 
 function formatDirection(vector: DirectionVector): string {
-  return `(${vector.x.toFixed(2)}, ${vector.y.toFixed(2)}, ${vector.z.toFixed(2)})`;
+  return `${vector.x.toFixed(2)}, ${vector.y.toFixed(2)}, ${vector.z.toFixed(2)}`;
+}
+
+// The viewport that feeds "Orient Sun with Camera": the Original pane's camera
+// at wide widths; in the constrained single-pane layout the Original pane is
+// hidden, so the dithered pane's camera is the one the user actually sees.
+function orientCameraViewport(): ModelViewport | null {
+  return narrowLayout.matches ? processedViewport : originalViewport;
+}
+function orientCameraPreviewMode(): PreviewMode {
+  return narrowLayout.matches ? processedPreviewMode : originalPreviewMode;
 }
 
 function renderOrientationReadout(): void {
+  const viewport = orientCameraViewport();
   sunDirectionValue.textContent = formatDirection(state.sun.direction);
-  cameraDirectionValue.textContent = originalViewport
-    ? formatDirection(originalViewport.getCameraForward())
-    : '—';
+  cameraDirectionValue.textContent = viewport ? formatDirection(viewport.getCameraForward()) : '—';
 }
 
 // Shared sync for a sun/ambient light group (color picker + chip, intensity
@@ -943,7 +803,7 @@ function syncLightControls(
 
 function renderSunControl(): void {
   sunControlElements.control.hidden = modelBundle === null || (originalPreviewMode !== '3d' && processedPreviewMode !== '3d');
-  sunControlElements.orientWithCamera.disabled = originalPreviewMode !== '3d' || originalViewport === null;
+  sunControlElements.orientWithCamera.disabled = orientCameraPreviewMode() !== '3d' || orientCameraViewport() === null;
   syncLightControls(state.sun, sunControlElements.color, sunControlElements.intensity, sunControlElements.intensityValue);
   syncLightControls(state.ambient, sunControlElements.ambientColor, sunControlElements.ambientIntensity, sunControlElements.ambientIntensityValue);
   syncRangeValue(sunControlElements.normalStrength, sunControlElements.normalStrengthValue, state.normalStrength, formatFixed2);
@@ -1065,15 +925,18 @@ function applyWorldAxis(): void {
 }
 
 function applyPreviewMode(): void {
-  const applyPane = (mode: PreviewMode, canvas: HTMLCanvasElement, host: HTMLDivElement, toggle: HTMLDivElement): void => {
+  const applyPane = (mode: PreviewMode, canvas: HTMLCanvasElement, host: HTMLDivElement, toggle: HTMLDivElement, badge: HTMLButtonElement): void => {
     const threeD = modelBundle !== null && mode === '3d';
     host.hidden = !threeD;
     canvas.hidden = threeD;
     toggle.hidden = modelBundle === null;
+    // The zoom badge is a 2D-only control — pan/zoom live on the texture
+    // canvas, so a stale "100%" must not sit over the 3D view.
+    badge.hidden = threeD;
     syncActiveButton(toggle, '[data-preview-mode]', (button) => button.dataset.previewMode === mode);
   };
-  applyPane(originalPreviewMode, originalCanvas, originalModelHost, originalPreviewToggle);
-  applyPane(processedPreviewMode, previewCanvas, processedModelHost, processedPreviewToggle);
+  applyPane(originalPreviewMode, originalCanvas, originalModelHost, originalPreviewToggle, originalZoomBadge);
+  applyPane(processedPreviewMode, previewCanvas, processedModelHost, processedPreviewToggle, processedZoomBadge);
   renderSunControl();
   renderUVOverlapControl();
   renderUVWireframeControl();
@@ -1210,7 +1073,7 @@ function renderPalettes(): void {
   paletteGrid.innerHTML = visiblePalettes.map(([key, palette]) => `
     <div class="palette-card ${key === state.paletteKey && state.customColors.length === 0 ? 'active' : ''}" data-palette="${escapeHtml(key)}" role="button" tabindex="0" aria-label="${escapeHtml(palette.name)}, ${palette.colors.length} colors">
       <span class="mini-swatches">${representativeColors(palette.colors).map((color) => `<i style="--swatch:${color}"></i>`).join('')}</span>
-      <span class="palette-card-label"><span>${escapeHtml(palette.name)}</span><b>${palette.colors.length}</b><span class="palette-card-actions">
+      <span class="palette-card-label">${customKeys.has(key) ? `<input class="palette-card-name" value="${escapeHtml(palette.name)}" maxlength="60" aria-label="Rename palette" data-rename-palette="${escapeHtml(key)}" />` : `<span>${escapeHtml(palette.name)}</span>`}<b>${palette.colors.length}</b><span class="palette-card-actions">
         <button type="button" class="icon-button palette-card-duplicate" data-duplicate-palette="${escapeHtml(key)}" aria-label="Duplicate ${escapeHtml(palette.name)}" title="Duplicate ${escapeHtml(palette.name)}"><svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"><rect x="5" y="5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="2" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
         ${customKeys.has(key) ? `
           <button type="button" class="icon-button palette-card-export" data-export-palette="${escapeHtml(key)}" aria-label="Export ${escapeHtml(palette.name)}" title="Export ${escapeHtml(palette.name)}">${DOWNLOAD_ICON_SVG}</button>
@@ -1280,7 +1143,7 @@ function renderAdjustments(): void {
 
 function hydrateCustomDraft(name: string, colors: string[], key: string | null = null): void {
   editingCustomKey = key;
-  customPaletteName.value = name;
+  draftName = name;
   state.customColors = [...colors];
   state.paletteSnapshot = {
     name: name || 'Untitled Custom Palette',
@@ -1309,8 +1172,8 @@ function persistCustomDraft(): void {
   try {
     const existing = customPaletteByKey(editingCustomKey);
     const palette = existing
-      ? updateCustomPalette(existing, customPaletteName.value, currentColors())
-      : createCustomPalette(customPaletteName.value, currentColors(), new Date(), editingCustomKey ?? undefined);
+      ? updateCustomPalette(existing, draftName, currentColors())
+      : createCustomPalette(draftName, currentColors(), new Date(), editingCustomKey ?? undefined);
     savedCustomPalettes = upsertCustomPalette(localStorage, palette);
     setPaletteKey(palette.key);
     hydrateEditorForSelection(palette.key, palette);
@@ -1366,7 +1229,7 @@ function exportPaletteByKey(key: string): void {
 function hydrateEditorForSelection(paletteKey: string, fallback: Palette): void {
   const selectedCustom = customPaletteByKey(paletteKey);
   editingCustomKey = selectedCustom?.key ?? null;
-  customPaletteName.value = selectedCustom?.name ?? fallback.name;
+  draftName = selectedCustom?.name ?? fallback.name;
 }
 
 function selectPalette(key: string): void {
@@ -1382,7 +1245,7 @@ function removeCustomPalette(key: string): void {
     if (editingCustomKey === key) editingCustomKey = null;
     if (state.paletteKey === key) {
       setPaletteKey('desert');
-      customPaletteName.value = '';
+      draftName = '';
     }
     renderPalettes();
     render();
@@ -1730,7 +1593,7 @@ function reset(): void {
   invalidateModelCaches();
   renderTextureRibbon();
   editingCustomKey = null;
-  customPaletteName.value = '';
+  draftName = '';
   syncControlsFromState();
   scheduleNormalAdjustedLighting();
   applySun();
@@ -1854,6 +1717,7 @@ paletteFilters.addEventListener('click', (event) => {
 });
 paletteGrid.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
+  if (target.closest('.palette-card-name')) return;
   if (target.closest<HTMLButtonElement>('[data-import-palette]')) {
     importCustomPaletteInput.click();
     return;
@@ -1883,10 +1747,33 @@ paletteGrid.addEventListener('click', (event) => {
 paletteGrid.addEventListener('keydown', (event) => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
   const target = event.target as HTMLElement;
+  if (target.closest('.palette-card-name')) {
+    // Rename fields handle their own keys: Enter commits, Space types.
+    if (event.key === 'Enter') target.blur();
+    return;
+  }
   const card = target.closest<HTMLElement>('[data-palette]');
   if (!card?.dataset.palette || target.closest('button')) return;
   event.preventDefault();
   selectPalette(card.dataset.palette);
+});
+// Custom palettes rename directly on their card: the name is an inline input
+// that commits on Enter/blur.
+paletteGrid.addEventListener('change', (event) => {
+  const input = (event.target as HTMLElement).closest<HTMLInputElement>('.palette-card-name');
+  const key = input?.dataset.renamePalette;
+  if (!key) return;
+  const palette = customPaletteByKey(key);
+  if (!palette) return;
+  const name = input.value.trim() || palette.name;
+  if (name === palette.name) {
+    input.value = palette.name;
+    return;
+  }
+  savedCustomPalettes = upsertCustomPalette(localStorage, updateCustomPalette(palette, name, palette.colors));
+  if (state.paletteKey === key) draftName = name;
+  renderPalettes();
+  render();
 });
 // The native color picker is replaced by the in-app picker above the chip row:
 // suppress the hidden inputs' default actions (mouse and keyboard) so the OS
@@ -1943,8 +1830,6 @@ function updatePickerFieldHue(): void {
 // the color is achromatic (white/black/gray) so it isn't lost at the
 // pure-white corner. Always reason in HSV — never reconstruct hue from RGB.
 function syncPickerToColor(hex: string): void {
-  colorPickerSwatch.style.setProperty('--swatch', hex);
-  colorPickerHex.value = hex;
   const [h, s, v] = rgbToHsv(...hexToRgb(hex));
   pickerHsv = s > 0 && v > 0 ? [h, s, v] : [pickerHsv[0], s, v];
   updatePickerFieldHue();
@@ -2016,16 +1901,6 @@ window.addEventListener('pointerup', () => {
   pickerDrag = null;
   persistCustomDraft();
 });
-colorPickerHex.addEventListener('change', () => {
-  const value = colorPickerHex.value.trim();
-  if (/^#[0-9a-f]{6}$/i.test(value)) {
-    applyPickerColor(value.toLowerCase());
-    syncColorPicker();
-    persistCustomDraft();
-  } else {
-    syncColorPicker();
-  }
-});
 // The button under the hue bar is an eyedropper. The native EyeDropper API
 // samples anywhere on screen, but its picker takes ~1s to appear in
 // Chromium/WebView2 (browser-internal startup, not fixable from JS). Instead
@@ -2044,6 +1919,30 @@ function eyedropperCancel(): void {
   window.removeEventListener('keydown', eyedropperKey);
 }
 
+/** Samples a 2D preview canvas under the cursor using the preview's
+ * transform-aware mapping. The generic eyedropper assumes an untransformed
+ * object-fit canvas, which drifts once the preview is zoomed/panned. */
+function sample2DPreviewColor(element: Element | null, clientX: number, clientY: number): string | null {
+  let canvas: HTMLCanvasElement;
+  let preview: Preview2DApi;
+  if (element === originalCanvas) {
+    canvas = originalCanvas;
+    preview = originalPreview2D;
+  } else if (element === previewCanvas) {
+    canvas = previewCanvas;
+    preview = processedPreview2D;
+  } else {
+    return null;
+  }
+  const coords = preview.toCanvasPixel(clientX, clientY);
+  if (!coords) return null;
+  const context = canvas.getContext('2d');
+  if (!context) return null;
+  const [r, g, b, a] = context.getImageData(coords.x, coords.y, 1, 1).data;
+  if (a === 0) return null;
+  return rgbToHex(r, g, b);
+}
+
 function eyedropperPick(event: PointerEvent): void {
   if (event.button !== 0) {
     // Right/middle click cancels.
@@ -2052,7 +1951,8 @@ function eyedropperPick(event: PointerEvent): void {
   }
   event.preventDefault();
   event.stopPropagation();
-  const hex = sampleColorAt(event.clientX, event.clientY);
+  const element = document.elementFromPoint(event.clientX, event.clientY);
+  const hex = sample2DPreviewColor(element, event.clientX, event.clientY) ?? sampleColorAt(event.clientX, event.clientY);
   eyedropperCancel();
   if (hex) applyPickerColor(hex);
 }
@@ -2069,7 +1969,6 @@ colorPickerButton.addEventListener('click', () => {
   window.addEventListener('pointerdown', eyedropperPick, true);
   window.addEventListener('keydown', eyedropperKey);
 });
-customPaletteName.addEventListener('change', persistCustomDraft);
 
 const importCustomPaletteInput = document.querySelector<HTMLInputElement>('#importCustomPalette')!;
 importCustomPaletteInput.addEventListener('change', async () => {
@@ -2299,8 +2198,9 @@ uvWireframeInput.addEventListener('change', () => {
 });
 function bindSunControl(): void {
   sunControlElements.orientWithCamera.addEventListener('click', () => {
-    if (!originalViewport || originalPreviewMode !== '3d') return;
-    state.sun.direction = originalViewport.getCameraForward();
+    const viewport = orientCameraViewport();
+    if (!viewport || orientCameraPreviewMode() !== '3d') return;
+    state.sun.direction = viewport.getCameraForward();
     // Orient-with-camera always (re)generates a lightmap: re-engage the live
     // implicit bake after a slot clear, or re-bake an explicit lightmap so it
     // follows the new direction.

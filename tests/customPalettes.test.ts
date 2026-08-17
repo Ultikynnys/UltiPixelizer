@@ -82,8 +82,8 @@ describe('custom palettes', () => {
     });
     expect(created.created).toBe(true);
     expect(created.customPalettes).toHaveLength(2);
-    expect(created.customPalettes[0].key).toBe(created.key);
-    expect(created.customPalettes[0].name).toHaveLength(60);
+    expect(created.customPalettes[1].key).toBe(created.key);
+    expect(created.customPalettes[1].name).toHaveLength(60);
   });
 
   it('persists, updates, and deletes by stable key', () => {

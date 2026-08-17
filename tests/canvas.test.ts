@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   cloneImageData,
+  computeContainRect,
   createSampleTexture,
   downloadCanvas,
   downloadText,
@@ -143,6 +144,33 @@ describe('canvas drawing helpers', () => {
       255, 255, 255, 255,
       255, 255, 255, 255,
     ]);
+  });
+});
+
+describe('computeContainRect', () => {
+  it('returns the identity rect when content exactly fills the container', () => {
+    expect(computeContainRect(200, 100, 200, 100)).toEqual({ left: 0, top: 0, width: 200, height: 100, scale: 1 });
+  });
+
+  it('letterboxes a landscape image vertically when the container is taller', () => {
+    expect(computeContainRect(200, 400, 200, 100)).toEqual({ left: 0, top: 150, width: 200, height: 100, scale: 1 });
+  });
+
+  it('letterboxes a portrait image horizontally when the container is wider', () => {
+    expect(computeContainRect(200, 100, 200, 400)).toEqual({ left: 75, top: 0, width: 50, height: 100, scale: 0.25 });
+  });
+
+  it('scales down uniformly and centers on the bound dimension', () => {
+    expect(computeContainRect(100, 100, 200, 100)).toEqual({ left: 0, top: 25, width: 100, height: 50, scale: 0.5 });
+  });
+
+  it('scales up small content to fill the container', () => {
+    expect(computeContainRect(400, 400, 100, 100)).toEqual({ left: 0, top: 0, width: 400, height: 400, scale: 4 });
+  });
+
+  it('returns a zero rect when either dimension is empty', () => {
+    expect(computeContainRect(200, 100, 0, 100)).toEqual({ left: 0, top: 0, width: 0, height: 0, scale: 0 });
+    expect(computeContainRect(0, 100, 200, 100)).toEqual({ left: 0, top: 0, width: 0, height: 0, scale: 0 });
   });
 });
 

@@ -1,0 +1,251 @@
+import { computeContainRect } from './canvas';
+
+/**
+ * Interactive 2D texture preview for one pane: pan/zoom over the fitted
+ * texture, with the fitted rect as the single source of truth shared by the
+ * wireframe overlay and the eyedropper.
+ *
+ * The texture canvas is laid out by CSS as `object-fit: contain` inside the
+ * frame (`width: 100%`, height capped), so the *fitted rect* — where the image
+ * actually paints — is the canvas box's letterbox region, not the box itself.
+ * This module computes that rect in frame coordinates and drives the zoom/pan
+ * transform from it. The previous implementation treated the canvas box as the
+ * image, which drifted the pan bounds, the wireframe overlay, and eyedropper
+ * sampling on letterboxed images.
+ */
+
+export interface Preview2DApi {
+  /** Reset to fit: zoom 100%, centered. */
+  reset: () => void;
+  /** Recompute the fitted rect (after frame resize, buffer-size change, or
+   * visibility toggle), preserving the current zoom and re-clamping pan. */
+  refit: () => void;
+  /** Maps a viewport point to backing-pixel coordinates on the texture,
+   * accounting for the fitted layout and the zoom/pan transform. Returns null
+   * when the point falls outside the image or the canvas is hidden. */
+  toCanvasPixel: (clientX: number, clientY: number) => { x: number; y: number } | null;
+}
+
+interface Preview2DOptions {
+  canvas: HTMLCanvasElement;
+  frame: HTMLElement;
+  /** Optional zoom readout (a pane's caption badge). */
+  badge?: HTMLButtonElement | null;
+  /** Optional UV wireframe overlay, transformed in lockstep with the canvas. */
+  overlay?: HTMLElement | null;
+}
+
+const ZOOM_MIN = 0.1;
+const ZOOM_MAX = 64;
+/** Minimum px of the image that must stay in view while panning. */
+const PAN_MARGIN = 48;
+
+export function createPreview2D(options: Preview2DOptions): Preview2DApi {
+  const { canvas, frame, badge = null, overlay = null } = options;
+
+  let zoom = 1;
+  let panX = 0;
+  let panY = 0;
+
+  // The fitted image rect in frame coordinates, plus the image's offset inside
+  // the canvas element box (the object-fit letterbox). The latter is the
+  // canvas's transform-origin so zoom anchors at the image's top-left, not the
+  // letterboxed box's.
+  let rect = { left: 0, top: 0, width: 0, height: 0 };
+  let originX = 0;
+  let originY = 0;
+
+  const pointers = new Map<number, { x: number; y: number }>();
+  let pinchDistance = 0;
+  let dragging = false;
+
+  const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
+
+  function computeFit(): void {
+    const frameWidth = frame.clientWidth;
+    const frameHeight = frame.clientHeight;
+    const boxWidth = canvas.offsetWidth;
+    const boxHeight = canvas.offsetHeight;
+    if (frameWidth <= 0 || frameHeight <= 0 || boxWidth <= 0 || boxHeight <= 0 || canvas.width <= 0 || canvas.height <= 0) {
+      rect = { left: 0, top: 0, width: 0, height: 0 };
+      originX = 0;
+      originY = 0;
+      return;
+    }
+    // The canvas is flex-centered in the frame; object-fit: contain letterboxes
+    // the buffer inside its own box, so the image's frame-space rect is the
+    // box's position plus the letterbox offset.
+    const boxLeft = (frameWidth - boxWidth) / 2;
+    const boxTop = (frameHeight - boxHeight) / 2;
+    const inner = computeContainRect(boxWidth, boxHeight, canvas.width, canvas.height);
+    rect = { left: boxLeft + inner.left, top: boxTop + inner.top, width: inner.width, height: inner.height };
+    originX = inner.left;
+    originY = inner.top;
+  }
+
+  function apply(): void {
+    const transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    canvas.style.transformOrigin = `${originX}px ${originY}px`;
+    canvas.style.transform = transform;
+    if (overlay) {
+      // The overlay fills the frame and strokes the wireframe in frame space,
+      // so its transform-origin is the fitted rect's top-left — the same visual
+      // point as the canvas's origin — keeping the two aligned under zoom.
+      overlay.style.transformOrigin = `${rect.left}px ${rect.top}px`;
+      overlay.style.transform = transform;
+    }
+    if (badge) badge.textContent = `${Math.round(zoom * 100)}%`;
+  }
+
+  /** Keep a sliver of the image in view: it may slide past the frame edges
+   * (revealing the backdrop) but can never be lost entirely. Bounds are in
+   * frame space, against the fitted rect (not the letterboxed canvas box). */
+  function clampPan(): void {
+    const frameWidth = frame.clientWidth;
+    const frameHeight = frame.clientHeight;
+    const imageWidth = rect.width * zoom;
+    const imageHeight = rect.height * zoom;
+    const margin = Math.min(PAN_MARGIN, frameWidth, frameHeight);
+    const minX = margin - rect.left - imageWidth; // image right edge ≥ margin
+    const maxX = frameWidth - margin - rect.left; // image left edge ≤ frameWidth − margin
+    const minY = margin - rect.top - imageHeight;
+    const maxY = frameHeight - margin - rect.top;
+    panX = minX > maxX ? (frameWidth - imageWidth) / 2 - rect.left : clamp(panX, minX, maxX);
+    panY = minY > maxY ? (frameHeight - imageHeight) / 2 - rect.top : clamp(panY, minY, maxY);
+  }
+
+  /** Zooms so the frame-space point (cursorX, cursorY) stays under the cursor. */
+  function zoomAt(cursorX: number, cursorY: number, nextZoom: number): void {
+    const factor = nextZoom / zoom;
+    // Anchored against the image's top-left (rect.left/top): the cursor's
+    // offset from that origin is preserved across the zoom.
+    const anchorX = cursorX - rect.left;
+    const anchorY = cursorY - rect.top;
+    panX = anchorX - (anchorX - panX) * factor;
+    panY = anchorY - (anchorY - panY) * factor;
+    zoom = nextZoom;
+    clampPan();
+    apply();
+  }
+
+  function refit(): void {
+    computeFit();
+    clampPan();
+    apply();
+  }
+
+  function reset(): void {
+    zoom = 1;
+    panX = 0;
+    panY = 0;
+    clampPan();
+    apply();
+  }
+
+  function toCanvasPixel(clientX: number, clientY: number): { x: number; y: number } | null {
+    if (canvas.hidden || rect.width <= 0 || rect.height <= 0) return null;
+    const frameRect = frame.getBoundingClientRect();
+    const u = (clientX - frameRect.left - rect.left - panX) / (zoom * rect.width);
+    const v = (clientY - frameRect.top - rect.top - panY) / (zoom * rect.height);
+    if (u < 0 || u >= 1 || v < 0 || v >= 1) return null;
+    const x = Math.min(canvas.width - 1, Math.max(0, Math.floor(u * canvas.width)));
+    const y = Math.min(canvas.height - 1, Math.max(0, Math.floor(v * canvas.height)));
+    return { x, y };
+  }
+
+  const interactionsBlocked = (): boolean => document.body.classList.contains('eyedropping');
+
+  // Cursor position in frame coordinates (independent of the canvas transform).
+  const cursorInFrame = (clientX: number, clientY: number): { x: number; y: number } => {
+    const frameRect = frame.getBoundingClientRect();
+    return { x: clientX - frameRect.left, y: clientY - frameRect.top };
+  };
+
+  // Only presses on the pan surface itself start a pan: the canvas, the
+  // wireframe overlay when visible, or the frame's backdrop. The frame's
+  // control chips sit on top of the backdrop and are not pan surfaces.
+  const isPanSurface = (target: EventTarget | null): boolean =>
+    target === frame || target === canvas || target === overlay;
+
+  frame.addEventListener('wheel', (event) => {
+    if (interactionsBlocked() || canvas.hidden || !isPanSurface(event.target)) return;
+    // preventDefault also stops the webview's ctrl+wheel page zoom.
+    event.preventDefault();
+    const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+    const factor = Math.exp(-delta * 0.002);
+    const { x, y } = cursorInFrame(event.clientX, event.clientY);
+    zoomAt(x, y, clamp(zoom * factor, ZOOM_MIN, ZOOM_MAX));
+  }, { passive: false });
+
+  frame.addEventListener('pointerdown', (event) => {
+    if (interactionsBlocked() || canvas.hidden || event.button !== 0 || !isPanSurface(event.target)) return;
+    // No preventDefault here: canceling pointerdown would suppress the
+    // compatibility mouse events, killing double-click-to-reset.
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size === 2) {
+      const [first, second] = Array.from(pointers.values());
+      pinchDistance = Math.hypot(first.x - second.x, first.y - second.y);
+      dragging = false;
+    } else if (pointers.size === 1) {
+      dragging = true;
+    }
+  });
+
+  // Drag moves listen on the window, not the canvas: WebView2 does not
+  // reliably deliver pointermove to a captured element, so a canvas-bound
+  // listener would leave drag-pan dead in the desktop app.
+  window.addEventListener('pointermove', (event) => {
+    if (interactionsBlocked() || canvas.hidden) return;
+    // A pointerup was missed (button released outside the window): end the drag.
+    if (event.pointerType === 'mouse' && !(event.buttons & 1)) {
+      endPointer(event);
+      return;
+    }
+    const previous = pointers.get(event.pointerId);
+    if (!previous) return;
+    const current = { x: event.clientX, y: event.clientY };
+    pointers.set(event.pointerId, current);
+    if (pointers.size === 2) {
+      const [first, second] = Array.from(pointers.values());
+      const distance = Math.hypot(first.x - second.x, first.y - second.y);
+      if (pinchDistance > 0) {
+        const { x, y } = cursorInFrame((first.x + second.x) / 2, (first.y + second.y) / 2);
+        zoomAt(x, y, clamp(zoom * (distance / pinchDistance), ZOOM_MIN, ZOOM_MAX));
+      }
+      pinchDistance = distance;
+      return;
+    }
+    if (!dragging) return;
+    panX += current.x - previous.x;
+    panY += current.y - previous.y;
+    clampPan();
+    apply();
+  });
+
+  const endPointer = (event: PointerEvent): void => {
+    pointers.delete(event.pointerId);
+    if (pointers.size < 2) pinchDistance = 0;
+    if (pointers.size === 0) dragging = false;
+  };
+  window.addEventListener('pointerup', endPointer);
+  window.addEventListener('pointercancel', endPointer);
+
+  frame.addEventListener('dblclick', (event) => {
+    if (interactionsBlocked() || canvas.hidden || !isPanSurface(event.target)) return;
+    event.preventDefault();
+    reset();
+  });
+
+  badge?.addEventListener('click', reset);
+
+  // Recompute the fitted rect whenever the canvas's box size changes (frame
+  // resize, pane visibility toggles) or its backing buffer changes (render).
+  const resizeObserver = new ResizeObserver(() => refit());
+  resizeObserver.observe(canvas);
+  const bufferObserver = new MutationObserver(() => refit());
+  bufferObserver.observe(canvas, { attributes: true, attributeFilter: ['width', 'height'] });
+
+  refit();
+
+  return { reset, refit, toCanvasPixel };
+}

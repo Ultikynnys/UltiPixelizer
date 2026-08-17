@@ -16,7 +16,11 @@
   --line-bright: #55554f;
   /* ── control sizing ── */
   --control-height: 32px;
-  --control-width: 410px;
+  --control-width: clamp(260px, 32vw, 410px);
+  /* Horizontal spacing shared by every topbar item (brand group, version
+     chip, GitHub/Ko-fi pills, action buttons) — one value, so the gaps
+     stay uniform across the row at every window width. */
+  --topbar-gap: clamp(6px, 1.2vw, 17px);
   /* ── text, dim → bright ── */
   --faint: #77776e;
   --muted: #97978e;
@@ -51,11 +55,11 @@ button { border: 0; color: inherit; }
    panel. The panel is an in-flow grid item, so it can never overlap the
    canvas stage — it just reserves its column and scrolls internally. */
 .app-shell { display: grid; grid-template-columns: minmax(0, 1fr) var(--control-width); height: 100%; min-width: 0; }
-.main-column { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; }
+.main-column { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; overflow: hidden; }
 
 .topbar {
   align-items: center; background: color-mix(in srgb, var(--ink) 96%, transparent); display: flex;
-  height: 72px; justify-content: space-between; padding: 0 28px;
+  container-type: inline-size; gap: var(--topbar-gap); min-height: 72px; min-width: 0; overflow: hidden; padding: 0 clamp(16px, 2.4vw, 28px);
   backdrop-filter: blur(12px);
 }
 .brand { align-items: center; color: var(--paper); display: flex; font-size: 18px; font-weight: 800; gap: 12px; letter-spacing: -.04em; text-decoration: none; width: fit-content; }
@@ -71,32 +75,36 @@ button { border: 0; color: inherit; }
 .button, .orient-sun-button { background: var(--raised); }
 .button-quiet { background: transparent; color: var(--muted); justify-self: end; padding-right: 0; }
 .button-quiet:hover { color: var(--paper); }
-.topbar-actions { align-items: center; display: flex; gap: 6px; }
-.topbar-actions .button { height: var(--control-height); padding: 0 17px; }
-.brand-group { align-items: center; display: flex; gap: 14px; min-width: 0; }
+.topbar-actions { align-items: center; display: flex; gap: var(--topbar-gap); margin-left: auto; min-width: 0; }
+.topbar-actions .button { height: var(--control-height); padding: 0 var(--topbar-gap); }
+.brand-group { align-items: center; display: flex; gap: var(--topbar-gap); min-width: 0; }
 .brand-group .build-version { flex: none; }
 .circle-link {
   align-items: center; background: var(--card);
-  color: var(--muted); display: inline-flex; flex: none; gap: 8px; height: var(--control-height); justify-content: center;
-  padding: 0 12px; text-decoration: none; white-space: nowrap;
+  color: var(--muted); display: inline-flex; flex: 0 1 auto; gap: 8px; height: var(--control-height); justify-content: center;
+  min-width: 0; padding: 0 12px; text-decoration: none; white-space: nowrap;
   transition: background-color .22s ease, color .22s ease;
 }
 .circle-link svg { flex: none; }
-.circle-link .circle-label { font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+.circle-link .circle-label { font-size: 11px; font-weight: 700; letter-spacing: .02em; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .circle-link:hover, .circle-link:focus-visible { background: var(--raised); color: var(--paper); }
 .circle-link:active { background: var(--chip); }
 .circle-kofi { color: var(--accent); }
 .circle-kofi:hover, .circle-kofi:focus-visible { color: var(--accent-hover); }
 .circle-kofi:active { color: var(--paper); }
+/* The build-version chip is decorative: when the topbar's own width (its
+   container, not the window) can't hold the brand group and the action
+   buttons on one row, drop the chip instead of letting the row clip. */
+@container (max-width: 420px) { .build-version { display: none; } }
 .button:disabled { cursor: not-allowed; opacity: .35; }
 .icon-button { align-items: center; background: var(--chip); color: var(--paper-soft); cursor: pointer; display: flex; justify-content: center; padding: 0; }
 .icon-button:hover, .icon-button:focus-visible { background: var(--accent); color: var(--on-accent); }
 
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; overflow: hidden; }
 .preview-column { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; overflow: hidden; }
-.preview-toolbar { align-items: center; display: flex; gap: 24px; min-height: 86px; padding: 18px 28px; }
+.preview-toolbar { align-items: center; display: flex; gap: 24px; min-height: 86px; min-width: 0; overflow: hidden; padding: 18px clamp(16px, 2.4vw, 28px); }
 .eyebrow { color: var(--accent); font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500; letter-spacing: .15em; margin: 0 0 7px; }
-.toolbar-actions { align-items: center; display: flex; gap: 10px; margin-left: auto; }
+.toolbar-actions { align-items: flex-end; display: flex; flex-direction: column; gap: 6px; margin-left: auto; }
 .value-pill { background: var(--card); color: var(--paper-dim); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .08em; padding: 9px 11px; }
 .uv-control { align-items: center; display: flex; gap: 6px; }
 .uv-control span { color: var(--muted); font: 500 8px 'DM Mono', monospace; text-transform: uppercase; }
@@ -127,13 +135,16 @@ select option { background: var(--card); color: var(--paper); }
 .uv-overlap-control.is-disabled { opacity: .45; pointer-events: none; }
 .orient-sun-button {
   color: inherit; cursor: pointer;
-  font: 600 8px 'DM Mono', monospace; margin: 7px 0 3px; padding: 7px 8px; text-transform: uppercase; width: 136px;
+  font: 600 8px 'DM Mono', monospace; margin: 7px 0 3px; padding: 7px 8px; text-transform: uppercase; width: 84px;
 }
 .orient-sun-button:disabled { cursor: not-allowed; opacity: .35; }
-.orientation-readout { display: grid; gap: 4px; margin-top: 7px; padding-top: 7px; width: 136px; }
+.orientation-readout { display: grid; gap: 4px; margin-top: 7px; padding-top: 7px; width: 86px; }
 .orientation-row { align-items: center; display: flex; font: 500 8px 'DM Mono', monospace; justify-content: space-between; }
-.orientation-label { color: var(--muted); text-transform: uppercase; }
-.orientation-row output { color: var(--paper); }
+.orientation-label { color: var(--muted); font-size: 6px; text-transform: uppercase; }
+/* Direction vectors max out at 19 chars ("-0.99, -0.99, -0.99") — sized so
+   even that fits on one line beside the shorthand label; nowrap + ellipsis
+   are a belt-and-braces guard against any split. */
+.orientation-row output { color: var(--paper); font-size: 6.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .toggle { align-items: center; cursor: pointer; display: flex; gap: 6px; }
 .toggle input { appearance: none; background: var(--raised); cursor: pointer; height: 10px; margin: 0; position: relative; transition: background .15s ease; width: 18px; }
 .toggle input::after { background: var(--paper-dim); content: ''; height: 6px; left: 1px; position: absolute; top: 1px; transition: left .15s ease, background .15s ease; width: 6px; }
@@ -141,12 +152,19 @@ select option { background: var(--card); color: var(--paper); }
 .toggle input:checked::after { background: var(--ink); left: 10px; }
 .toggle input:focus-visible { background: color-mix(in srgb, var(--accent) 55%, var(--raised)); }
 .toggle input:disabled { cursor: not-allowed; opacity: .35; }
-.light-controls { display: grid; gap: 6px; margin-top: 3px; padding-top: 7px; width: 136px; }
-.light-color-control { align-items: center; color: var(--muted); display: grid; font: 500 8px 'DM Mono', monospace; gap: 5px; grid-template-columns: 1fr 28px; position: relative; }
+.light-controls { display: grid; gap: 5px; margin-top: 3px; padding-top: 7px; width: 84px; }
+/* One compact row per light: the value readout + color swatch on the heading
+   line (the swatch's position implies what it edits), the slider full-width
+   below. */
+.light-group { display: grid; gap: 4px; }
+.light-heading { align-items: center; display: flex; justify-content: space-between; }
+.light-heading output { color: var(--paper); font: 500 8px 'DM Mono', monospace; }
+.light-label { color: var(--paper); font: 600 7px 'DM Mono', monospace; text-transform: uppercase; }
+.light-heading-end { align-items: center; display: flex; gap: 4px; }
+.light-swatch { position: relative; }
+.light-swatch .color-chip { display: block; height: 18px; width: 28px; }
 .hidden-input { cursor: pointer; height: 1px; opacity: 0; position: absolute; width: 1px; }
 .color-chip { background: var(--swatch); cursor: pointer; display: block; }
-.light-color-control .color-chip { height: 18px; width: 28px; }
-.light-section-title { color: var(--paper); font: 600 8px 'DM Mono', monospace; letter-spacing: .1em; margin-top: 2px; padding-top: 6px; text-transform: uppercase; }
 .light-controls input:disabled { cursor: not-allowed; opacity: .35; }
 .light-controls input:disabled + span { opacity: .35; }
 
@@ -165,6 +183,7 @@ select option { background: var(--card); color: var(--paper); }
   background: transparent; border: 0; color: var(--muted); cursor: pointer;
   font: 700 9px 'DM Mono', monospace; letter-spacing: .06em; padding: 0 2px;
 }
+.fig-zoom[hidden] { display: none; }
 .fig-zoom:hover, .fig-zoom:focus-visible { color: var(--paper); }
 .canvas-frame { align-items: center; background: var(--backdrop); cursor: grab; display: flex; justify-content: center; min-width: 0; overflow: hidden; position: relative; }
 .preview-pane canvas { cursor: grab; display: block; image-rendering: pixelated; max-height: clamp(240px, 52vh, 560px); max-width: 100%; min-width: 0; object-fit: contain; touch-action: none; width: 100%; }
@@ -206,14 +225,19 @@ select option { background: var(--card); color: var(--paper); }
   background: transparent; border: 0; color: inherit; cursor: pointer;
   font: 700 9px 'Manrope', system-ui, sans-serif; letter-spacing: .08em; padding: 6px 12px;
 }
+/* The view-mode enum scales with the window so all six segments fit inside
+   one pane: the pane is ~0.34×window wide in the two-pane layout and
+   window − 260px in the single-pane layout, and the fluid font/padding/gap
+   (0.72vw core) tracks the tighter of the two, clamped to stay legible. */
 .preview-view-toggle {
   align-items: center; background: color-mix(in srgb, var(--ink) 92%, transparent);
-  bottom: 8px; display: flex; gap: 2px; left: 8px; padding: 3px; position: absolute; z-index: 10;
+  bottom: 8px; display: flex; gap: clamp(1px, 0.15vw, 2px); left: 8px; padding: clamp(2px, 0.3vw, 3px); position: absolute; z-index: 10;
 }
 .preview-view-toggle[hidden] { display: none; }
 .preview-view-toggle button {
   background: transparent; border: 0; color: inherit; cursor: pointer;
-  font: 700 8px 'DM Mono', monospace; letter-spacing: .06em; padding: 5px 8px; text-transform: uppercase;
+  font: 700 clamp(6px, 0.72vw, 8px) 'DM Mono', monospace; letter-spacing: .06em;
+  padding: clamp(3px, 0.5vw, 5px) clamp(4px, 0.7vw, 8px); text-transform: uppercase; white-space: nowrap;
 }
 .preview-view-toggle button:disabled { cursor: not-allowed; opacity: .35; }
 .world-axis-toggle { bottom: 8px; left: auto; right: 8px; }
@@ -306,7 +330,7 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .texture-slot[data-texture].filled .texture-slot-label { bottom: 3px; left: 6px; max-width: calc(100% - 30px); position: absolute; text-shadow: 0 1px 2px rgba(0, 0, 0, .85); width: auto; }
 
 .control-column { background: var(--surface); min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; scrollbar-color: var(--line) var(--surface); }
-.panel { min-width: 0; padding: 24px 25px; }
+.panel { min-width: 0; padding: 12px 25px; }
 .panel h2 { font-size: 17px; letter-spacing: -.03em; margin: 0; }
 .panel-heading { align-items: center; display: flex; justify-content: space-between; margin-bottom: 22px; }
 .panel-heading.compact { margin-bottom: 17px; }
@@ -323,7 +347,7 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .resolution-block { margin-bottom: 18px; }
 
 .catalog-count { color: var(--muted); font: 500 8px 'DM Mono', monospace; letter-spacing: .06em; }
-.palette-filters { display: flex; flex-wrap: wrap; gap: 4px; margin: -5px 0 13px; }
+.palette-filters { display: flex; flex-wrap: wrap; gap: 4px; margin: -5px 0 0; }
 .palette-filters button { background: transparent; border: 0; color: var(--muted); cursor: pointer; font: 500 8px 'DM Mono', monospace; padding: 6px 8px; text-transform: uppercase; }
 .palette-filters button:hover, .palette-filters button.active,
 .preview-view-toggle button:not(:disabled):hover, .preview-view-toggle button.active,
@@ -334,8 +358,13 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
    (two ~177px cards per row is cramped, the action buttons + count badge
    leave the palette name ~60px), two columns whenever the panel can really
    fit them. Tracks are derived from the container, so the grid can never
-   outgrow the panel and push the shell. */
-.palette-grid { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); max-height: 340px; overflow-y: auto; padding-right: 3px; scrollbar-color: var(--line-bright) var(--panel); }
+   outgrow the panel and push the shell. overflow-y: auto would force
+   overflow-x to auto as well (a horizontal scrollbar is an anti-pattern
+   here) — the grid clips cross-axis overflow instead, and the swatch row
+   squeezes to fit (flex: 1, min-width: 0). scrollbar-gutter: stable gives
+   the vertical scrollbar its own reserved lane (classic or overlay), so it
+   never paints over the cards, and padding-right keeps a clear gap. */
+.palette-grid { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); max-height: 340px; overscroll-behavior: contain; overflow-x: hidden; overflow-y: auto; padding-right: 10px; scrollbar-color: var(--line-bright) var(--panel); scrollbar-gutter: stable; }
 .palette-card { background: var(--card); color: var(--paper-dim); cursor: pointer; display: flex; flex-direction: column; font-size: 10px; gap: 7px; min-width: 0; overflow: hidden; padding: 9px; position: relative; text-align: left; }
 .palette-card:hover { background: var(--raised); }
 .palette-card.active { background: color-mix(in srgb, var(--accent) 25%, var(--card)); color: var(--paper); }
@@ -348,25 +377,19 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .palette-card-label { align-items: center; display: flex; gap: 6px; min-width: 0; }
 .palette-card-label > span:first-child { margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-card-label b { background: var(--chip); color: var(--muted); flex: 0 0 auto; font: 500 8px 'DM Mono', monospace; padding: 2px 4px; }
+.palette-card-name { background: var(--raised); border: 1px solid transparent; color: inherit; flex: 1 1 auto; font: inherit; line-height: 1.4; min-width: 0; padding: 2px 5px; width: 100%; }
+.palette-card-name:hover { border-color: var(--line-bright); }
+.palette-card-name:focus { border-color: var(--accent); }
 .mini-swatches { display: flex; height: 13px; overflow: hidden; width: 100%; }
-.mini-swatches i { background: var(--swatch); flex: 1; min-width: 2px; }
-.custom-palette { margin-top: 15px; padding-top: 13px; }
-.custom-palette-title { color: var(--paper-dim); font-size: 10px; }
+.mini-swatches i { background: var(--swatch); flex: 1 1 0; min-width: 0; }
 .palette-editor { border: 0; margin: 0; min-width: 0; padding: 0; }
 .palette-editor:disabled { filter: grayscale(1); opacity: .45; pointer-events: none; }
-.palette-editor-fields { display: grid; gap: 8px; margin-top: 14px; }
-.palette-editor-fields label { display: grid; gap: 5px; }
-.palette-editor-fields label > span { color: var(--muted); font: 500 8px 'DM Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
-.palette-editor-fields input { background: var(--card); border: 1px solid var(--line); color: var(--paper); font-size: 10px; padding: 8px 9px; width: 100%; }
 .custom-colors { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
 .custom-color { height: 31px; position: relative; width: 31px; }
 .custom-color label { cursor: pointer; display: block; height: 25px; position: relative; width: 25px; }
 .custom-color .color-chip { height: 100%; width: 100%; }
 .custom-color button { font-size: 10px; height: 15px; position: absolute; right: 0; top: 16px; width: 15px; z-index: 3; }
 .color-picker { border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); display: grid; gap: 10px; margin: 0 0 14px; padding: 14px 0; }
-.color-picker-head { align-items: center; display: flex; gap: 8px; }
-.color-picker-swatch { background: var(--swatch); border: 1px solid var(--line-bright); flex: 0 0 auto; height: 26px; width: 26px; }
-.color-picker-hex { background: var(--card); border: 1px solid var(--line); color: var(--paper); font: 500 10px 'DM Mono', monospace; padding: 6px 8px; text-transform: uppercase; width: 68px; }
 .color-picker-body { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr) 32px; height: 140px; }
 .color-picker-field { background: linear-gradient(to top, #000, rgba(0, 0, 0, 0)), linear-gradient(to right, #fff, var(--field-hue, #f00)); cursor: default; touch-action: none; }
 .color-picker-side { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
@@ -385,12 +408,11 @@ body.eyedropping, body.eyedropping * { cursor: var(--eyedropper-cursor, crosshai
 .custom-color.active label::after { box-shadow: 0 0 0 1px #000, 0 0 0 3px #fff; content: ''; inset: 0; pointer-events: none; position: absolute; z-index: 2; }
 .custom-color-add { align-items: center; background: var(--card); color: var(--muted); cursor: pointer; display: flex; font: 500 15px 'DM Mono', monospace; height: 25px; justify-content: center; line-height: 1; padding: 0; width: 25px; }
 .mode-grid { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
-.mode-button { background: var(--card); cursor: pointer; display: grid; gap: 2px; grid-template-columns: 40px minmax(0, 1fr); padding: 8px; text-align: left; }
+.mode-button { align-items: center; background: var(--card); cursor: pointer; display: grid; gap: 2px; grid-template-columns: 24px minmax(0, 1fr); padding: 4px 6px; text-align: left; }
 .mode-button:hover { background: var(--raised); }
 .mode-button.active { background: color-mix(in srgb, var(--accent) 22%, var(--card)); }
 .mode-button strong { font-size: 9px; font-weight: 600; }
-.mode-button small { color: var(--muted); font-size: 8px; }
-.pattern { background-color: var(--ink); grid-row: span 2; height: 34px; width: 34px; }
+.pattern { background-color: var(--ink); height: 17px; width: 17px; }
 .pattern-noise { background-image: radial-gradient(var(--paper) 30%,transparent 33%); background-position: 0 0, 3px 3px; background-size: 5px 5px; }
 .pattern-atkinson { background-image: radial-gradient(var(--pattern-dot-mid) 22%,transparent 25%); background-size: 7px 7px; }
 .pattern-grid { background-image: linear-gradient(45deg,var(--pattern-dot) 25%,transparent 25%,transparent 75%,var(--pattern-dot) 75%),linear-gradient(45deg,var(--pattern-dot) 25%,transparent 25%,transparent 75%,var(--pattern-dot) 75%); background-position: 0 0,3px 3px; background-size: 6px 6px; }
@@ -406,7 +428,6 @@ body.eyedropping, body.eyedropping * { cursor: var(--eyedropper-cursor, crosshai
 .control-row strong { font-size: 10px; }
 .control-row small { color: var(--muted); font-size: 8px; margin-top: 3px; }
 .control-row output { color: var(--paper); font: 500 9px 'DM Mono', monospace; }
-.light-controls .control-row { margin-top: 0; }
 .panel-description { color: var(--muted); font-size: 9px; line-height: 1.5; margin: 4px 0 0; }
 .lightmap-status { background: var(--surface); color: var(--paper-dim); font: 500 8px 'DM Mono', monospace; margin-top: 13px; overflow: hidden; padding: 8px; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -427,9 +448,8 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
 
 @media (max-width: 900px) {
   /* The sidebar (control column) stays on the right at every width — it never
-     reflows to the bottom — but at narrow windows it stops eating a fixed
-     410px: the panel shrinks to 320px and the preview column gets the rest. */
-  :root { --control-width: 320px; }
+     reflows to the bottom. Its width is --control-width, a clamp that scales
+     with the window, so the preview column keeps the larger share. */
   .canvas-stage { padding: 20px; }
   .preview-pane canvas { max-height: 48vh; }
   .model-host { height: clamp(260px, 48vh, 480px); }
@@ -437,22 +457,39 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
      dithered preview is the work product, so the Original pane drops out and
      takes its space; the topbar keeps only the app actions; the model-only
      UV map / LOD selects hide. The Original pane's shared controls (view
-     mode, world axis, UV toggles, sun) are relocated into the dithered pane
-     by main.ts — these offsets dodge the controls already there (Export PNG
-     bottom-left, texel density top-left). */
+     mode, UV toggles) are relocated into the dithered pane by
+     main.ts — the view mode enum sits on the bottom edge with Export PNG
+     lifted above it (texel density stays top-left, with Orient Sun with
+     Camera tucked beneath it). The world-axis toggle and the rest of the
+     lighting overlay are NOT relocated — they hide along with the Original
+     pane. */
   .comparison-grid { grid-template-columns: 1fr; }
   .original-pane { display: none; }
   .circle-link { display: none; }
   .uv-control { display: none; }
+  /* The texture ribbon's six slots (5 textures + model) need ~500px at their
+     full 82px size; below ~900px the preview column can't hold them, so the
+     slots scale down fluidly — (16.67vw − 56px) is the exact width that fits
+     6 slots + gaps + toolbar chrome once the control column hits its 260px
+     floor (~812px window), clamped to stay usable at both ends. */
+  .preview-toolbar { gap: 12px; padding: 12px; }
+  .toolbar-actions { display: none; }
+  .texture-ribbon { gap: 8px; }
+  .texture-slot { height: 56px; min-width: clamp(46px, calc(16.67vw - 56px), 70px); padding: 5px 6px; }
+  .texture-slot-preview { height: 24px; width: 32px; }
   .resolution-presets { grid-template-columns: 1fr; }
-  .preview-view-toggle { bottom: 46px; }
-  .sun-overlay { top: 48px; }
+  #exportButton { bottom: 46px; }
+  /* The relocated Orient Sun with Camera button sits directly under the
+     texel density chip (top-left) in the single-pane layout. */
+  #orientSunWithCamera { left: 8px; margin: 0; position: absolute; top: 54px; }
 }
 
 @media (max-width: 620px) {
-  :root { --control-width: 260px; }
-  .topbar { height: 62px; padding: 0 16px; }
-  .preview-toolbar { min-height: 74px; padding: 14px 16px; }
+  .topbar { min-height: 62px; }
+  .preview-toolbar { gap: 12px; min-height: 74px; padding: 10px 12px; }
+  .texture-ribbon { gap: 6px; overflow-x: auto; scrollbar-color: var(--line-bright) var(--panel); }
+  .texture-slot { height: 50px; min-width: 48px; padding: 4px 5px; }
+  .texture-slot-preview { height: 18px; width: 28px; }
   .canvas-stage { padding: 10px; }
   .model-host { height: clamp(240px, 44vh, 380px); }
   .comparison-grid { gap: 8px; }
@@ -460,7 +497,7 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
   .preview-pane figcaption { font-size: 8px; }
   .preview-pane canvas { min-width: 0; width: 100%; }
   .button { padding: 11px 12px; }
-  .panel { padding: 22px 18px; }
+  .panel { padding: 12px 18px; }
   .palette-grid, .mode-grid { gap: 7px; }
 }
 
