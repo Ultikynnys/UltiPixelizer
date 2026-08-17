@@ -43,21 +43,22 @@ describe('ambient occlusion factors', () => {
     expect(Array.from(data.slice(0, 3))).toEqual([200, 100, 50]);
   });
 
-  it('shifts the whole occlusion curve with bias', () => {
+  it('normalizes positive bias so unoccluded pixels stay full brightness', () => {
     const data = frame([[200, 100, 50, 255], [200, 100, 50, 255]]);
     const factors = new Uint8ClampedArray([255, 0]);
     applyAO(data, factors, 0.5, 1);
-    expect(Array.from(data.slice(0, 3))).toEqual([100, 50, 25]);
+    // v=1: (1 − 0.5)/(1 − 0.5) = 1 → untouched; v=0: remap below the floor → black.
+    expect(Array.from(data.slice(0, 3))).toEqual([200, 100, 50]);
     expect(Array.from(data.slice(4, 7))).toEqual([0, 0, 0]);
   });
 
   it('clamps remapped occlusion so AO never exceeds [0, 1]', () => {
     const data = frame([[100, 100, 100, 255], [100, 100, 100, 255]]);
     applyAO(data, new Uint8ClampedArray([0, 255]), 1, 4);
-    // Fully occluded (v=0): 0^4 − 1 = −1 → clamped 0 → black.
+    // Fully occluded (v=0): bias +1 floors everything below pure white → black.
     expect(Array.from(data.slice(0, 3))).toEqual([0, 0, 0]);
-    // Unoccluded (v=1): 1 − 1 = 0 → multiplier 0 → black (bias +1 = fully dark).
-    expect(Array.from(data.slice(4, 7))).toEqual([0, 0, 0]);
+    // Unoccluded (v=1): the normalized remap keeps full brightness.
+    expect(Array.from(data.slice(4, 7))).toEqual([100, 100, 100]);
   });
 });
 
@@ -79,14 +80,23 @@ describe('AO multiplier remap', () => {
     expect(aoMultiplier(200, 0, 0.5)).toBeCloseTo(Math.sqrt(200 / 255));
   });
 
-  it('raises the baseline with positive bias', () => {
-    // Unoccluded factor 255 → visibility 1 → multiplier 1 − 0.5.
-    expect(aoMultiplier(255, 0.5, 1)).toBe(0.5);
+  it('keeps the unoccluded end pinned at 1 under bias', () => {
+    expect(aoMultiplier(255, 0.5, 1)).toBe(1);
+    expect(aoMultiplier(255, -0.5, 1)).toBe(1);
+  });
+
+  it('re-floors the occlusion curve at the bias value', () => {
+    // Raw visibility equal to the bias sits exactly on the floor (→ 0)…
+    expect(aoMultiplier(255 * 0.5, 0.5, 1)).toBe(0);
+    // …mid-tones remap linearly between the floor and full brightness…
+    expect(aoMultiplier(255 * 0.75, 0.5, 1)).toBeCloseTo(0.5);
+    // …and negative bias lifts the dark end without washing out the top.
+    expect(aoMultiplier(0, -0.5, 1)).toBeCloseTo(1 / 3);
   });
 
   it('clamps the remap to [0, 1]', () => {
-    expect(aoMultiplier(0, 1, 4)).toBe(0); // 0 − 1 = −1 → clamped 0
-    expect(aoMultiplier(255, -1, 4)).toBe(1); // 1 + 1 = 2 → clamped 1
+    expect(aoMultiplier(0, 1, 4)).toBe(0); // below the +1 floor → black
+    expect(aoMultiplier(255, -1, 4)).toBe(1); // (1 + 1)/2 = 1 — already in range
   });
 });
 

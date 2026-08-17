@@ -332,7 +332,7 @@ app.innerHTML = `
 
         <section class="panel">
           <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING</p><h2>Ambient occlusion</h2></div></div>
-          ${rangeControl('aoBias', 'Bias', -1, 1, 0.01, 0, '+0.00', 'Shift occlusion baseline')}
+          ${rangeControl('aoBias', 'Bias', -1, 1, 0.01, 0, '+0.00', 'Occlusion floor — bright pixels stay bright')}
           ${rangeControl('aoPower', 'Power', 0, 16, 0.01, 1, '1.00', 'Occlusion curve exponent (1 = as baked)')}
           ${rangeControl('aoDistance', 'Distance', 0.05, 3, 0.05, 2, '2.00×', 'Ray reach for generated AO')}
         </section>

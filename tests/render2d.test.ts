@@ -210,8 +210,9 @@ describe('createRender2D render pipeline', () => {
     const shared = sharedState();
     createRender2D(deps, shared).render();
 
-    // Bias 0.5 on unoccluded pixels → multiplier 0.5 → 128 gray (Math.round).
-    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([128, 128, 128, 255]);
+    // Bias re-floors the curve but the normalization keeps fully-unoccluded
+    // pixels at full brightness: (1 − 0.5)/(1 − 0.5) = 1 → 255 white.
+    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([255, 255, 255, 255]);
   });
 
   it('renders each pane from its own view mode', () => {

@@ -27,12 +27,22 @@ export function redChannelFactors(source: AOFactorSource, invert = false): Uint8
  * AO inspection views so the preview always shows the occlusion the bake
  * applies — with defaults (bias 0, power 1) it is the identity (factor/255).
  *
- * - `bias` shifts the whole occlusion curve (−1 = fully bright, +1 = fully dark).
+ * - `bias` re-floors the occlusion curve (positive = deeper shadows, negative
+ *   = lifted shadows). The shift is normalized by `1 − bias` so the
+ *   unoccluded end stays pinned at 1 — a raw `visibility − bias` would dim
+ *   even fully-lit pixels.
  * - `power` reshapes the curve as an exponent (1 = as baked; >1 darkens,
  *   <1 brightens; 0 = no AO).
  */
 export function aoMultiplier(factor: number, bias: number, power: number): number {
-  return clamp01((factor / 255) ** power - bias);
+  const visibility = (factor / 255) ** power;
+  if (bias === 0) return clamp01(visibility);
+  // Bias re-floors the occlusion curve; dividing by (1 − bias) re-pins the
+  // unoccluded end at 1 so raising bias deepens shadows without dimming
+  // fully-lit pixels (a raw `visibility − bias` darkens the whole image).
+  // At bias ≥ 1 the floor swallows everything below pure white.
+  if (bias >= 1) return visibility >= 1 ? 1 : 0;
+  return clamp01((visibility - bias) / (1 - bias));
 }
 
 /**
