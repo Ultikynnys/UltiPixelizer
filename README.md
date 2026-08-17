@@ -28,6 +28,10 @@ Posterize ramps are dynamic: the 2–16 level palettes build their colors live f
 
 ![Dynamic posterize palettes](Assets/DynamicPosterizePalette.png)
 
+Build your own palettes with the custom palette editor, save them in the app, and export any palette to an external file (`.palette.json`). Import palettes back from JSON, hex, or plain-text files:
+
+![Custom palettes](Assets/CustomPalettes.png)
+
 ## Features
 
 - **Image + model input**: drop a PNG/JPG/WebP/GIF texture, or a 3D model bundle (FBX, OBJ, glTF/GLB, USDZ plus companion textures).
