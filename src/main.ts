@@ -1672,11 +1672,13 @@ function droppedFiles(event: DragEvent): File[] {
 // dragenter/dragover (which bubble from slot children — including the
 // thumbnail canvases of already-filled slots) re-derive the hovered slot from
 // event.target, and any dragenter/dragover over a non-slot area drops the
-// highlight. Element-level dragleave is deliberately NOT used: it fires
-// spuriously when crossing into children (relatedTarget is unreliable,
-// especially over GPU-composited canvases), which made the outline vanish on
-// filled slots. Only a window exit (document dragleave) and drop clear it
-// outside the enter/dragover cycle.
+// highlight. dragleave is deliberately NOT listened to anywhere: it bubbles,
+// so a document-level dragleave fires on every child-boundary crossing, and
+// its relatedTarget is unreliable over GPU-composited canvases — that pair is
+// what kept clearing the outline on filled slots. With no dragleave handler,
+// nothing can remove the highlight while the pointer is over any part of a
+// slot; it clears only when the drag moves over a non-slot area, on drop, or
+// on mouseup (drag cancelled/released).
 let activeDragSlot: HTMLElement | null = null;
 function highlightDragSlot(slot: HTMLElement): void {
   if (activeDragSlot === slot) return;
@@ -1692,24 +1694,45 @@ function slotUnderDrag(event: Event): HTMLElement | null {
   const target = event.target;
   return target instanceof Element ? target.closest<HTMLElement>('.texture-slot') : null;
 }
+// Accept the drop everywhere (capture phase): preventDefault on dragover for
+// the whole document marks the window as a drop target, so the drop event
+// always fires and its default action — navigating to the dropped file — is
+// reliably cancelable. Without this, drops on non-slot areas fall through to
+// the engine's own default, which opens the file even if `drop` is canceled.
+// Disabled slots are exempt so the browser keeps its no-drop cursor on them.
+document.addEventListener('dragover', (event) => {
+  const slot = slotUnderDrag(event);
+  if (slot && slot.classList.contains('disabled')) return;
+  event.preventDefault();
+}, true);
+
 ['dragenter', 'dragover'].forEach((type) => document.addEventListener(type, (event) => {
+  // A drag is over the window: dim the non-drop areas (see body.drag-active).
+  document.body.classList.add('drag-active');
   const slot = slotUnderDrag(event);
   if (!slot || slot.classList.contains('disabled')) {
-    // Pointer over a non-slot or disabled slot: drop any stale highlight. No
-    // preventDefault, so the browser keeps its native no-drop cursor there.
+    // Pointer over a non-slot or disabled slot: drop any stale highlight.
     clearDragHighlight();
     return;
   }
   event.preventDefault();
   highlightDragSlot(slot);
 }));
-// Leaving the window entirely (no more enter/dragover events to re-derive
-// from) clears the highlight; drop is prevented everywhere so dropping a file
-// on any non-slot area never navigates the webview to that file.
-document.addEventListener('dragleave', () => clearDragHighlight());
+// Drops are neutralized everywhere: dropping a file on any non-slot area must
+// never navigate the webview to that file (the browser's default action is to
+// open it). A capture-phase guard preventDefaults before anything else in the
+// page can act; the bubble-phase handler below clears the drag UI state.
+document.addEventListener('drop', (event) => event.preventDefault(), true);
+// mouseup best-effort clears the drag state left by a drag cancelled outside
+// the window (self-heals next drag).
+function endDragState(): void {
+  clearDragHighlight();
+  document.body.classList.remove('drag-active');
+}
+document.addEventListener('mouseup', endDragState);
 document.addEventListener('drop', (event) => {
   event.preventDefault();
-  clearDragHighlight();
+  endDragState();
 });
 
 TEXTURE_CHANNELS.forEach((channel) => {

@@ -229,8 +229,22 @@ select option { background: var(--card); color: var(--paper); }
 .texture-slot { align-items: center; background: var(--stage); cursor: pointer; display: flex; flex-direction: column; gap: 5px; height: 66px; justify-content: center; min-width: 82px; padding: 6px 8px; position: relative; }
 .texture-slot:hover, .palette-card-new:hover, .custom-color-add:hover { color: var(--paper); }
 .texture-slot:focus-visible { background: var(--raised); }
-/* Slot drag feedback: white outline on the hovered slot while a drag is over it. */
-.texture-slot.dragging { outline: 2px solid #fff; outline-offset: -2px; }
+/* Slot drag feedback: a ::after overlay carrying the white frame, NOT the
+   slot's own outline — a filled slot's thumbnail spans the whole slot
+   (inset: 0) and the element outline paints below it. The positioned overlay
+   (z-index above the image/label/buttons, pointer-events: none) stays on top. */
+.texture-slot.dragging::after {
+  border: 2px solid #fff; content: ''; inset: 0;
+  pointer-events: none; position: absolute; z-index: 5;
+}
+/* While a file drag is over the window, dim everything except the texture
+   ribbon so the slots read as the only valid drop targets. pointer-events:
+   none keeps drag events flowing to the elements underneath. */
+body.drag-active::before {
+  background: rgba(0, 0, 0, .55); content: ''; inset: 0;
+  pointer-events: none; position: fixed; z-index: 30;
+}
+body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .texture-slot.disabled { cursor: not-allowed; opacity: .45; }
 .texture-slot-model { max-width: 150px; }
 .texture-slot-preview { align-items: center; display: flex; height: 30px; justify-content: center; overflow: hidden; width: 40px; }
