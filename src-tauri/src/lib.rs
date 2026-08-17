@@ -4,6 +4,13 @@
 /// handler setting can be attached to the WebviewWindowBuilder.
 pub fn run() {
     tauri::Builder::default()
+        // Plugins behind the desktop-only behaviors the webview lacks:
+        // opener (GitHub/Ko-fi links open in the system browser), dialog +
+        // fs (exports go through the native Save dialog instead of the
+        // no-op blob-anchor download).
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
                 .title("UltiPixelizer")

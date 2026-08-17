@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   cloneImageData,
   createSampleTexture,
@@ -13,6 +13,13 @@ import {
   resizeNearest,
 } from '../src/lib/canvas';
 import { asSourceImage, domStubs, FakeCanvas, installDomStubs, stubDocument } from './helpers/domStubs';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs';
+
+// The desktop build routes downloads through the native Save dialog; these
+// mocks let tests drive both branches of the Tauri check.
+vi.mock('@tauri-apps/plugin-dialog', () => ({ save: vi.fn() }));
+vi.mock('@tauri-apps/plugin-fs', () => ({ writeTextFile: vi.fn(), writeFile: vi.fn() }));
 
 beforeAll(() => {
   installDomStubs();
@@ -178,11 +185,11 @@ describe('file helpers', () => {
     await expect(loadImageFile(file)).rejects.toThrow('could not be decoded as an image');
   });
 
-  it('downloads text through a temporary anchor', () => {
+  it('downloads text through a temporary anchor', async () => {
     const createObjectURL = vi.fn(() => 'blob:data');
     const revokeObjectURL = vi.fn();
     vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
-    downloadText('{"a":1}', 'settings.json', 'application/json');
+    await downloadText('{"a":1}', 'settings.json', 'application/json');
     const anchor = domStubs.anchors.at(-1)!;
     expect(anchor.download).toBe('settings.json');
     expect(anchor.href).toBe('blob:data');
@@ -190,13 +197,54 @@ describe('file helpers', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:data');
   });
 
-  it('downloads canvas contents through its blob', () => {
+  it('downloads canvas contents through its blob', async () => {
     const createObjectURL = vi.fn(() => 'blob:canvas');
     const revokeObjectURL = vi.fn();
     vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
-    downloadCanvas(new FakeCanvas() as unknown as HTMLCanvasElement, 'render.png');
+    await downloadCanvas(new FakeCanvas() as unknown as HTMLCanvasElement, 'render.png');
     const anchor = domStubs.anchors.at(-1)!;
     expect(anchor.download).toBe('render.png');
     expect(anchor.click).toHaveBeenCalledOnce();
+  });
+
+  describe('desktop (Tauri) downloads', () => {
+    const SAVE_PATH = 'C:/Users/me/Downloads/settings.json';
+
+    beforeEach(() => {
+      // The window is globalThis under the DOM stubs; the Tauri internals
+      // marker flips the download helpers onto the native save path.
+      (globalThis as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+      domStubs.anchors.length = 0;
+      vi.mocked(save).mockReset().mockResolvedValue(SAVE_PATH);
+      vi.mocked(writeTextFile).mockReset().mockResolvedValue(undefined);
+      vi.mocked(writeFile).mockReset().mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+      delete (globalThis as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    });
+
+    it('saves text through the native dialog instead of an anchor', async () => {
+      await downloadText('{"a":1}', 'settings.json', 'application/json');
+      expect(save).toHaveBeenCalledWith({ defaultPath: 'settings.json' });
+      expect(writeTextFile).toHaveBeenCalledWith(SAVE_PATH, '{"a":1}');
+      expect(domStubs.anchors).toHaveLength(0);
+    });
+
+    it('writes PNG bytes through the native dialog', async () => {
+      await downloadCanvas(new FakeCanvas() as unknown as HTMLCanvasElement, 'render.png');
+      expect(save).toHaveBeenCalledWith({ defaultPath: 'render.png' });
+      expect(writeFile).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(writeFile).mock.calls[0][0]).toBe(SAVE_PATH);
+      expect(vi.mocked(writeFile).mock.calls[0][1]).toBeInstanceOf(Uint8Array);
+      expect(domStubs.anchors).toHaveLength(0);
+    });
+
+    it('skips the write when the save dialog is cancelled', async () => {
+      vi.mocked(save).mockResolvedValue(null);
+      await downloadText('{}', 'x.json');
+      expect(writeTextFile).not.toHaveBeenCalled();
+      expect(domStubs.anchors).toHaveLength(0);
+    });
   });
 });

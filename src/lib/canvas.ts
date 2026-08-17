@@ -1,3 +1,5 @@
+import { saveBlobViaTauri, saveTextViaTauri } from './tauri';
+
 export function cloneImageData(source: ImageData): ImageData {
   return new ImageData(new Uint8ClampedArray(source.data), source.width, source.height, { colorSpace: source.colorSpace });
 }
@@ -172,12 +174,16 @@ function triggerDownload(blob: Blob, name: string): void {
   URL.revokeObjectURL(url);
 }
 
-export function downloadText(content: string, name: string, type = 'application/json'): void {
+export async function downloadText(content: string, name: string, type = 'application/json'): Promise<void> {
+  // Desktop: the webview ignores blob-anchor downloads, so the native Save
+  // dialog writes the file instead. Web keeps the anchor download.
+  if (await saveTextViaTauri(name, content)) return;
   triggerDownload(new Blob([content], { type }), name);
 }
 
-export function downloadCanvas(canvas: HTMLCanvasElement, name: string): void {
-  canvas.toBlob((blob) => {
-    if (blob) triggerDownload(blob, name);
-  }, 'image/png');
+export async function downloadCanvas(canvas: HTMLCanvasElement, name: string): Promise<void> {
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) return;
+  if (await saveBlobViaTauri(name, blob)) return;
+  triggerDownload(blob, name);
 }

@@ -1,5 +1,6 @@
 import './style.css';
 import { createCanvas, createSampleTexture, downloadCanvas, downloadText, drawImageToCanvas, loadImageFile, resizeNearest } from './lib/canvas';
+import { openExternalLink } from './lib/tauri';
 import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomPalettes, paletteFromImport, selectOrCreatePalette, serializeCustomPalette, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
 import type { DitherMode } from './lib/dither';
 import { sampleColorAt } from './lib/eyedropper';
@@ -2343,4 +2344,14 @@ document.querySelector('#exportButton')!.addEventListener('click', () => {
     : textures.base.name.replace(/\.[^.]+$/, '');
   const rendered = renderer.getRenderedCanvas();
   downloadCanvas(rendered, `${safeFileName(stem)}_${EXPORT_VIEW_SUFFIX[state.viewModeProcessed]}.png`);
+});
+
+// External links (GitHub repo, Ko-fi support) use target="_blank", which the
+// Tauri webview ignores — route them through the opener plugin so they open
+// in the system browser; the web build falls back to a new tab.
+document.addEventListener('click', (event) => {
+  const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[target="_blank"][href^="http"]');
+  if (!anchor) return;
+  event.preventDefault();
+  void openExternalLink(anchor.href).catch((error) => console.error('Could not open link.', error));
 });
