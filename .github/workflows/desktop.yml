@@ -141,12 +141,15 @@ jobs:
           # The downloaded artifact keeps the bundle subdirectories (appimage/,
           # deb/, msi/, nsis/...) — globbing `release/*` would pass directories
           # to gh, which errors. Upload only files, at any depth, deduped by
-          # name (the icon PNG is emitted in both appimage/ and deb/, and a
-          # duplicate name fails gh upload with HTTP 422).
+          # name — the icon PNG ships in both appimage/ (UltiPixelizer.png)
+          # and deb/ (ultipixelizer.png), and GitHub treats release asset
+          # names case-insensitively, so a case-variant pair still collides
+          # with HTTP 422 unless the dedupe key is lowercased.
           declare -A SEEN=()
           INSTALLERS=()
           while IFS= read -r -d '' FILE; do
             NAME=${FILE##*/}
+            NAME=${NAME,,}
             if [[ -z ${SEEN[$NAME]+x} ]]; then
               SEEN[$NAME]=1
               INSTALLERS+=("$FILE")
