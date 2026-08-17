@@ -385,11 +385,16 @@ function createPreviewZoom(canvas: HTMLCanvasElement, frame: HTMLElement, badge:
     const scaledWidth = width * scale;
     const scaledHeight = height * scale;
     // The image may slide out of the frame by up to (frame - margin), leaving
-    // at least PAN_MARGIN px visible. Shrink the margin on tiny frames.
+    // at least PAN_MARGIN px visible. The image's right edge is at
+    // panX + scaledWidth, so the lower bound keeps that edge from passing the
+    // left of the frame (margin - scaledWidth) and the upper bound keeps the
+    // left edge from passing the right (width - margin) — both edges of the
+    // image stay reachable in every direction. Shrink the margin on tiny
+    // frames.
     const margin = Math.min(PAN_MARGIN, width, height);
-    const minX = width - scaledWidth + margin;
+    const minX = margin - scaledWidth;
     const maxX = width - margin;
-    const minY = height - scaledHeight + margin;
+    const minY = margin - scaledHeight;
     const maxY = height - margin;
     // If the scaled image is smaller than the sliding window (inverted range),
     // pin it centered rather than clamping to an arbitrary edge.
