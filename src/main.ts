@@ -346,13 +346,16 @@ const originalCanvas = document.querySelector<HTMLCanvasElement>('#originalCanva
 // the cursor, primary-drag pans, double-click resets to fit, two-finger pinch
 // zooms on touch, and the Original pane's caption badge mirrors the zoom
 // (click resets). The badge is optional — the dithered pane has none.
+// Pan/zoom input listens on the whole .canvas-frame (the canvas, the
+// wireframe overlay, and the backdrop revealed when the image slides off the
+// frame), so dragging in the empty parts of the view pans too.
 const ZOOM_MIN = 0.1;
 const ZOOM_MAX = 64;
 // Px of the image that must stay in view when panning, so the image can be
 // slid past the frame edges (revealing background) but never lost entirely.
 const PAN_MARGIN = 48;
 
-function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement | null, overlay: HTMLElement | null = null): void {
+function createPreviewZoom(canvas: HTMLCanvasElement, frame: HTMLElement, badge: HTMLButtonElement | null, overlay: HTMLElement | null = null): void {
   let scale = 1;
   let panX = 0;
   let panY = 0;
@@ -421,8 +424,15 @@ function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement |
     return { x: clientX - (rect.left - panX), y: clientY - (rect.top - panY) };
   };
 
-  canvas.addEventListener('wheel', (event) => {
-    if (interactionsBlocked() || canvas.hidden) return;
+  // Only presses on the pan surface itself start a pan: the canvas, the
+  // wireframe overlay when visible, or the frame's backdrop. The frame's
+  // control chips (preview mode, UV toggles, export, texel density, sun)
+  // sit on top of the backdrop and are not pan surfaces.
+  const isPanSurface = (target: EventTarget | null): boolean =>
+    target === frame || target === canvas || target === overlay;
+
+  frame.addEventListener('wheel', (event) => {
+    if (interactionsBlocked() || canvas.hidden || !isPanSurface(event.target)) return;
     // preventDefault also stops the webview's ctrl+wheel page zoom.
     event.preventDefault();
     const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
@@ -431,8 +441,8 @@ function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement |
     zoomAt(x, y, clamp(scale * factor, ZOOM_MIN, ZOOM_MAX));
   }, { passive: false });
 
-  canvas.addEventListener('pointerdown', (event) => {
-    if (interactionsBlocked() || canvas.hidden || event.button !== 0) return;
+  frame.addEventListener('pointerdown', (event) => {
+    if (interactionsBlocked() || canvas.hidden || event.button !== 0 || !isPanSurface(event.target)) return;
     // No preventDefault here: canceling pointerdown would suppress the
     // compatibility mouse events, killing double-click-to-reset.
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -486,8 +496,8 @@ function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement |
   window.addEventListener('pointerup', endPointer);
   window.addEventListener('pointercancel', endPointer);
 
-  canvas.addEventListener('dblclick', (event) => {
-    if (interactionsBlocked() || canvas.hidden) return;
+  frame.addEventListener('dblclick', (event) => {
+    if (interactionsBlocked() || canvas.hidden || !isPanSurface(event.target)) return;
     event.preventDefault();
     reset();
   });
@@ -505,8 +515,8 @@ function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement |
 const originalZoomBadge = document.querySelector<HTMLButtonElement>('#originalZoomBadge')!;
 const originalWireframeOverlay = document.querySelector<HTMLCanvasElement>('#originalWireframeOverlay')!;
 const processedWireframeOverlay = document.querySelector<HTMLCanvasElement>('#processedWireframeOverlay')!;
-createPreviewZoom(originalCanvas, originalZoomBadge, originalWireframeOverlay);
-createPreviewZoom(previewCanvas, null, processedWireframeOverlay);
+createPreviewZoom(originalCanvas, originalCanvas.parentElement!, originalZoomBadge, originalWireframeOverlay);
+createPreviewZoom(previewCanvas, previewCanvas.parentElement!, null, processedWireframeOverlay);
 const aoBakeOverlay = document.querySelector<HTMLDivElement>('#aoBakeOverlay')!;
 const aoBakeFill = document.querySelector<HTMLDivElement>('#aoBakeFill')!;
 const aoBakePercent = document.querySelector<HTMLParagraphElement>('#aoBakePercent')!;

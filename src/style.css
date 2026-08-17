@@ -166,9 +166,10 @@ select option { background: var(--card); color: var(--paper); }
   font: 700 9px 'DM Mono', monospace; letter-spacing: .06em; padding: 0 2px;
 }
 .fig-zoom:hover, .fig-zoom:focus-visible { color: var(--paper); }
-.canvas-frame { align-items: center; background: var(--backdrop); display: flex; justify-content: center; min-width: 0; overflow: hidden; position: relative; }
+.canvas-frame { align-items: center; background: var(--backdrop); cursor: grab; display: flex; justify-content: center; min-width: 0; overflow: hidden; position: relative; }
 .preview-pane canvas { cursor: grab; display: block; image-rendering: pixelated; max-height: clamp(240px, 52vh, 560px); max-width: 100%; min-width: 0; object-fit: contain; touch-action: none; width: 100%; }
 .preview-pane canvas:active { cursor: grabbing; }
+.canvas-frame:active { cursor: grabbing; }
 .preview-pane canvas[hidden], .model-host[hidden], .uv-control[hidden], .uv-overlap-control[hidden] { display: none; }
 /* UV island wireframe: a display-resolution layer over the texture canvas.
    The texture bitmaps are low-res and upscaled with nearest-neighbor, so
@@ -236,6 +237,7 @@ select option { background: var(--card); color: var(--paper); }
    other corner overlays. */
 .texel-density {
   background: color-mix(in srgb, var(--ink) 92%, transparent);
+  cursor: default;
   display: grid; gap: 2px; justify-items: start; left: 8px; padding: 6px 8px;
   position: absolute; top: 8px; z-index: 10;
 }
@@ -326,7 +328,14 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .palette-filters button:hover, .palette-filters button.active,
 .preview-view-toggle button:not(:disabled):hover, .preview-view-toggle button.active,
 .preview-mode-toggle button:not(:disabled):hover, .preview-mode-toggle button.active { background: var(--paper); color: var(--ink); }
-.palette-grid { display: grid; gap: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 340px; overflow-y: auto; padding-right: 3px; scrollbar-color: var(--line-bright) var(--panel); }
+/* Card grids flex with the panel instead of hardcoded viewport breakpoints:
+   repeat(auto-fit, minmax(200px, 1fr)) makes each grid compute its own column
+   count from the width actually available — one column in the 410px sidebar
+   (two ~177px cards per row is cramped, the action buttons + count badge
+   leave the palette name ~60px), two columns whenever the panel can really
+   fit them. Tracks are derived from the container, so the grid can never
+   outgrow the panel and push the shell. */
+.palette-grid { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); max-height: 340px; overflow-y: auto; padding-right: 3px; scrollbar-color: var(--line-bright) var(--panel); }
 .palette-card { background: var(--card); color: var(--paper-dim); cursor: pointer; display: flex; flex-direction: column; font-size: 10px; gap: 7px; min-width: 0; overflow: hidden; padding: 9px; position: relative; text-align: left; }
 .palette-card:hover { background: var(--raised); }
 .palette-card.active { background: color-mix(in srgb, var(--accent) 25%, var(--card)); color: var(--paper); }
@@ -375,7 +384,7 @@ body.eyedropping, body.eyedropping * { cursor: var(--eyedropper-cursor, crosshai
    chip's own click handling. */
 .custom-color.active label::after { box-shadow: 0 0 0 1px #000, 0 0 0 3px #fff; content: ''; inset: 0; pointer-events: none; position: absolute; z-index: 2; }
 .custom-color-add { align-items: center; background: var(--card); color: var(--muted); cursor: pointer; display: flex; font: 500 15px 'DM Mono', monospace; height: 25px; justify-content: center; line-height: 1; padding: 0; width: 25px; }
-.mode-grid { display: grid; gap: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mode-grid { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 .mode-button { background: var(--card); cursor: pointer; display: grid; gap: 2px; grid-template-columns: 40px minmax(0, 1fr); padding: 8px; text-align: left; }
 .mode-button:hover { background: var(--raised); }
 .mode-button.active { background: color-mix(in srgb, var(--accent) 22%, var(--card)); }
@@ -435,9 +444,6 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
   .original-pane { display: none; }
   .circle-link { display: none; }
   .uv-control { display: none; }
-  /* The sidebar keeps its fixed right column, but its card grids stack —
-     two ~195px palette/dither cards per row is cramped at narrow windows. */
-  .palette-grid, .mode-grid { grid-template-columns: 1fr; }
   .resolution-presets { grid-template-columns: 1fr; }
   .preview-view-toggle { bottom: 46px; }
   .sun-overlay { top: 48px; }
