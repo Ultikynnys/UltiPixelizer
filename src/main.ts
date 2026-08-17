@@ -420,7 +420,6 @@ function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement, 
     // No preventDefault here: canceling pointerdown would suppress the
     // compatibility mouse events, killing double-click-to-reset.
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    canvas.setPointerCapture(event.pointerId);
     if (pointers.size === 2) {
       const [first, second] = Array.from(pointers.values());
       pinchDistance = Math.hypot(first.x - second.x, first.y - second.y);
@@ -430,8 +429,18 @@ function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement, 
     }
   });
 
-  canvas.addEventListener('pointermove', (event) => {
+  // Drag moves listen on the window, not the canvas: WebView2 does not
+  // reliably deliver pointermove to a captured element, so a canvas-bound
+  // listener would leave drag-pan dead in the desktop app. Window-level
+  // listeners (the same pattern as the color-picker drag) see every move no
+  // matter where the pointer travels.
+  window.addEventListener('pointermove', (event) => {
     if (interactionsBlocked() || canvas.hidden) return;
+    // A pointerup was missed (button released outside the window): end the drag.
+    if (event.pointerType === 'mouse' && !(event.buttons & 1)) {
+      endPointer(event);
+      return;
+    }
     const previous = pointers.get(event.pointerId);
     if (!previous) return;
     const current = { x: event.clientX, y: event.clientY };
@@ -458,8 +467,8 @@ function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement, 
     if (pointers.size < 2) pinchDistance = 0;
     if (pointers.size === 0) dragging = false;
   };
-  canvas.addEventListener('pointerup', endPointer);
-  canvas.addEventListener('pointercancel', endPointer);
+  window.addEventListener('pointerup', endPointer);
+  window.addEventListener('pointercancel', endPointer);
 
   canvas.addEventListener('dblclick', (event) => {
     if (interactionsBlocked() || canvas.hidden) return;
@@ -540,8 +549,28 @@ const sunControlElements: SunElements = {
   normalStrength: document.querySelector<HTMLInputElement>('#normalStrength')!,
   normalStrengthValue: document.querySelector<HTMLOutputElement>('#normalStrengthValue')!,
 };
-const sunDirectionValue = document.querySelector<HTMLOutputElement>('#sunDirectionValue')!;
-const cameraDirectionValue = document.querySelector<HTMLOutputElement>('#cameraDirectionValue')!;
+// Narrow windows hide the Original pane (CSS), so the pane-independent
+// controls that live on it — view mode, world axis, UV toggles, sun — move
+// onto the dithered pane, and back when the window widens. Moving the DOM
+// nodes keeps their event listeners and state intact; every binding holds a
+// node reference, so nothing re-queries or re-binds.
+const originalPaneFrame = document.querySelector<HTMLDivElement>('.original-pane .canvas-frame')!;
+const processedPaneFrame = document.querySelector<HTMLDivElement>('.processed-pane .canvas-frame')!;
+const sharedPaneControls: HTMLElement[] = [
+  originalViewToggle,
+  worldAxisToggle,
+  uvOverlapControl,
+  uvWireframeControl,
+  sunControlElements.control,
+];
+const narrowLayout = window.matchMedia('(max-width: 900px)');
+function relocateSharedControls(narrow: boolean): void {
+  const target = narrow ? processedPaneFrame : originalPaneFrame;
+  sharedPaneControls.forEach((element) => target.append(element));
+}
+relocateSharedControls(narrowLayout.matches);
+narrowLayout.addEventListener('change', (event) => relocateSharedControls(event.matches));
+const sunDirectionValue = document.querySelector<HTMLOutputElement>('#sunDirectionValue')!;const cameraDirectionValue = document.querySelector<HTMLOutputElement>('#cameraDirectionValue')!;
 const stripeAngleControl = document.querySelector<HTMLDivElement>('#stripeAngleControl')!;
 const stripeAngleInput = document.querySelector<HTMLInputElement>('#stripeAngle')!;
 const stripeAngleValue = document.querySelector<HTMLOutputElement>('#stripeAngleValue')!;

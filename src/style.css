@@ -422,6 +422,19 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
   .preview-pane canvas { max-height: 48vh; }
   .model-host { height: clamp(260px, 48vh, 480px); }
   .control-column { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  /* Narrow windows switch to a single-pane, essentials-only layout: the
+     dithered preview is the work product, so the Original pane drops out and
+     takes its space; the topbar keeps only the app actions; the model-only
+     UV map / LOD selects hide. The Original pane's shared controls (view
+     mode, world axis, UV toggles, sun) are relocated into the dithered pane
+     by main.ts — these offsets dodge the controls already there (Export PNG
+     bottom-left, texel density top-left). */
+  .comparison-grid { grid-template-columns: 1fr; }
+  .original-pane { display: none; }
+  .circle-link { display: none; }
+  .uv-control { display: none; }
+  .preview-view-toggle { bottom: 46px; }
+  .sun-overlay { top: 48px; }
 }
 
 @media (max-width: 620px) {
