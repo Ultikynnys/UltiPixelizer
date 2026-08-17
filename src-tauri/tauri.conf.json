@@ -10,17 +10,6 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "title": "UltiPixelizer",
-        "width": 1440,
-        "height": 900,
-        "minWidth": 960,
-        "minHeight": 600,
-        "resizable": true,
-        "dragDropEnabled": false
-      }
-    ],
     "security": {
       "csp": null
     }
