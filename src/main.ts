@@ -210,7 +210,7 @@ app.innerHTML = `
               </div>
             </figure>
             <figure class="preview-pane processed-pane">
-              <figcaption><span>02</span> Dithered <span class="fig-dims" id="processedDimensions">128 × 92</span><button class="fig-zoom" id="processedZoomBadge" type="button" title="Zoom level — scroll over the preview to zoom, drag to pan, double-click to reset">100%</button></figcaption>
+              <figcaption><span>02</span> Dithered <span class="fig-dims" id="processedDimensions">128 × 92</span></figcaption>
               <div class="canvas-frame">
                 <canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas>
                 <canvas class="wireframe-overlay" id="processedWireframeOverlay" aria-hidden="true" hidden></canvas>
@@ -342,11 +342,12 @@ const originalCanvas = document.querySelector<HTMLCanvasElement>('#originalCanva
 // any scale and the eyedropper's canvasPixelCoords stays correct (its
 // object-fit math is invariant under uniform scale). Wheel zooms anchored at
 // the cursor, primary-drag pans, double-click resets to fit, two-finger pinch
-// zooms on touch, and the caption badge mirrors the zoom (click resets).
+// zooms on touch, and the Original pane's caption badge mirrors the zoom
+// (click resets). The badge is optional — the dithered pane has none.
 const ZOOM_MIN = 0.1;
 const ZOOM_MAX = 64;
 
-function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement, overlay: HTMLElement | null = null): void {
+function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement | null, overlay: HTMLElement | null = null): void {
   let scale = 1;
   let panX = 0;
   let panY = 0;
@@ -364,7 +365,7 @@ function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement, 
       overlay.style.transformOrigin = '0 0';
       overlay.style.transform = canvas.style.transform;
     }
-    badge.textContent = `${Math.round(scale * 100)}%`;
+    if (badge) badge.textContent = `${Math.round(scale * 100)}%`;
   }
 
   /** Keep the canvas covering the frame once zoomed in; center it when smaller
@@ -476,7 +477,7 @@ function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement, 
     reset();
   });
 
-  badge.addEventListener('click', reset);
+  badge?.addEventListener('click', reset);
   window.addEventListener('resize', () => {
     if (canvas.hidden) return;
     clampPan();
@@ -487,11 +488,10 @@ function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement, 
 }
 
 const originalZoomBadge = document.querySelector<HTMLButtonElement>('#originalZoomBadge')!;
-const processedZoomBadge = document.querySelector<HTMLButtonElement>('#processedZoomBadge')!;
 const originalWireframeOverlay = document.querySelector<HTMLCanvasElement>('#originalWireframeOverlay')!;
 const processedWireframeOverlay = document.querySelector<HTMLCanvasElement>('#processedWireframeOverlay')!;
 createPreviewZoom(originalCanvas, originalZoomBadge, originalWireframeOverlay);
-createPreviewZoom(previewCanvas, processedZoomBadge, processedWireframeOverlay);
+createPreviewZoom(previewCanvas, null, processedWireframeOverlay);
 const aoBakeOverlay = document.querySelector<HTMLDivElement>('#aoBakeOverlay')!;
 const aoBakeFill = document.querySelector<HTMLDivElement>('#aoBakeFill')!;
 const aoBakePercent = document.querySelector<HTMLParagraphElement>('#aoBakePercent')!;
