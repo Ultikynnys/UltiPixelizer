@@ -1668,7 +1668,13 @@ function droppedFiles(event: DragEvent): File[] {
 }
 
 function bindSlotDragState(slot: HTMLElement): void {
-  ['dragenter', 'dragover'].forEach((type) => slot.addEventListener(type, (event) => { event.preventDefault(); slot.classList.add('dragging'); }));
+  ['dragenter', 'dragover'].forEach((type) => slot.addEventListener(type, (event) => {
+    // Disabled slots are not valid targets: no highlight, and no
+    // preventDefault, so the browser shows its native no-drop cursor.
+    if (slot.classList.contains('disabled')) return;
+    event.preventDefault();
+    slot.classList.add('dragging');
+  }));
   ['dragleave', 'drop'].forEach((type) => slot.addEventListener(type, (event) => { event.preventDefault(); slot.classList.remove('dragging'); }));
 }
 

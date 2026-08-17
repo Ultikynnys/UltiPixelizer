@@ -147,7 +147,9 @@ select option { background: var(--card); color: var(--paper); }
   align-items: center; background-color: var(--stage); background-image: linear-gradient(45deg,var(--chip) 25%,transparent 25%),linear-gradient(-45deg,var(--chip) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,var(--chip) 75%),linear-gradient(-45deg,transparent 75%,var(--chip) 75%);
   background-position: 0 0,0 8px,8px -8px,-8px 0; background-size: 16px 16px; display: flex; justify-content: center; min-height: 0; overflow: hidden; padding: 22px; position: relative;
 }
-.canvas-stage.dragging { background-color: color-mix(in srgb, var(--accent) 28%, var(--stage)); }
+/* Drag-over feedback: a simple white outline on the drop target while dragging —
+   no overlay panel, no recoloring of the checkerboard. */
+.canvas-stage.dragging { outline: 2px solid #fff; outline-offset: -2px; }
 .comparison-grid { align-items: center; display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 100%; max-width: 100%; width: 100%; }
 .preview-pane { display: grid; gap: 8px; margin: 0; min-width: 0; }
 .preview-pane figcaption { align-items: center; color: var(--paper); display: flex; font: 500 9px 'DM Mono', monospace; gap: 7px; letter-spacing: .1em; text-transform: uppercase; }
@@ -230,7 +232,8 @@ select option { background: var(--card); color: var(--paper); }
 .texture-slot { align-items: center; background: var(--stage); cursor: pointer; display: flex; flex-direction: column; gap: 5px; height: 66px; justify-content: center; min-width: 82px; padding: 6px 8px; position: relative; }
 .texture-slot:hover, .palette-card-new:hover, .custom-color-add:hover { color: var(--paper); }
 .texture-slot:focus-visible { background: var(--raised); }
-.texture-slot.dragging { background: color-mix(in srgb, var(--accent) 28%, var(--stage)); }
+/* Slot drag feedback: white outline on the hovered slot while a drag is over it. */
+.texture-slot.dragging { outline: 2px solid #fff; outline-offset: -2px; }
 .texture-slot.disabled { cursor: not-allowed; opacity: .45; }
 .texture-slot-model { max-width: 150px; }
 .texture-slot-preview { align-items: center; display: flex; height: 30px; justify-content: center; overflow: hidden; width: 40px; }
