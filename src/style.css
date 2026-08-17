@@ -411,17 +411,11 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
 .hidden-input:focus-visible + .color-chip { background: color-mix(in srgb, var(--accent) 40%, var(--swatch)); }
 
 @media (max-width: 900px) {
-  html, body, #app { height: auto; min-height: 100%; }
-  body { overflow: auto; }
-  .topbar { width: auto; }
-  .control-column { position: static; width: auto; }
-  .workspace { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; overflow: visible; }
-  .preview-column { grid-template-rows: auto auto auto; overflow: visible; }
-  .control-column { max-height: none; }
+  /* The sidebar (control column) stays fixed on the right at every width —
+     it never reflows to the bottom; only the preview area adapts. */
   .canvas-stage { padding: 20px; }
   .preview-pane canvas { max-height: 48vh; }
   .model-host { height: clamp(260px, 48vh, 480px); }
-  .control-column { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
   /* Narrow windows switch to a single-pane, essentials-only layout: the
      dithered preview is the work product, so the Original pane drops out and
      takes its space; the topbar keeps only the app actions; the model-only
@@ -447,7 +441,6 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
   .preview-pane figcaption { font-size: 8px; }
   .preview-pane canvas { min-width: 0; width: 100%; }
   .button { padding: 11px 12px; }
-  .control-column { display: block; }
   .panel { padding: 22px 18px; }
   .palette-grid, .mode-grid { gap: 7px; }
 }
