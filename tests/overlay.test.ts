@@ -188,6 +188,38 @@ describe('UV overlap overlay', () => {
     expect(rafCount()).toBe(1); // re-registered for the next frame
   });
 
+  it('invalidateUVOverlap forces the next refresh to recompute', () => {
+    const scene = overlappingScene(); // stable identity — the cache key
+    const viewport = { setUVOverlap: vi.fn() };
+    const { deps, overlay } = setup({
+      getAOScene: () => scene,
+      forEachViewport: (callback) => callback(viewport as unknown as ModelViewport),
+    });
+    deps.state.showUVOverlap = true;
+    deps.textures.base.image = baseImage();
+
+    overlay.refreshUVOverlap();
+    const calls = viewport.setUVOverlap.mock.calls.length;
+    expect(calls).toBe(2); // null-clear + overlap map
+
+    // Warm cache: a second refresh skips the recompute entirely.
+    overlay.refreshUVOverlap();
+    expect(viewport.setUVOverlap.mock.calls.length).toBe(calls);
+
+    // Invalidation clears the cache, so the next refresh recomputes and
+    // notifies the viewports again.
+    overlay.invalidateUVOverlap();
+    overlay.refreshUVOverlap();
+    expect(viewport.setUVOverlap.mock.calls.length).toBe(calls + 2);
+
+    // A pane resize mid-animation rebuilds the shared composite canvas at
+    // the new size.
+    deps.originalCanvas.width = 64;
+    deps.originalCanvas.height = 64;
+    flushRaf(600);
+    expect(deps.originalCanvas.context.drawn.length).toBeGreaterThan(0);
+  });
+
   it('skips the original pane when its preview mode is 3D', () => {
     const { deps, overlay } = setup({
       getAOScene: () => overlappingScene(),
