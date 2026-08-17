@@ -412,7 +412,12 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
 
 @media (max-width: 900px) {
   /* The sidebar (control column) stays fixed on the right at every width —
-     it never reflows to the bottom; only the preview area adapts. */
+     it never reflows to the bottom — but at narrow windows it stops eating a
+     fixed 410px and takes half the window, sharing the space 50/50 with the
+     preview. */
+  .control-column { width: 50%; }
+  .workspace { grid-template-columns: minmax(0, 1fr) 50%; }
+  .topbar { width: 50%; }
   .canvas-stage { padding: 20px; }
   .preview-pane canvas { max-height: 48vh; }
   .model-host { height: clamp(260px, 48vh, 480px); }
@@ -427,6 +432,10 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
   .original-pane { display: none; }
   .circle-link { display: none; }
   .uv-control { display: none; }
+  /* The sidebar keeps its fixed right column, but its card grids stack —
+     two ~195px palette/dither cards per row is cramped at narrow windows. */
+  .palette-grid, .mode-grid { grid-template-columns: 1fr; }
+  .resolution-presets { grid-template-columns: 1fr; }
   .preview-view-toggle { bottom: 46px; }
   .sun-overlay { top: 48px; }
 }
