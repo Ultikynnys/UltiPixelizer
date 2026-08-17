@@ -13,12 +13,11 @@ on:
 
 permissions:
   contents: write
-  # The release job tags the build commit. GitHub refuses a GitHub-App token
-  # to push any ref that creates/updates .github/workflows/* files without
-  # this — the squashed-history root commit made every workflow file "new",
-  # so tag pushes fail until it is granted (repo token permissions are
-  # read/write, hence old tag pushes worked with contents: write alone).
-  workflows: write
+  # Note: the GITHUB_TOKEN can never push a tag that modifies .github/workflows
+  # files — `workflows` is not a valid key in the permissions block (the schema
+  # rejects it), and the token is refused at the git layer regardless. Releases
+  # therefore auto-publish only for commits that don't touch workflow files:
+  # after a workflow change, the first ordinary commit gets the tag instead.
 
 # Serialize runs so queued pushes publish in order instead of racing on tags.
 concurrency:
