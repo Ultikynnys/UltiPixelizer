@@ -122,6 +122,7 @@ const state: State = defaultState();
 
 app.innerHTML = `
   <div class="app-shell">
+    <div class="main-column">
     <header class="topbar">
       <div class="brand-group">
         <a class="brand" href="#" aria-label="UltiPixelizer home">
@@ -229,8 +230,10 @@ app.innerHTML = `
           </div>
         </div>
       </section>
+    </main>
+    </div>
 
-      <aside class="control-column">
+    <aside class="control-column">
         <section class="panel">
           <div class="panel-heading compact"><div><p class="eyebrow">COLOR SYSTEM</p><h2>Palette library</h2></div><span class="catalog-count" id="paletteCount">${Object.keys(palettes).length} PRESETS</span></div>
           <div class="palette-filters" id="paletteFilters" role="group" aria-label="Filter palette library">
@@ -321,8 +324,7 @@ app.innerHTML = `
           ${rangeControl('aoDistance', 'Distance', 0.05, 3, 0.05, 2, '2.00×', 'Ray reach for generated AO')}
         </section>
 
-      </aside>
-    </main>
+    </aside>
     <div class="ao-bake-overlay" id="aoBakeOverlay" hidden role="status" aria-live="polite">
       <div class="ao-bake-card">
         <p class="ao-bake-title">Baking ambient occlusion</p>

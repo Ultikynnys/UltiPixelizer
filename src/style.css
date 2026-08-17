@@ -46,10 +46,16 @@ body { background: var(--ink); color: var(--paper); }
 button, input { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
 button { border: 0; color: inherit; }
+/* The shell is a two-column grid: the left column (main-column) stacks the
+   topbar, preview toolbar and canvas stage; the right column is the control
+   panel. The panel is an in-flow grid item, so it can never overlap the
+   canvas stage — it just reserves its column and scrolls internally. */
+.app-shell { display: grid; grid-template-columns: minmax(0, 1fr) var(--control-width); height: 100%; min-width: 0; }
+.main-column { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; }
 
 .topbar {
   align-items: center; background: color-mix(in srgb, var(--ink) 96%, transparent); display: flex;
-  height: 72px; justify-content: space-between; padding: 0 28px; position: sticky; top: 0; width: calc(100% - var(--control-width)); z-index: 20;
+  height: 72px; justify-content: space-between; padding: 0 28px;
   backdrop-filter: blur(12px);
 }
 .brand { align-items: center; color: var(--paper); display: flex; font-size: 18px; font-weight: 800; gap: 12px; letter-spacing: -.04em; text-decoration: none; width: fit-content; }
@@ -86,7 +92,7 @@ button { border: 0; color: inherit; }
 .icon-button { align-items: center; background: var(--chip); color: var(--paper-soft); cursor: pointer; display: flex; justify-content: center; padding: 0; }
 .icon-button:hover, .icon-button:focus-visible { background: var(--accent); color: var(--on-accent); }
 
-.workspace { display: grid; grid-template-columns: minmax(0, 1fr) var(--control-width); grid-template-rows: minmax(0, 1fr); height: calc(100vh - 72px); overflow: hidden; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; overflow: hidden; }
 .preview-column { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; overflow: hidden; }
 .preview-toolbar { align-items: center; display: flex; gap: 24px; min-height: 86px; padding: 18px 28px; }
 .eyebrow { color: var(--accent); font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500; letter-spacing: .15em; margin: 0 0 7px; }
@@ -297,7 +303,7 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .texture-slot[data-texture].filled .texture-slot-preview { height: 100%; inset: 0; position: absolute; width: 100%; }
 .texture-slot[data-texture].filled .texture-slot-label { bottom: 3px; left: 6px; max-width: calc(100% - 30px); position: absolute; text-shadow: 0 1px 2px rgba(0, 0, 0, .85); width: auto; }
 
-.control-column { background: var(--surface); bottom: 0; min-height: 0; overflow-y: auto; position: fixed; right: 0; scrollbar-color: var(--line) var(--surface); top: 0; width: var(--control-width); }
+.control-column { background: var(--surface); min-height: 0; min-width: 0; overflow-y: auto; scrollbar-color: var(--line) var(--surface); }
 .panel { padding: 24px 25px; }
 .panel h2 { font-size: 17px; letter-spacing: -.03em; margin: 0; }
 .panel-heading { align-items: center; display: flex; justify-content: space-between; margin-bottom: 22px; }
@@ -411,13 +417,10 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
 .hidden-input:focus-visible + .color-chip { background: color-mix(in srgb, var(--accent) 40%, var(--swatch)); }
 
 @media (max-width: 900px) {
-  /* The sidebar (control column) stays fixed on the right at every width —
-     it never reflows to the bottom — but at narrow windows it stops eating a
-     fixed 410px and takes half the window, sharing the space 50/50 with the
-     preview. */
-  .control-column { width: 50%; }
-  .workspace { grid-template-columns: minmax(0, 1fr) 50%; }
-  .topbar { width: 50%; }
+  /* The sidebar (control column) stays on the right at every width — it never
+     reflows to the bottom — but at narrow windows it stops eating a fixed
+     410px: the panel shrinks to 320px and the preview column gets the rest. */
+  :root { --control-width: 320px; }
   .canvas-stage { padding: 20px; }
   .preview-pane canvas { max-height: 48vh; }
   .model-host { height: clamp(260px, 48vh, 480px); }
@@ -441,6 +444,7 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
 }
 
 @media (max-width: 620px) {
+  :root { --control-width: 260px; }
   .topbar { height: 62px; padding: 0 16px; }
   .preview-toolbar { min-height: 74px; padding: 14px 16px; }
   .canvas-stage { padding: 10px; }
