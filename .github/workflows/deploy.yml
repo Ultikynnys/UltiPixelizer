@@ -39,6 +39,8 @@ jobs:
           echo "VITE_COMMIT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
       - name: Build
         run: npm run build
+      - name: Stage media for Pages
+        run: cp -r Assets dist/Assets
       - name: Configure Pages
         uses: actions/configure-pages@v6
       - name: Upload Pages artifact
