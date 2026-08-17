@@ -189,6 +189,18 @@ describe('bakeMeshLightmap', () => {
     expect(centerRGB(withAmbient)).toEqual([255, 255, 255]);
   });
 
+  it('overexposes angled faces at sun intensity above 1', () => {
+    const scene = new Scene();
+    const plane = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial());
+    plane.rotation.x = Math.PI / 3; // 60° tilt → Lambert 0.5 on the +Z face
+    scene.add(plane);
+    const atFull = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunIntensity: 1 });
+    const boosted = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunIntensity: 2 });
+    // 0.5 × 1 = 0.5 → 128 gray; 0.5 × 2 saturates at full white.
+    expect(centerRGB(atFull)).toEqual([128, 128, 128]);
+    expect(centerRGB(boosted)).toEqual([255, 255, 255]);
+  });
+
   it('adds ambient to sun rather than subtracting it', () => {
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));

@@ -29,8 +29,9 @@ function lambertFactor(normal: Vector3, towardSun: Vector3): number {
 
 /**
  * Combines ambient and directional illumination additively. Each term is clamped
- * to [0, 1] before summing so a single light can never exceed full intensity;
- * the total is clamped again to keep white as the ceiling.
+ * to [0, 1] before summing; a sun intensity above 1 overexposes, saturating the
+ * sun term at full brightness for faces angled beyond the falloff. The total is
+ * clamped again to keep white as the ceiling.
  */
 function combineLight(
   ambientColor: RGB,
@@ -106,7 +107,7 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
   const sunColor = parseColor(options.sunColor);
   const ambientColor: RGB = parseColor(options.ambientColor);
   const ambientScale = clamp01(options.ambientIntensity);
-  const sunScale = clamp01(options.sunIntensity);
+  const sunScale = options.sunIntensity;
   const normalMap = options.normalMap;
   const normalStrength = clamp01(options.normalStrength ?? 1);
   const normalFlipY = options.normalFlipY ?? false;

@@ -85,7 +85,7 @@ const sunOverlayMarkup = (): string => `
     </div>
     <div class="light-controls">
       <label class="light-color-control"><span>Sun color</span>${colorControl('#ffffff', 'Sun color', 'id="sunColor"')}</label>
-      ${rangeControl('sunIntensity', 'Sun intensity', 0, 1, 0.01, DEFAULT_SUN_INTENSITY)}
+      ${rangeControl('sunIntensity', 'Sun intensity', 0, 2, 0.01, DEFAULT_SUN_INTENSITY)}
       <div class="light-section-title"><span>Ambient</span></div>
       <label class="light-color-control"><span>Color</span>${colorControl('#ffffff', 'Ambient light color', 'id="ambientColor"')}</label>
       ${rangeControl('ambientIntensity', 'Intensity', 0, 1, 0.01, DEFAULT_AMBIENT_INTENSITY)}

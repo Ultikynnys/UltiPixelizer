@@ -109,6 +109,7 @@ describe('conversion presets', () => {
     const base = createPreset('Lighting', '', config);
     expect(isConversionPreset({ ...base, ambientIntensity: 0 })).toBe(true);
     expect(isConversionPreset({ ...base, sunColor: 'white' })).toBe(false);
+    expect(isConversionPreset({ ...base, sunIntensity: 2 })).toBe(true);
     expect(isConversionPreset({ ...base, sunIntensity: 10.1 })).toBe(false);
     expect(isConversionPreset({ ...base, ambientIntensity: -0.1 })).toBe(false);
   });
