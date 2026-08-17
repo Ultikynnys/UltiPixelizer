@@ -20,6 +20,10 @@ Bake lightmaps directly in the app and apply them straight to the combined dithe
 
 ![Baking lightmaps](Assets/BuiltinLightmaps.webp)
 
+Nine dither methods, from error diffusion to a lighting-driven halftone dot screen:
+
+![Nine dither methods](Assets/DitherMethods.webp)
+
 Comes with 47 built-in palettes:
 
 ![Palette showcase](Assets/PaletteShowcase.webp)
