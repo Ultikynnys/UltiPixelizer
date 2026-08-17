@@ -45,8 +45,7 @@ describe('createRender2D render pipeline', () => {
   it('dithers the source into the preview and shows the lit source in the original pane', () => {
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
     const shared = sharedState();
-    const overlay = { hasWireframe: vi.fn(() => false), drawWireframe: vi.fn() };
-    createRender2D(deps, shared, overlay).render();
+    createRender2D(deps, shared).render();
 
     // Every pixel quantizes to the nearest of black/white — all black.
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
@@ -54,14 +53,13 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255, 40, 40, 40, 255]);
     expect(shared.renderedCanvas).toBeDefined();
     expect(deps.updatePreviewBadge).toHaveBeenCalledWith(2, 2);
-    expect(overlay.drawWireframe).not.toHaveBeenCalled();
   });
 
   it('applies AO factors before dithering, darkening the original pane', () => {
     const ao = solidTexture([0, 0, 0, 255]); // fully occluded (red = 0)
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
     const shared = sharedState();
-    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+    createRender2D(deps, shared).render();
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 
@@ -69,7 +67,7 @@ describe('createRender2D render pipeline', () => {
     const lightmap = solidTexture([0, 0, 0, 255]); // black lightmap at full contribution
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: lightmap, name: '' } } });
     const shared = sharedState();
-    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+    createRender2D(deps, shared).render();
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 
@@ -77,7 +75,7 @@ describe('createRender2D render pipeline', () => {
     const deps = createRendererDeps({ textures: { base: { image: solidTexture([200, 200, 200, 255]), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
     deps.state.mode = 'halftone';
     const shared = sharedState();
-    const render2d = createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() });
+    const render2d = createRender2D(deps, shared);
 
     // Sun moved to full shadow: the implicit lightmap goes black and the dot
     // screen fills with black over the hard-mapped white base.
@@ -95,7 +93,7 @@ describe('createRender2D render pipeline', () => {
     const deps = createRendererDeps({ textures: { base: { image: solidTexture([200, 200, 200, 255]), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
     deps.state.mode = 'halftone';
     const shared = sharedState();
-    const render2d = createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() });
+    const render2d = createRender2D(deps, shared);
 
     // No AO yet: luminance-driven dots on a bright base stay below dot size in
     // the 2×2 cell, so the preview is the plain white base.
@@ -114,7 +112,7 @@ describe('createRender2D render pipeline', () => {
     deps.state.viewModeOriginal = 'lightmap';
     deps.state.viewModeProcessed = 'lightmap';
     const shared = sharedState();
-    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+    createRender2D(deps, shared).render();
 
     // Original pane shows the unlit lightmap itself (not base × lightmap) at native resolution.
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([200, 200, 200, 255]);
@@ -128,7 +126,7 @@ describe('createRender2D render pipeline', () => {
     deps.state.viewModeOriginal = 'normals';
     deps.state.viewModeProcessed = 'normals';
     const shared = sharedState();
-    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+    createRender2D(deps, shared).render();
 
     // Original pane shows the raw normal map at native resolution.
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([128, 128, 255, 255]);
@@ -147,7 +145,7 @@ describe('createRender2D render pipeline', () => {
     deps.state.viewModeOriginal = 'lightmap-ao';
     deps.state.viewModeProcessed = 'lightmap-ao';
     const shared = sharedState();
-    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+    createRender2D(deps, shared).render();
 
     // Combined = lightmap × AO visibility: 200 × (128/255) ≈ 100.
     // Original pane shows the combined map (identity remap at defaults) at the target resolution.
@@ -167,7 +165,7 @@ describe('createRender2D render pipeline', () => {
     deps.state.viewModeProcessed = 'lightmap-ao';
     deps.state.aoPower = 0.5;
     const shared = sharedState();
-    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+    createRender2D(deps, shared).render();
 
     // 50% visibility at power 0.5 → visibility √(128/255) ≈ 0.708 → 200 × 0.708 ≈ 141.7 → 142 (clamped-array rounds).
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([
@@ -182,7 +180,7 @@ describe('createRender2D render pipeline', () => {
     deps.state.viewModeOriginal = 'ao';
     deps.state.viewModeProcessed = 'ao';
     const shared = sharedState();
-    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+    createRender2D(deps, shared).render();
 
     // Original pane shows the AO factors — the bias/scale remap is the
     // identity at defaults, so the raw map passes through — at native resolution.
@@ -198,7 +196,7 @@ describe('createRender2D render pipeline', () => {
     deps.state.viewModeProcessed = 'ao';
     deps.state.aoPower = 2;
     const shared = sharedState();
-    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+    createRender2D(deps, shared).render();
 
     // 200/255 visibility at power 2 → (200/255)² ≈ 0.615 → 157 gray.
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([157, 157, 157, 255]);
@@ -210,7 +208,7 @@ describe('createRender2D render pipeline', () => {
     deps.state.viewModeOriginal = 'ao';
     deps.state.aoBias = 0.5;
     const shared = sharedState();
-    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+    createRender2D(deps, shared).render();
 
     // Bias 0.5 on unoccluded pixels → multiplier 0.5 → 128 gray (Math.round).
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([128, 128, 128, 255]);
@@ -222,29 +220,12 @@ describe('createRender2D render pipeline', () => {
     deps.state.viewModeOriginal = 'ao';
     // viewModeProcessed stays 'flat' → the dithered pane quantizes the lit base.
     const shared = sharedState();
-    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+    createRender2D(deps, shared).render();
 
     // Original pane shows the AO factors (identity remap at defaults) at native resolution.
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([200, 200, 200, 255]);
     // Dithered pane quantizes the lit base texture, not the AO map — all dark → black.
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
-  });
-
-  it('draws the UV wireframe onto both panes when enabled and available', () => {
-    const drawWireframe = vi.fn();
-    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
-    deps.state.showUVWireframe = true;
-    const shared = sharedState();
-    createRender2D(deps, shared, { hasWireframe: () => true, drawWireframe }).render();
-    expect(drawWireframe).toHaveBeenCalledTimes(2);
-  });
-
-  it('skips wireframe drawing when the overlay has no triangles', () => {
-    const drawWireframe = vi.fn();
-    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
-    deps.state.showUVWireframe = true;
-    createRender2D(deps, sharedState(), { hasWireframe: () => false, drawWireframe }).render();
-    expect(drawWireframe).not.toHaveBeenCalled();
   });
 
   it('feeds the viewports when both are available', () => {
@@ -255,7 +236,7 @@ describe('createRender2D render pipeline', () => {
       getOriginalViewport: () => originalViewport as unknown as ModelViewport,
       getProcessedViewport: () => processedViewport as unknown as ModelViewport,
     });
-    createRender2D(deps, sharedState(), { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+    createRender2D(deps, sharedState()).render();
     expect(originalViewport.applyImage).toHaveBeenCalledOnce();
     expect(processedViewport.applyImage).toHaveBeenCalledOnce();
   });
@@ -264,7 +245,7 @@ describe('createRender2D render pipeline', () => {
     const deps = createRendererDeps({ textures: { base: { image: solidTexture([40, 40, 40, 255]), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
     deps.state.resolution = 4;
     const shared = sharedState();
-    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+    createRender2D(deps, shared).render();
 
     // 1×1 source → 4×4 grid: every texel stays identical to its source pixel
     // (a smoothed resample would interpolate), and the badge reports the
@@ -277,7 +258,7 @@ describe('createRender2D render pipeline', () => {
     stubDocument(() => ({ width: 0, height: 0, getContext: () => null }));
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
     const shared = sharedState();
-    createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() }).render();
+    createRender2D(deps, shared).render();
     expect(shared.renderedCanvas).toBeDefined();
     expect(deps.updatePreviewBadge).not.toHaveBeenCalled();
   });

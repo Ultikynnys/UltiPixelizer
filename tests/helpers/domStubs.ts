@@ -128,6 +128,7 @@ export class FakeCanvasRenderingContext2D {
   arc = vi.fn();
   save = vi.fn();
   restore = vi.fn();
+  setTransform = vi.fn();
   fillText = vi.fn();
   measureText = vi.fn(() => ({ width: 0 }));
 }
@@ -138,6 +139,13 @@ export class FakeCanvas {
   readonly context: FakeCanvasRenderingContext2D;
   readonly addEventListener = vi.fn();
   readonly removeEventListener = vi.fn();
+  /** Layout metrics the wireframe-overlay sync reads (overlay.client*,
+   * canvas.offset*). Default 0 so sync skips drawing until a test sizes them. */
+  hidden = false;
+  clientWidth = 0;
+  clientHeight = 0;
+  offsetWidth = 0;
+  offsetHeight = 0;
 
   constructor() {
     this.context = new FakeCanvasRenderingContext2D(this);

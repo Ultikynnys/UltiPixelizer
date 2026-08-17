@@ -176,9 +176,10 @@ app.innerHTML = `
         <div class="canvas-stage">
           <div class="comparison-grid" aria-label="Original and dithered texture comparison">
             <figure class="preview-pane original-pane">
-              <figcaption><span>01</span> Original <span class="fig-dims" id="sourceDimensions">640 × 461</span></figcaption>
+              <figcaption><span>01</span> Original <span class="fig-dims" id="sourceDimensions">640 × 461</span><button class="fig-zoom" id="originalZoomBadge" type="button" title="Zoom level — scroll over the preview to zoom, drag to pan, double-click to reset">100%</button></figcaption>
               <div class="canvas-frame">
                 <canvas id="originalCanvas" aria-label="Original texture preview"></canvas>
+                <canvas class="wireframe-overlay" id="originalWireframeOverlay" aria-hidden="true" hidden></canvas>
                 <div class="model-host" id="originalModelHost" hidden></div>
                 ${sunOverlayMarkup()}
                 <div class="preview-mode-toggle" id="originalPreviewToggle" hidden role="group" aria-label="Preview mode">
@@ -208,9 +209,10 @@ app.innerHTML = `
               </div>
             </figure>
             <figure class="preview-pane processed-pane">
-              <figcaption><span>02</span> Dithered <span class="fig-dims" id="processedDimensions">128 × 92</span></figcaption>
+              <figcaption><span>02</span> Dithered <span class="fig-dims" id="processedDimensions">128 × 92</span><button class="fig-zoom" id="processedZoomBadge" type="button" title="Zoom level — scroll over the preview to zoom, drag to pan, double-click to reset">100%</button></figcaption>
               <div class="canvas-frame">
                 <canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas>
+                <canvas class="wireframe-overlay" id="processedWireframeOverlay" aria-hidden="true" hidden></canvas>
                 <div class="model-host" id="processedModelHost" hidden></div>
                 <div class="texel-density" id="processedTexelDensity" hidden title="Average texture pixels per world unit — UV face size compared with mesh face size in world space">
                   <span>Texel density</span>
@@ -332,6 +334,154 @@ app.innerHTML = `
 
 const previewCanvas = document.querySelector<HTMLCanvasElement>('#previewCanvas')!;
 const originalCanvas = document.querySelector<HTMLCanvasElement>('#originalCanvas')!;
+
+// 2D preview pan/zoom. The texture canvases are laid out fitted (object-fit
+// contain fills the frame); zooming/panning applies a CSS transform to the
+// canvas element itself, so `image-rendering: pixelated` keeps texels crisp at
+// any scale and the eyedropper's canvasPixelCoords stays correct (its
+// object-fit math is invariant under uniform scale). Wheel zooms anchored at
+// the cursor, primary-drag pans, double-click resets to fit, two-finger pinch
+// zooms on touch, and the caption badge mirrors the zoom (click resets).
+const ZOOM_MIN = 0.1;
+const ZOOM_MAX = 64;
+
+function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement, overlay: HTMLElement | null = null): void {
+  let scale = 1;
+  let panX = 0;
+  let panY = 0;
+  const pointers = new Map<number, { x: number; y: number }>();
+  let pinchDistance = 0;
+  let dragging = false;
+  const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
+
+  function apply(): void {
+    canvas.style.transformOrigin = '0 0';
+    canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+    // The UV wireframe overlay fills the same frame and is drawn in
+    // untransformed frame space, so it must track the canvas exactly.
+    if (overlay) {
+      overlay.style.transformOrigin = '0 0';
+      overlay.style.transform = canvas.style.transform;
+    }
+    badge.textContent = `${Math.round(scale * 100)}%`;
+  }
+
+  /** Keep the canvas covering the frame once zoomed in; center it when smaller
+   * than the frame (zoom below 100%). */
+  function clampPan(): void {
+    const width = canvas.offsetWidth;
+    const height = canvas.offsetHeight;
+    const scaledWidth = width * scale;
+    const scaledHeight = height * scale;
+    panX = scaledWidth <= width ? (width - scaledWidth) / 2 : clamp(panX, width - scaledWidth, 0);
+    panY = scaledHeight <= height ? (height - scaledHeight) / 2 : clamp(panY, height - scaledHeight, 0);
+  }
+
+  /** Zooms so the frame-space point (cursorX, cursorY) — relative to the
+   * canvas's untransformed top-left — stays under the cursor. */
+  function zoomAt(cursorX: number, cursorY: number, nextScale: number): void {
+    const factor = nextScale / scale;
+    panX = cursorX - (cursorX - panX) * factor;
+    panY = cursorY - (cursorY - panY) * factor;
+    scale = nextScale;
+    clampPan();
+    apply();
+  }
+
+  function reset(): void {
+    scale = 1;
+    panX = 0;
+    panY = 0;
+    apply();
+  }
+
+  const interactionsBlocked = (): boolean => document.body.classList.contains('eyedropping');
+
+  // Cursor position in frame space: the transformed rect minus the current pan
+  // recovers the canvas's untransformed top-left in the viewport.
+  const cursorInFrame = (clientX: number, clientY: number): { x: number; y: number } => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: clientX - (rect.left - panX), y: clientY - (rect.top - panY) };
+  };
+
+  canvas.addEventListener('wheel', (event) => {
+    if (interactionsBlocked() || canvas.hidden) return;
+    // preventDefault also stops the webview's ctrl+wheel page zoom.
+    event.preventDefault();
+    const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+    const factor = Math.exp(-delta * 0.002);
+    const { x, y } = cursorInFrame(event.clientX, event.clientY);
+    zoomAt(x, y, clamp(scale * factor, ZOOM_MIN, ZOOM_MAX));
+  }, { passive: false });
+
+  canvas.addEventListener('pointerdown', (event) => {
+    if (interactionsBlocked() || canvas.hidden || event.button !== 0) return;
+    // No preventDefault here: canceling pointerdown would suppress the
+    // compatibility mouse events, killing double-click-to-reset.
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    canvas.setPointerCapture(event.pointerId);
+    if (pointers.size === 2) {
+      const [first, second] = Array.from(pointers.values());
+      pinchDistance = Math.hypot(first.x - second.x, first.y - second.y);
+      dragging = false;
+    } else if (pointers.size === 1) {
+      dragging = true;
+    }
+  });
+
+  canvas.addEventListener('pointermove', (event) => {
+    if (interactionsBlocked() || canvas.hidden) return;
+    const previous = pointers.get(event.pointerId);
+    if (!previous) return;
+    const current = { x: event.clientX, y: event.clientY };
+    pointers.set(event.pointerId, current);
+    if (pointers.size === 2) {
+      const [first, second] = Array.from(pointers.values());
+      const distance = Math.hypot(first.x - second.x, first.y - second.y);
+      if (pinchDistance > 0) {
+        const { x, y } = cursorInFrame((first.x + second.x) / 2, (first.y + second.y) / 2);
+        zoomAt(x, y, clamp(scale * (distance / pinchDistance), ZOOM_MIN, ZOOM_MAX));
+      }
+      pinchDistance = distance;
+      return;
+    }
+    if (!dragging) return;
+    panX += current.x - previous.x;
+    panY += current.y - previous.y;
+    clampPan();
+    apply();
+  });
+
+  const endPointer = (event: PointerEvent): void => {
+    pointers.delete(event.pointerId);
+    if (pointers.size < 2) pinchDistance = 0;
+    if (pointers.size === 0) dragging = false;
+  };
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  canvas.addEventListener('dblclick', (event) => {
+    if (interactionsBlocked() || canvas.hidden) return;
+    event.preventDefault();
+    reset();
+  });
+
+  badge.addEventListener('click', reset);
+  window.addEventListener('resize', () => {
+    if (canvas.hidden) return;
+    clampPan();
+    apply();
+  });
+
+  apply();
+}
+
+const originalZoomBadge = document.querySelector<HTMLButtonElement>('#originalZoomBadge')!;
+const processedZoomBadge = document.querySelector<HTMLButtonElement>('#processedZoomBadge')!;
+const originalWireframeOverlay = document.querySelector<HTMLCanvasElement>('#originalWireframeOverlay')!;
+const processedWireframeOverlay = document.querySelector<HTMLCanvasElement>('#processedWireframeOverlay')!;
+createPreviewZoom(originalCanvas, originalZoomBadge, originalWireframeOverlay);
+createPreviewZoom(previewCanvas, processedZoomBadge, processedWireframeOverlay);
 const aoBakeOverlay = document.querySelector<HTMLDivElement>('#aoBakeOverlay')!;
 const aoBakeFill = document.querySelector<HTMLDivElement>('#aoBakeFill')!;
 const aoBakePercent = document.querySelector<HTMLParagraphElement>('#aoBakePercent')!;
@@ -518,12 +668,18 @@ const formatTexelDensity = (value: number): string => `${value.toFixed(value >= 
 // AO bake scene always mirrors the current UV channel and LOD level, so it is
 // the measure source; the dithered output resolution sizes the texel count.
 // Hidden without a model or when no face carries a usable UV.
+// Memoized: density depends only on the model's UVs and the target resolution,
+// so basecolor swaps (which don't touch the scene) skip the 60k-tri walk.
+let texelDensityCache: { scene: Object3D | null; width: number; height: number } | null = null;
 function updateTexelDensity(): void {
   if (!aoBakeScene) {
     processedTexelDensity.hidden = true;
+    texelDensityCache = null;
     return;
   }
   const { width, height } = dimensions();
+  if (texelDensityCache && texelDensityCache.scene === aoBakeScene && texelDensityCache.width === width && texelDensityCache.height === height) return;
+  texelDensityCache = { scene: aoBakeScene, width, height };
   const density = computeAverageTexelDensity(aoBakeScene, width, height);
   if (density === null) {
     processedTexelDensity.hidden = true;
@@ -531,6 +687,23 @@ function updateTexelDensity(): void {
   }
   processedTexelDensity.hidden = false;
   processedTexelDensityValue.textContent = formatTexelDensity(density);
+}
+
+// The rendered mesh-slot thumbnail is a pure function of the loaded model, and
+// the model doesn't change between ribbon refreshes — re-rendering it (a sync
+// WebGL frame + readPixels) on every basecolor/normal/lightmap change wasted
+// tens of ms for an identical picture. Invalidate on import/close only.
+let modelThumbnailCanvas: HTMLCanvasElement | null = null;
+
+// One invalidation point for every cached result derived from the AO scene's
+// geometry. The bake scene (BVH + world transforms), the UV-overlap mask, and
+// the texel density only change when the model, UV channel, LOD visibility, or
+// world-axis rotation change — all in-place mutations that identity-keyed
+// caches cannot see.
+function invalidateModelCaches(): void {
+  invalidateBakeScene();
+  invalidateUVOverlap();
+  texelDensityCache = null;
 }
 const formatPercent = (value: number): string => `${value}%`;
 const formatDegrees = (value: number): string => `${value}°`;
@@ -772,7 +945,11 @@ function renderTextureRibbon(): void {
     if (preview) {
       if (modelBundle && modelThumbScene) {
         // Small rendered preview of the mesh replaces the empty-slot mark.
-        preview.replaceChildren(renderModelThumbnail(modelThumbScene, 40));
+        // Rendered once per import — the model doesn't change between ribbon
+        // refreshes, so the canvas is reused instead of re-rendering a sync
+        // WebGL frame (with gl.finish + readPixels) on every refresh.
+        if (!modelThumbnailCanvas) modelThumbnailCanvas = renderModelThumbnail(modelThumbScene, 40);
+        preview.replaceChildren(modelThumbnailCanvas);
       } else {
         preview.innerHTML = '<span class="texture-slot-empty-mark">+</span>';
       }
@@ -784,7 +961,10 @@ function renderTextureRibbon(): void {
 function applyModelUV(channel: string): void {
   if (channel !== state.uvMap && lightmapIsActive(textures)) clearLightmap();
   state.uvMap = channel;
-  if (aoBakeScene) applyUVChannel(aoBakeScene, channel);
+  if (aoBakeScene) {
+    applyUVChannel(aoBakeScene, channel);
+    invalidateModelCaches();
+  }
   originalViewport?.applyUV(channel);
   processedViewport?.applyUV(channel);
   refreshUVOverlap();
@@ -795,7 +975,10 @@ function applyModelLod(level: number): void {
   if (level !== state.lodLevel && lightmapIsActive(textures)) clearLightmap();
   state.lodLevel = level;
   forEachViewport((viewport) => viewport.applyLOD(level));
-  if (aoBakeScene) applyLodLevel(aoBakeScene, level);
+  if (aoBakeScene) {
+    applyLodLevel(aoBakeScene, level);
+    invalidateModelCaches();
+  }
   refreshUVOverlap();
   if (state.showUVOverlap) render();
   updateTexelDensity();
@@ -814,7 +997,10 @@ function applySun(): void {
 
 function applyWorldAxis(): void {
   forEachViewport((viewport) => viewport.setWorldAxis(state.worldAxis));
-  if (aoBakeScene) aoBakeScene.rotation.set(upAxisRotation(state.worldAxis), 0, 0);
+  if (aoBakeScene) {
+    aoBakeScene.rotation.set(upAxisRotation(state.worldAxis), 0, 0);
+    invalidateModelCaches();
+  }
   refreshUVOverlap();
 }
 
@@ -831,6 +1017,8 @@ function applyPreviewMode(): void {
   renderSunControl();
   renderUVOverlapControl();
   renderUVWireframeControl();
+  // The wireframe overlays mirror the panes' 2D/3D visibility.
+  syncWireframeOverlays();
 }
 
 function closeModelPreview(): void {
@@ -848,6 +1036,8 @@ function closeModelPreview(): void {
     disposeModel(modelThumbScene);
     modelThumbScene = null;
   }
+  modelThumbnailCanvas = null;
+  invalidateModelCaches();
   resetPreview();
   textures.lightmap.image = null;
   textures.lightmap.name = '';
@@ -895,6 +1085,7 @@ async function setModel(files: File[]): Promise<void> {
     // Keep a clone for the ribbon's mesh thumbnail — the loaded scene is
     // disposed once the viewports hold their own clones.
     modelThumbScene = cloneModelScene(loaded.scene);
+    modelThumbnailCanvas = null;
     disposeModel(loaded.scene);
     originalPreviewMode = '3d';
     processedPreviewMode = '3d';
@@ -1271,6 +1462,10 @@ const renderer = createRenderer({
   textures,
   previewCanvas,
   originalCanvas,
+  wireframeOverlays: {
+    original: originalWireframeOverlay,
+    processed: processedWireframeOverlay,
+  },
   getAOScene: () => aoBakeScene,
   forEachViewport,
   getOriginalViewport: () => originalViewport,
@@ -1297,6 +1492,9 @@ const {
   scheduleNormalAdjustedLighting,
   refreshUVWireframe,
   refreshUVOverlap,
+  invalidateBakeScene,
+  invalidateUVOverlap,
+  syncWireframeOverlays,
   resetPreview,
 } = renderer;
 
@@ -1469,6 +1667,7 @@ function reset(): void {
   // Full reset is a fresh start: re-engage the implicit lightmap preview and
   // drop any cached render state.
   resetPreview();
+  invalidateModelCaches();
   renderTextureRibbon();
   editingCustomKey = null;
   customPaletteName.value = '';
@@ -2036,6 +2235,7 @@ uvWireframeInput.addEventListener('change', () => {
   state.showUVWireframe = uvWireframeInput.checked;
   renderUVWireframeControl();
   render();
+  syncWireframeOverlays();
 });
 function bindSunControl(): void {
   sunControlElements.orientWithCamera.addEventListener('click', () => {

@@ -51,12 +51,22 @@ export function emptyTextures(): RendererDeps['textures'] {
 /** A full RendererDeps with inert defaults; overrides win via spread. The
  * canvas properties keep their FakeCanvas type so tests can read the stubbed
  * pixel buffers back, while remaining assignable to RendererDeps. */
-export function createRendererDeps(overrides: Partial<RendererDeps> = {}): RendererDeps & { previewCanvas: FakeCanvas; originalCanvas: FakeCanvas } {
+export function createRendererDeps(overrides: Partial<RendererDeps> = {}): RendererDeps & {
+  previewCanvas: FakeCanvas;
+  originalCanvas: FakeCanvas;
+  wireframeOverlays: { original: FakeCanvas; processed: FakeCanvas };
+} {
+  const originalWireframeOverlay = new FakeCanvas();
+  const processedWireframeOverlay = new FakeCanvas();
   const deps = {
     state: createStateFixture(),
     textures: emptyTextures(),
     previewCanvas: new FakeCanvas(),
     originalCanvas: new FakeCanvas(),
+    wireframeOverlays: {
+      original: originalWireframeOverlay as unknown as HTMLCanvasElement,
+      processed: processedWireframeOverlay as unknown as HTMLCanvasElement,
+    },
     getAOScene: () => null,
     forEachViewport: vi.fn(),
     getOriginalViewport: () => null,
@@ -80,6 +90,10 @@ export function createRendererDeps(overrides: Partial<RendererDeps> = {}): Rende
     applySun: vi.fn(),
     onAoProgress: vi.fn(),
     ...overrides,
-  } as unknown as RendererDeps & { previewCanvas: FakeCanvas; originalCanvas: FakeCanvas };
+  } as unknown as RendererDeps & {
+    previewCanvas: FakeCanvas;
+    originalCanvas: FakeCanvas;
+    wireframeOverlays: { original: FakeCanvas; processed: FakeCanvas };
+  };
   return deps;
 }

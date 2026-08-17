@@ -7,6 +7,9 @@ export interface RendererDeps {
   textures: Record<TextureChannelId, TextureSlot>;
   previewCanvas: HTMLCanvasElement;
   originalCanvas: HTMLCanvasElement;
+  /** Display-resolution overlay canvases for the UV wireframe — one per 2D
+   * pane, positioned over the texture canvas and sharing its zoom transform. */
+  wireframeOverlays: { original: HTMLCanvasElement; processed: HTMLCanvasElement };
   getAOScene: () => Object3D | null;
   forEachViewport: (callback: (viewport: ModelViewport) => void) => void;
   getOriginalViewport: () => ModelViewport | null;
@@ -39,8 +42,19 @@ export interface RendererApi {
   reengageImplicitLightmap: () => void;
   scheduleImplicitLightmapBake: () => void;
   scheduleNormalAdjustedLighting: () => void;
+  /** Drops cached bake scenes (world transforms, BVH) after any in-place
+   * change to the AO scene's geometry: UV channel, LOD visibility, world-axis
+   * rotation, model import/close. Without this the next bake would reuse stale
+   * UVs/visibility/rotation. */
+  invalidateBakeScene: () => void;
   refreshUVWireframe: () => void;
   refreshUVOverlap: () => void;
+  /** Forces the next refreshUVOverlap to recompute — call after any in-place
+   * change to the AO scene's UVs/visibility/rotation. */
+  invalidateUVOverlap: () => void;
+  /** Re-draws the display-resolution UV wireframe overlays — call after the
+   * toggle, pane mode, frame resize, or texture bitmap size changes. */
+  syncWireframeOverlays: () => void;
   resetPreview: () => void;
   getRenderedCanvas: () => HTMLCanvasElement;
   getImplicitLightmapCanvas: () => HTMLCanvasElement | null;

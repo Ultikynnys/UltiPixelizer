@@ -1,7 +1,7 @@
 import { Object3D, Vector3 } from 'three';
 import { hexToRgb, isHexColor } from './palettes';
 import { directionToSun, type DirectionVector } from './sunDirection';
-import { castBakeRay, collectBakeScene, rasterizeBakedPixels, type BakeTriangle, type UvPair } from './bakeGeometry';
+import { castBakeRay, collectBakeScene, rasterizeBakedPixels, type BakeScene, type BakeTriangle, type UvPair } from './bakeGeometry';
 import { clamp01, type RGB } from './math';
 import { triangleNormal } from './modelScene';
 import { sampleNormalMap, type NormalMapSource } from './normal';
@@ -100,8 +100,11 @@ function computeTangentBasis(
  * normal is interpolated at each texel and the Lambert term is taken from that
  * shading normal, so the sun follows smoothed normals continuously across faces
  * instead of averaging per-vertex light (Gouraud) and showing faceting seams.
+ * Pass a pre-collected {@link BakeScene} as `bakeSceneOverride` to skip the
+ * (potentially hundreds-of-ms) scene collection — the caller owns its
+ * freshness via the bake-scene cache's invalidation contract.
  */
-export function bakeMeshLightmap(scene: Object3D, width: number, height: number, options: BakeLightmapOptions): Uint8ClampedArray {
+export function bakeMeshLightmap(scene: Object3D, width: number, height: number, options: BakeLightmapOptions, bakeSceneOverride?: BakeScene): Uint8ClampedArray {
   const sun = directionToSun(options.sunDirection);
   const towardSun = new Vector3(sun.x, sun.y, sun.z);
   const sunColor = parseColor(options.sunColor);
@@ -112,7 +115,7 @@ export function bakeMeshLightmap(scene: Object3D, width: number, height: number,
   const normalStrength = clamp01(options.normalStrength ?? 1);
   const normalFlipY = options.normalFlipY ?? false;
 
-  const { vertices, triangles, bvh, epsilon } = collectBakeScene(scene);
+  const { vertices, triangles, bvh, epsilon } = bakeSceneOverride ?? collectBakeScene(scene);
 
   // Shadow is sampled per vertex (binary occluder test) and interpolated per
   // pixel so shadow edges stay soft rather than snapping to face boundaries.

@@ -4,7 +4,7 @@ import { createOverlay } from '../src/lib/render/overlay';
 import type { RenderShared } from '../src/lib/render/types';
 import type { ModelViewport } from '../src/lib/modelPreview';
 import { createRendererDeps } from './helpers/rendererDeps';
-import { asSourceImage, FakeCanvas, flushRaf, installDomStubs, rafCount } from './helpers/domStubs';
+import { asSourceImage, domStubs, FakeCanvas, flushRaf, installDomStubs, rafCount } from './helpers/domStubs';
 
 beforeAll(() => {
   installDomStubs();
@@ -47,28 +47,119 @@ function setup(overrides: Parameters<typeof createRendererDeps>[0] = {}) {
   return { deps, shared, overlay };
 }
 
-describe('UV wireframe', () => {
-  it('collects triangles from the scene and draws them onto a context', () => {
-    const { overlay } = setup({ getAOScene: () => overlappingScene() });
-    overlay.refreshUVWireframe();
-    expect(overlay.hasWireframe()).toBe(true);
+/** Sizes the original pane's overlay, texture canvas box, and bitmap so
+ * syncWireframeOverlay computes a real draw rect. */
+function sizeOriginalPane(deps: ReturnType<typeof setup>['deps']): FakeCanvas {
+  const overlayCanvas = deps.wireframeOverlays.original as unknown as FakeCanvas;
+  overlayCanvas.clientWidth = 200;
+  overlayCanvas.clientHeight = 100;
+  deps.originalCanvas.offsetWidth = 200;
+  deps.originalCanvas.offsetHeight = 100;
+  deps.originalCanvas.width = 200;
+  deps.originalCanvas.height = 100;
+  return overlayCanvas;
+}
 
-    const context = new FakeCanvas().context as unknown as CanvasRenderingContext2D;
-    overlay.drawWireframe(context, 10, 10);
-    expect(context.beginPath).toHaveBeenCalled();
+describe('UV wireframe', () => {
+  it('draws the triangles onto the display-resolution overlay when enabled', () => {
+    const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
+    const overlayCanvas = sizeOriginalPane(deps);
+    deps.state.showUVWireframe = true;
+
+    overlay.refreshUVWireframe(); // collects triangles + syncs the overlay
+    expect(overlayCanvas.hidden).toBe(false);
+    const context = overlayCanvas.context;
     // One moveTo + two lineTo per triangle; two overlapping triangles total.
     expect(context.moveTo).toHaveBeenCalledTimes(2);
     expect(context.lineTo).toHaveBeenCalledTimes(4);
     expect(context.stroke).toHaveBeenCalledTimes(2);
+    // Two opaque passes — a 2px #0a0c10 under-stroke then the 1px white
+    // core — so no dither pattern bleeds through the lines. The final style
+    // left on the context is the white core.
+    expect(context.strokeStyle).toBe('#ffffff');
+    expect(context.lineWidth).toBe(1);
   });
 
-  it('reports no wireframe without a scene and draws nothing', () => {
-    const { overlay } = setup();
+  it('maps UVs through the bitmap letterbox rect (object-fit: contain)', () => {
+    const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
+    const overlayCanvas = deps.wireframeOverlays.original as unknown as FakeCanvas;
+    overlayCanvas.clientWidth = 200; // frame 200×100
+    overlayCanvas.clientHeight = 100;
+    deps.originalCanvas.offsetWidth = 100; // square canvas element box
+    deps.originalCanvas.offsetHeight = 100;
+    deps.originalCanvas.width = 100; // square bitmap
+    deps.originalCanvas.height = 100;
+    deps.state.showUVWireframe = true;
+
     overlay.refreshUVWireframe();
-    expect(overlay.hasWireframe()).toBe(false);
-    const context = new FakeCanvas().context as unknown as CanvasRenderingContext2D;
-    overlay.drawWireframe(context, 10, 10);
-    expect(context.stroke).not.toHaveBeenCalled();
+    // Bitmap 100×100 contained in the 100×100 box, box centered in the
+    // 200×100 frame → draw rect {50, 0, 100, 100}. Triangle uv (0,0) maps to
+    // the rect's bottom-left (v is flipped).
+    expect(overlayCanvas.context.moveTo).toHaveBeenNthCalledWith(1, 50, 100);
+    expect(overlayCanvas.context.lineTo).toHaveBeenNthCalledWith(1, 150, 100);
+    expect(overlayCanvas.context.lineTo).toHaveBeenNthCalledWith(2, 50, 0);
+  });
+
+  it('syncs both panes', () => {
+    const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
+    const originalOverlay = deps.wireframeOverlays.original as unknown as FakeCanvas;
+    const processedOverlay = deps.wireframeOverlays.processed as unknown as FakeCanvas;
+    for (const canvas of [originalOverlay, processedOverlay, deps.originalCanvas, deps.previewCanvas]) {
+      canvas.clientWidth = 200;
+      canvas.clientHeight = 100;
+      canvas.offsetWidth = 200;
+      canvas.offsetHeight = 100;
+      canvas.width = 200;
+      canvas.height = 100;
+    }
+    deps.state.showUVWireframe = true;
+
+    overlay.refreshUVWireframe();
+    expect(originalOverlay.hidden).toBe(false);
+    expect(processedOverlay.hidden).toBe(false);
+    expect(processedOverlay.context.stroke).toHaveBeenCalledTimes(2);
+  });
+
+  it('hides the overlay when the toggle is off', () => {
+    const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
+    const overlayCanvas = sizeOriginalPane(deps);
+    overlay.refreshUVWireframe(); // showUVWireframe stays false (fixture default)
+    expect(overlayCanvas.hidden).toBe(true);
+  });
+
+  it('hides the overlay when the pane is in 3D mode', () => {
+    const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
+    const overlayCanvas = sizeOriginalPane(deps);
+    deps.state.showUVWireframe = true;
+    deps.originalCanvas.hidden = true;
+    overlay.refreshUVWireframe();
+    expect(overlayCanvas.hidden).toBe(true);
+  });
+
+  it('hides the overlay without a scene', () => {
+    const { deps, overlay } = setup();
+    const overlayCanvas = sizeOriginalPane(deps);
+    deps.state.showUVWireframe = true;
+    overlay.refreshUVWireframe();
+    expect(overlayCanvas.hidden).toBe(true);
+  });
+
+  it('re-syncs on demand and when the frame resizes', () => {
+    const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
+    const overlayCanvas = sizeOriginalPane(deps);
+    overlay.refreshUVWireframe();
+    expect(overlayCanvas.hidden).toBe(true); // toggle off
+
+    deps.state.showUVWireframe = true;
+    overlay.syncWireframeOverlays(); // main.ts calls this on the toggle
+    expect(overlayCanvas.hidden).toBe(false);
+    expect(overlayCanvas.context.stroke).toHaveBeenCalledTimes(2);
+
+    overlayCanvas.context.stroke.mockClear();
+    overlayCanvas.clientWidth = 300; // frame grows
+    overlayCanvas.clientHeight = 150;
+    domStubs.resizeObservers[0].callback([], domStubs.resizeObservers[0] as unknown as ResizeObserver);
+    expect(overlayCanvas.context.stroke).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -129,9 +220,14 @@ describe('UV overlap overlay', () => {
   it('does nothing when the overlap view is disabled', () => {
     const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
     deps.textures.base.image = baseImage();
+    const overlayCanvas = sizeOriginalPane(deps);
+    deps.state.showUVWireframe = true;
     overlay.refreshUVOverlap();
     expect(rafCount()).toBe(0);
-    expect(overlay.hasWireframe()).toBe(true); // wireframe still collected
+    // Wireframe triangles are still collected and drawn on the overlay even
+    // though the overlap wave animation stays off.
+    expect(overlayCanvas.hidden).toBe(false);
+    expect(overlayCanvas.context.stroke).toHaveBeenCalledTimes(2);
   });
 
   it('stops the animation when the scene disappears', () => {
@@ -170,7 +266,7 @@ describe('UV overlap overlay', () => {
 
     overlay.reset();
     expect(rafCount()).toBe(0);
-    expect(overlay.hasWireframe()).toBe(false);
+    expect(deps.wireframeOverlays.original.hidden).toBe(true);
     // A later frame no longer animates.
     flushRaf(500);
     expect(deps.previewCanvas.context.drawn).toHaveLength(0);

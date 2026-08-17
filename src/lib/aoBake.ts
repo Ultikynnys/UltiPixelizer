@@ -40,10 +40,11 @@ function roundedSamples(requested?: number): number {
  * mesh contributes to occlusion; only meshes that carry both a `uv` and a
  * `normal` attribute are baked. Missing normals are recomputed during scene
  * collection, so pass a disposable scene (a clone) if you need to keep the
- * original untouched.
+ * original untouched. Pass a pre-collected {@link BakeScene} as
+ * `bakeSceneOverride` to skip scene collection (caller owns freshness).
  */
-export function bakeMeshAO(scene: Object3D, width: number, height: number, options: BakeAOMLOptions = {}): Uint8ClampedArray {
-  const bakeScene = collectBakeScene(scene, options.distance ?? 2);
+export function bakeMeshAO(scene: Object3D, width: number, height: number, options: BakeAOMLOptions = {}, bakeSceneOverride?: BakeScene): Uint8ClampedArray {
+  const bakeScene = bakeSceneOverride ?? collectBakeScene(scene, options.distance ?? 2);
   const input = serializeBakeScene(bakeScene, roundedSamples(options.samples));
   return bakeSingleThreaded(bakeScene, input, width, height);
 }
@@ -61,8 +62,9 @@ export async function bakeMeshAOAsync(
   height: number,
   options: BakeAOMLOptions = {},
   onProgress?: (percent: number) => void,
+  bakeSceneOverride?: BakeScene,
 ): Promise<Uint8ClampedArray> {
-  const bakeScene = collectBakeScene(scene, options.distance ?? 2);
+  const bakeScene = bakeSceneOverride ?? collectBakeScene(scene, options.distance ?? 2);
   const input = serializeBakeScene(bakeScene, roundedSamples(options.samples));
   if (typeof Worker === 'undefined') {
     return bakeSingleThreaded(bakeScene, input, width, height);

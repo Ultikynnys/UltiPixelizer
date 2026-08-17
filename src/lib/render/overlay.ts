@@ -1,17 +1,19 @@
+import type { Object3D } from 'three';
 import { createCanvas, factorsToCanvas } from '../canvas';
 import type { SourceImage } from '../state';
 import { UV_OVERLAP_LABEL, collectUVTriangles, computeUVOverlap, type UVTriangle } from '../uvOverlap';
 import type { RendererDeps, RenderShared } from './types';
 
-/** The slice of the overlay the 2D renderer depends on. */
-export interface OverlayView {
-  hasWireframe: () => boolean;
-  drawWireframe: (context: CanvasRenderingContext2D, width: number, height: number) => void;
-}
-
-export interface OverlayApi extends OverlayView {
+export interface OverlayApi {
   refreshUVWireframe: () => void;
   refreshUVOverlap: () => void;
+  /** Forces the next refreshUVOverlap to recompute — call after any in-place
+   * change to the AO scene's UVs/visibility/rotation. */
+  invalidateUVOverlap: () => void;
+  /** Re-draws the display-resolution UV wireframe overlays — visibility,
+   * letterbox mapping, and strokes — after the toggle, pane mode, frame
+   * resize, or texture bitmap size changes. */
+  syncWireframeOverlays: () => void;
   reset: () => void;
 }
 
@@ -21,17 +23,24 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
     textures,
     originalCanvas,
     previewCanvas,
+    wireframeOverlays,
     forEachViewport,
     getAOScene,
     getOriginalPreviewMode,
     getProcessedPreviewMode,
   } = deps;
+  const { original: originalWireframeOverlay, processed: processedWireframeOverlay } = wireframeOverlays;
 
   let uvOverlapMaskCanvas: HTMLCanvasElement | null = null;
   let uvWireframeTriangles: UVTriangle[] | null = null;
   let uvWaveCanvas: HTMLCanvasElement | null = null;
   let uvOverlayComposite: HTMLCanvasElement | null = null;
   let uvOverlayFrame = 0;
+  // Last-computed overlap context. The mask depends only on the scene's UVs
+  // (model, UV channel, LOD, world axis) and the mask resolution — both stable
+  // across basecolor swaps and ribbon refreshes — so a warm cache skips the
+  // ~150ms per-triangle re-rasterization on a 60k-tri model.
+  let uvOverlapCache: { scene: Object3D | null; width: number; height: number } | null = null;
 
   function uvOverlapResolution(source: SourceImage): { width: number; height: number } {
     const maxDimension = Math.max(source.width, source.height);
@@ -49,23 +58,38 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
   function refreshUVWireframe(): void {
     const scene = getAOScene();
     uvWireframeTriangles = scene ? collectUVTriangles(scene) : null;
+    syncWireframeOverlays();
   }
 
   function refreshUVOverlap(): void {
-    uvOverlapMaskCanvas = null;
-    forEachViewport((viewport) => viewport.setUVOverlap(null));
-    refreshUVWireframe();
     const scene = getAOScene();
     if (!state.showUVOverlap || !scene) {
+      uvOverlapMaskCanvas = null;
+      forEachViewport((viewport) => viewport.setUVOverlap(null));
+      refreshUVWireframe();
       stopUVOverlayAnimation();
       return;
     }
+    refreshUVWireframe();
     const source = textures.base.image!;
     const { width, height } = uvOverlapResolution(source);
+    if (uvOverlapCache && uvOverlapCache.scene === scene && uvOverlapCache.width === width && uvOverlapCache.height === height) {
+      // Nothing changed — the mask canvas and 3D highlight are still valid.
+      // Just resume the animation if a toggle-off earlier stopped it.
+      startUVOverlayAnimation();
+      return;
+    }
+    uvOverlapCache = { scene, width, height };
+    uvOverlapMaskCanvas = null;
+    forEachViewport((viewport) => viewport.setUVOverlap(null));
     const result = computeUVOverlap(scene, width, height);
     uvOverlapMaskCanvas = uvOverlapMask(result.counts, width, height);
     forEachViewport((viewport) => viewport.setUVOverlap(result.overlapping));
     startUVOverlayAnimation();
+  }
+
+  function invalidateUVOverlap(): void {
+    uvOverlapCache = null;
   }
 
   function renderWaveTile(time: number): HTMLCanvasElement {
@@ -119,31 +143,80 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
     context.restore();
   }
 
-  function drawWireframe(context: CanvasRenderingContext2D, width: number, height: number): void {
-    const triangles = uvWireframeTriangles;
-    if (!triangles || triangles.length === 0) return;
+  /** Strokes the wireframe triangles through a display-rect mapping (UV →
+   * frame-space pixel rect). Opaque strokes: translucent ones would let the
+   * dithered pixels bleed through, reading as the lines themselves being
+   * dithered. */
+  function drawWireframe(
+    context: CanvasRenderingContext2D,
+    triangles: UVTriangle[],
+    rect: { left: number; top: number; width: number; height: number },
+  ): void {
     context.save();
     context.beginPath();
     for (const triangle of triangles) {
       const [a, b, c] = triangle.uv;
-      context.moveTo(a[0] * width, (1 - a[1]) * height);
-      context.lineTo(b[0] * width, (1 - b[1]) * height);
-      context.lineTo(c[0] * width, (1 - c[1]) * height);
+      context.moveTo(rect.left + a[0] * rect.width, rect.top + (1 - a[1]) * rect.height);
+      context.lineTo(rect.left + b[0] * rect.width, rect.top + (1 - b[1]) * rect.height);
+      context.lineTo(rect.left + c[0] * rect.width, rect.top + (1 - c[1]) * rect.height);
       context.closePath();
     }
     context.lineJoin = 'round';
     context.lineCap = 'round';
-    context.strokeStyle = 'rgba(10, 12, 16, 0.6)';
+    context.strokeStyle = '#0a0c10';
     context.lineWidth = 2;
     context.stroke();
-    context.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+    context.strokeStyle = '#ffffff';
     context.lineWidth = 1;
     context.stroke();
     context.restore();
   }
 
-  function hasWireframe(): boolean {
-    return (uvWireframeTriangles?.length ?? 0) > 0;
+  /** One pane's wireframe layer. The texture bitmaps are low-res (the
+   * dithered pane can be ~128px wide) and are upscaled to the frame with
+   * nearest-neighbor, so stroking into them turns 1px antialiased lines into
+   * chunky speckles. Drawing here instead — at the pane's display resolution
+   * × devicePixelRatio — keeps the lines crisp at any zoom, and a dedicated
+   * element keeps them clear of the dither pattern. */
+  function syncWireframeOverlay(overlay: HTMLCanvasElement, canvas: HTMLCanvasElement): void {
+    const triangles = uvWireframeTriangles;
+    if (!state.showUVWireframe || canvas.hidden || !triangles || triangles.length === 0 || canvas.width <= 0 || canvas.height <= 0) {
+      overlay.hidden = true;
+      return;
+    }
+    overlay.hidden = false;
+    const frameWidth = overlay.clientWidth;
+    const frameHeight = overlay.clientHeight;
+    if (frameWidth <= 0 || frameHeight <= 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    overlay.width = Math.max(1, Math.round(frameWidth * dpr));
+    overlay.height = Math.max(1, Math.round(frameHeight * dpr));
+    const context = overlay.getContext('2d');
+    if (!context) return;
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.clearRect(0, 0, frameWidth, frameHeight);
+    // Replicate the bitmap's object-fit: contain draw rect inside the canvas
+    // element box (offsetWidth/offsetHeight are the post-layout, transform-
+    // independent box), then offset by the box within the frame (flex
+    // centering). The overlay shares the texture canvas's zoom/pan transform,
+    // so drawing in untransformed frame space stays aligned at any zoom.
+    const boxWidth = canvas.offsetWidth;
+    const boxHeight = canvas.offsetHeight;
+    if (boxWidth <= 0 || boxHeight <= 0) return;
+    const scale = Math.min(boxWidth / canvas.width, boxHeight / canvas.height);
+    const drawWidth = canvas.width * scale;
+    const drawHeight = canvas.height * scale;
+    drawWireframe(context, triangles, {
+      left: (frameWidth - boxWidth) / 2 + (boxWidth - drawWidth) / 2,
+      top: (frameHeight - boxHeight) / 2 + (boxHeight - drawHeight) / 2,
+      width: drawWidth,
+      height: drawHeight,
+    });
+  }
+
+  function syncWireframeOverlays(): void {
+    syncWireframeOverlay(originalWireframeOverlay, originalCanvas);
+    syncWireframeOverlay(processedWireframeOverlay, previewCanvas);
   }
 
   function drawAnimatedOverlay(canvas: HTMLCanvasElement, base: HTMLCanvasElement | null, time: number): void {
@@ -152,7 +225,6 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
     if (!context) return;
     const { width, height } = canvas;
     context.drawImage(base, 0, 0, width, height);
-    if (state.showUVWireframe) drawWireframe(context, width, height);
 
     const composite = overlayCompositeCanvas(width, height);
     const compContext = composite.getContext('2d');
@@ -190,11 +262,20 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
     uvOverlayFrame = 0;
   }
 
+  // Frame resizes change the overlay's display resolution and the texture
+  // bitmap's letterbox rect — keep the wireframe aligned. (Bitmap size
+  // changes are covered by the render wrapper re-syncing after every render.)
+  const wireframeResizeObserver = new ResizeObserver(() => syncWireframeOverlays());
+  wireframeResizeObserver.observe(originalWireframeOverlay);
+  wireframeResizeObserver.observe(processedWireframeOverlay);
+
   function reset(): void {
     uvOverlapMaskCanvas = null;
     uvWireframeTriangles = null;
     stopUVOverlayAnimation();
+    uvOverlapCache = null;
+    syncWireframeOverlays();
   }
 
-  return { refreshUVWireframe, refreshUVOverlap, hasWireframe, drawWireframe, reset };
+  return { refreshUVWireframe, refreshUVOverlap, invalidateUVOverlap, syncWireframeOverlays, reset };
 }

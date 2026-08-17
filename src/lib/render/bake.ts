@@ -1,8 +1,9 @@
 import { bakeMeshAOAsync } from '../aoBake';
+import { getBakeScene, invalidateBakeSceneCache } from '../bakeSceneCache';
 import { factorsToCanvas, pixelsToCanvas } from '../canvas';
 import { bakeMeshLightmap, type BakeLightmapOptions } from '../lightmapBake';
 import { imageNormalMapPixels } from '../normal';
-import { lightmapIsActive } from '../state';
+import { lightmapIsActive, type SourceImage } from '../state';
 import type { Render2DApi } from './render2d';
 import type { RendererDeps, RenderShared } from './types';
 
@@ -15,6 +16,7 @@ export interface BakeApi {
   reengageImplicitLightmap: () => void;
   scheduleImplicitLightmapBake: () => void;
   scheduleNormalAdjustedLighting: () => void;
+  invalidateBakeScene: () => void;
   reset: () => void;
 }
 
@@ -31,12 +33,20 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     onAoProgress,
   } = deps;
 
+  // The AO scene geometry is static between UV/LOD/world-axis/model changes, so
+  // the decoded normal-map pixels are memoized per image — re-baking on a sun
+  // or strength tweak shouldn't re-read the whole map off the canvas.
+  let cachedNormalMap: { image: SourceImage; source: ReturnType<typeof imageNormalMapPixels> } | null = null;
+
   function normalMapOptions() {
     const normalFlipY = state.normalFormat === 'directx';
     const image = textures.normal.image;
     if (!image) return { normalStrength: state.normalStrength, normalFlipY };
+    if (!cachedNormalMap || cachedNormalMap.image !== image) {
+      cachedNormalMap = { image, source: imageNormalMapPixels(image) };
+    }
     return {
-      normalMap: imageNormalMapPixels(image),
+      normalMap: cachedNormalMap.source,
       normalStrength: state.normalStrength,
       normalFlipY,
     };
@@ -59,7 +69,8 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     // Baked maps render at the dithered texture resolution — identical to the
     // processed output — so lighting and occlusion align 1:1 with the texture.
     const { width, height } = dimensions();
-    const pixels = bakeMeshLightmap(scene, width, height, currentLightmapBakeOptions());
+    const bakeScene = getBakeScene(scene);
+    const pixels = bakeMeshLightmap(scene, width, height, currentLightmapBakeOptions(), bakeScene ?? undefined);
     return pixelsToCanvas(pixels, width, height);
   }
 
@@ -71,7 +82,14 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
       return false;
     }
     const { width, height } = dimensions();
-    const factors = await bakeMeshAOAsync(scene, width, height, { samples: AO_BAKE_SAMPLES, distance: state.aoDistance }, onAoProgress);
+    const factors = await bakeMeshAOAsync(
+      scene,
+      width,
+      height,
+      { samples: AO_BAKE_SAMPLES, distance: state.aoDistance },
+      onAoProgress,
+      getBakeScene(scene, state.aoDistance) ?? undefined,
+    );
     textures.ao.image = factorsToCanvas(factors, width, height);
     textures.ao.name = 'Generated AO';
     return true;
@@ -191,6 +209,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     shared.implicitLightmapTimer = 0;
     // Fresh state (model close / full reset) re-engages the live preview.
     shared.lightmapCleared = false;
+    cachedNormalMap = null;
   }
 
   return {
@@ -200,6 +219,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     reengageImplicitLightmap,
     scheduleImplicitLightmapBake,
     scheduleNormalAdjustedLighting,
+    invalidateBakeScene: invalidateBakeSceneCache,
     reset,
   };
 }

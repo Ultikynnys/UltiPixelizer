@@ -4,13 +4,12 @@ import { processImageData } from '../dither';
 import { applyLightmap } from '../lightmap';
 import type { PreviewViewMode, SourceImage } from '../state';
 import type { RendererDeps, RenderShared } from './types';
-import type { OverlayView } from './overlay';
 
 export interface Render2DApi {
   render: () => void;
 }
 
-export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay: OverlayView): Render2DApi {
+export function createRender2D(deps: RendererDeps, shared: RenderShared): Render2DApi {
   const {
     state,
     textures,
@@ -214,12 +213,9 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
     originalCanvas.height = originalSource.height;
     originalCanvas.getContext('2d')?.drawImage(litSourceNative, 0, 0);
 
-    if (state.showUVWireframe && overlay.hasWireframe()) {
-      const originalContext = originalCanvas.getContext('2d');
-      if (originalContext) overlay.drawWireframe(originalContext, originalSource.width, originalSource.height);
-      const previewContext = previewCanvas.getContext('2d');
-      if (previewContext) overlay.drawWireframe(previewContext, width, height);
-    }
+    // The UV wireframe is drawn on display-resolution overlay canvases
+    // (overlay.syncWireframeOverlays) — never into the low-res texture
+    // bitmaps, where antialiased lines would upscale into dithered speckles.
 
     updatePreviewBadge(width, height);
     const originalViewport = getOriginalViewport();
