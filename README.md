@@ -1,6 +1,6 @@
-![UltiPixelizer](Assets/brand.png)
+![UltiPixelizer](https://tf2stats.r60d.xyz/UltiPixelizerWeb/brand.png)
 
-![UltiPixelizer example](Assets/Example.png)
+![UltiPixelizer example](https://tf2stats.r60d.xyz/UltiPixelizerWeb/Example.png)
 
 On the surface, UltiPixelizer is an easy-to-use dithering tool for textures. But feed it a 3D model and you can bake lighting and ambient occlusion, which, combined with a normal map and a base color, achieve a retro PS1-esque aesthetic. Every file is processed locally in your browser; nothing is uploaded.
 
@@ -8,33 +8,33 @@ On the surface, UltiPixelizer is an easy-to-use dithering tool for textures. But
 
 Drag and drop a texture or a 3D model bundle straight into the window:
 
-![Quick drag and drop usage](Assets/QuickDragDropUsage.webp)
+![Quick drag and drop usage](https://tf2stats.r60d.xyz/UltiPixelizerWeb/QuickDragDropUsage.webp)
 
 ## Showcase
 
 Bake ambient occlusion directly in the app and apply it straight to the combined dither result:
 
-![Baking ambient occlusion](Assets/BakeAO.webp)
+![Baking ambient occlusion](https://tf2stats.r60d.xyz/UltiPixelizerWeb/BakeAO.webp)
 
 Bake lightmaps directly in the app and apply them straight to the combined dither result:
 
-![Baking lightmaps](Assets/BuiltinLightmaps.webp)
+![Baking lightmaps](https://tf2stats.r60d.xyz/UltiPixelizerWeb/BuiltinLightmaps.webp)
 
 Nine dither methods, from error diffusion to a lighting-driven halftone dot screen:
 
-![Nine dither methods](Assets/DitherMethods.webp)
+![Nine dither methods](https://tf2stats.r60d.xyz/UltiPixelizerWeb/DitherMethods.webp)
 
 Comes with 47 built-in palettes:
 
-![Palette showcase](Assets/PaletteShowcase.webp)
+![Palette showcase](https://tf2stats.r60d.xyz/UltiPixelizerWeb/PaletteShowcase.webp)
 
 Posterize ramps adapt their colors to your texture's tones:
 
-![Dynamic posterize palettes](Assets/DynamicPosterizePalette.png)
+![Dynamic posterize palettes](https://tf2stats.r60d.xyz/UltiPixelizerWeb/DynamicPosterizePalette.png)
 
 Build your own palettes with the custom palette editor, save them in the app, and export any palette to an external file (`.palette.json`). Import palettes back from JSON, hex, or plain-text files:
 
-![Custom palettes](Assets/CustomPalettes.png)
+![Custom palettes](https://tf2stats.r60d.xyz/UltiPixelizerWeb/CustomPalettes.png)
 
 ## Features
 
@@ -54,7 +54,7 @@ Open the live app at [ultikynnys.github.io/UltiPixelizer](https://ultikynnys.git
 
 ## Desktop app
 
-UltiPixelizer also ships as a standalone desktop app for Windows and Linux via [Tauri 2](https://v2.tauri.app/) — a few megabytes instead of a whole browser, using the OS webview. The `Build desktop apps` workflow packages every push to `main` and publishes the installers as a GitHub Release, auto-tagging each build with its version (e.g. `v1.2.5`).
+UltiPixelizer also ships as a standalone desktop app for Windows and Linux via [Tauri 2](https://v2.tauri.app/) — a few megabytes instead of a whole browser, using the OS webview. The `Build desktop apps` workflow packages every push to `main` and publishes the installers as a GitHub Release, auto-tagging each build with its version (e.g. `v2.0.5`).
 
 To build locally you need [Rust](https://rustup.rs/) and the [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/):
 
@@ -66,7 +66,7 @@ npm run tauri build    # production bundles in src-tauri/target/release/bundle/
 
 All processing stays local either way. One caveat: the UI fonts load from Google Fonts, so the desktop app needs a network connection for the custom typography — offline it falls back to system fonts.
 
-Installer versions track the in-app build badge: both derive from the same git build count, with the count split into three digits for semver (`v124` in the badge → installer `1.2.4`).
+Installer versions use a static `2.0.0` base with the git commit count as the patch offset (commit 1 → `2.0.0`, commit 2 → `2.0.1`), matching the build count shown in the in-app badge.
 
 ## License
 
