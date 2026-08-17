@@ -3,6 +3,8 @@ dist/
 coverage/
 .reasonix/
 *.log
+# Editor backup files (foo.png~, foo.ts~, ...)
+*~
 .DS_Store
 Thumbs.db
 src-tauri/target/
