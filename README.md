@@ -24,6 +24,10 @@ Comes with 47 built-in palettes:
 
 ![Palette showcase](Assets/PaletteShowcase.webp)
 
+Posterize ramps are dynamic — the 2–16 level palettes build their colors live from your BaseColor texture's own tonal distribution (each level picks the average color of its luminance slice), so a dark or warm image keeps that character in the ramp instead of forcing a fixed gray scale:
+
+![Dynamic posterize palettes](Assets/DynamicPosterizePalette.png)
+
 ## Features
 
 - **Image + model input**: drop a PNG/JPG/WebP/GIF texture, or a 3D model bundle (FBX, OBJ, glTF/GLB, USDZ plus companion textures).
