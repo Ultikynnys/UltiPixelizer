@@ -3,6 +3,18 @@ name: Test and deploy GitHub Pages
 on:
   push:
     branches: [main]
+    # Skip the whole pipeline for docs/marketing-only commits: the tests,
+    # build and Pages deploy add nothing for these, and every skipped run
+    # saves minutes plus action-download bandwidth (which has been hitting
+    # GitHub rate limits, 429/503 on action archive downloads). Note: a push
+    # that changes this workflow file still runs, by design.
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+      - 'Example/**'
+      - 'itch-description.html'
+      - 'dump.txt'
+      - 'dump2.txt'
   workflow_dispatch:
 
 permissions:

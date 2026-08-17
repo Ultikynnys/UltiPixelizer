@@ -1,25 +1,28 @@
 name: Build desktop apps
 
-# Builds standalone Tauri apps for Windows and Linux and publishes them. Every
-# push to main is packaged into installers, tagged with the build version (the
-# same git build count the in-app badge uses, split into semver — v125 ->
-# 1.2.5) and attached to a published GitHub Release. The tag push uses
-# GITHUB_TOKEN, which does NOT re-trigger workflows. workflow_dispatch
-# re-runs the current commit and updates the same release.
+# Builds standalone Tauri apps for Windows and Linux and publishes them. Runs
+# only when a version tag (v*) is pushed or the workflow is dispatched
+# manually. Ordinary commits to main do NOT trigger this workflow: pushes
+# stay free, and the expensive 2-OS Rust build only runs when a release is
+# actually wanted. The release tag is the build version (the same git build
+# count the in-app badge uses, split into semver: v125 -> 1.2.5) and the
+# installers are attached to a published GitHub Release. A tag push made with
+# GITHUB_TOKEN does NOT re-trigger workflows. workflow_dispatch re-runs the
+# current commit and updates the same release.
 on:
   push:
-    branches: [main]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
   contents: write
-  # Note: the GITHUB_TOKEN can never push a tag that modifies .github/workflows
-  # files — `workflows` is not a valid key in the permissions block (the schema
-  # rejects it), and the token is refused at the git layer regardless. Releases
-  # therefore auto-publish only for commits that don't touch workflow files:
-  # after a workflow change, the first ordinary commit gets the tag instead.
+  # The version tag is pushed with GITHUB_TOKEN, but only when it is missing
+  # (e.g. a manual dispatch on a commit that was never tagged). GITHUB_TOKEN
+  # pushes do NOT re-trigger workflows, so the tag push never loops back into
+  # this workflow. Tag-triggered runs find the tag already exists and reuse it.
 
-# Serialize runs so queued pushes publish in order instead of racing on tags.
+# Serialize runs so queued tag pushes publish in order instead of racing.
 concurrency:
   group: desktop-release
   cancel-in-progress: false
