@@ -348,6 +348,9 @@ const originalCanvas = document.querySelector<HTMLCanvasElement>('#originalCanva
 // (click resets). The badge is optional — the dithered pane has none.
 const ZOOM_MIN = 0.1;
 const ZOOM_MAX = 64;
+// Px of the image that must stay in view when panning, so the image can be
+// slid past the frame edges (revealing background) but never lost entirely.
+const PAN_MARGIN = 48;
 
 function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement | null, overlay: HTMLElement | null = null): void {
   let scale = 1;
@@ -370,15 +373,25 @@ function createPreviewZoom(canvas: HTMLCanvasElement, badge: HTMLButtonElement |
     if (badge) badge.textContent = `${Math.round(scale * 100)}%`;
   }
 
-  /** Keep the canvas covering the frame once zoomed in; center it when smaller
-   * than the frame (zoom below 100%). */
+  /** Allow panning freely, even past the image edges (so the pane's
+   * background shows around the image), but keep a sliver of the image in
+   * view so it can never be lost entirely. */
   function clampPan(): void {
     const width = canvas.offsetWidth;
     const height = canvas.offsetHeight;
     const scaledWidth = width * scale;
     const scaledHeight = height * scale;
-    panX = scaledWidth <= width ? (width - scaledWidth) / 2 : clamp(panX, width - scaledWidth, 0);
-    panY = scaledHeight <= height ? (height - scaledHeight) / 2 : clamp(panY, height - scaledHeight, 0);
+    // The image may slide out of the frame by up to (frame - margin), leaving
+    // at least PAN_MARGIN px visible. Shrink the margin on tiny frames.
+    const margin = Math.min(PAN_MARGIN, width, height);
+    const minX = width - scaledWidth + margin;
+    const maxX = width - margin;
+    const minY = height - scaledHeight + margin;
+    const maxY = height - margin;
+    // If the scaled image is smaller than the sliding window (inverted range),
+    // pin it centered rather than clamping to an arbitrary edge.
+    panX = minX > maxX ? (width - scaledWidth) / 2 : clamp(panX, minX, maxX);
+    panY = minY > maxY ? (height - scaledHeight) / 2 : clamp(panY, minY, maxY);
   }
 
   /** Zooms so the frame-space point (cursorX, cursorY) — relative to the
