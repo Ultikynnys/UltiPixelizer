@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- UltiPixelizer brand mark: 2x2 pixel grid (7px cells, 2px gaps) rotated 45deg.
+       Colors defined once here; mirror src/style.css :root --paper / --accent. -->
+  <style>
+    svg { --paper: #f3f0e6; --accent: #8b5cf6; }
+  </style>
+  <g transform="translate(32 32) rotate(45) scale(2.2627)">
+    <rect x="-8" y="-8" width="7" height="7" fill="var(--paper)"/>
+    <rect x="1" y="-8" width="7" height="7" fill="var(--paper)"/>
+    <rect x="-8" y="1" width="7" height="7" fill="var(--paper)"/>
+    <rect x="1" y="1" width="7" height="7" fill="var(--accent)"/>
+  </g>
+</svg>

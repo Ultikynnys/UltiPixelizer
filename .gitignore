@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.reasonix/
+*.log
+.DS_Store
+Thumbs.db
+src-tauri/target/
+src-tauri/gen/
+src-tauri/tauri.version.json

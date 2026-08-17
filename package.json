@@ -1,0 +1,29 @@
+{
+  "name": "ultipixelizer",
+  "private": true,
+  "version": "1.0.0",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "tauri": "tauri",
+    "tauri:build": "node scripts/write-tauri-version.mjs && tauri build --config src-tauri/tauri.version.json"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@vitest/coverage-v8": "^3.2.7",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@types/three": "^0.185.4",
+    "three": "^0.185.1",
+    "three-mesh-bvh": "^0.9.14"
+  }
+}
