@@ -4,12 +4,32 @@
 
 On the surface, UltiPixelizer is an easy-to-use dithering tool for textures. But feed it a 3D model and you can bake lighting and ambient occlusion, which, combined with a normal map and a base color, achieve a retro PS1-esque aesthetic. Every file is processed locally in your browser; nothing is uploaded.
 
+## Demo
+
+Drag and drop a texture or a 3D model bundle straight into the window:
+
+<video src="Assets/DragAndDropTexturesAndMeshObject.mp4" controls muted loop></video>
+
+## Showcase
+
+Bake ambient occlusion directly in the app and apply it straight to the combined dither result:
+
+![Baking ambient occlusion](Assets/BakeAO.webp)
+
+Bake lightmaps directly in the app and apply them straight to the combined dither result:
+
+![Baking lightmaps](Assets/BuiltinLightmaps.webp)
+
+Comes with 39 built-in palettes:
+
+![Palette showcase](Assets/PaletteShowcase.webp)
+
 ## Features
 
 - **Image + model input**: drop a PNG/JPG/WebP/GIF texture, or a 3D model bundle (FBX, OBJ, glTF/GLB, USDZ plus companion textures).
 - **Pixelation**: target resolution from 24 to 512 px.
 - **Dithering**: Floyd-Steinberg, Atkinson, Ordered 4×4, Cross, Stripes, Noise, Checker, and Hard map (no diffusion).
-- **Palettes**: 30 built-in presets plus a custom palette editor with import/export.
+- **Palettes**: 39 built-in palettes plus a custom palette editor with import/export.
 - **Adjustments**: brightness, contrast, and saturation.
 - **3D preview**: orbit the model with baked lighting applied; select UV channel, LOD level, and world axis (Blender Z-up / Maya Y-up).
 - **Baking**: generate ambient occlusion, bake lighting into UV space, and apply normal maps.
@@ -42,4 +62,6 @@ Installer versions track the in-app build badge: both derive from the same git b
 
 ## Support
 
-If you find UltiPixelizer useful, consider supporting the developer on [Ko-fi](https://ko-fi.com/r60dr60d).
+If you find UltiPixelizer useful, consider supporting the developer on Ko-fi:
+
+<a href="https://ko-fi.com/r60dr60d" target="_blank"><img src="https://storage.ko-fi.com/cdn/kofi5.png?v=6" height="36" alt="Support me on Ko-fi at ko-fi.com" /></a>
