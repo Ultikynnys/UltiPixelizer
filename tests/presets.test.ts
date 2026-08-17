@@ -25,6 +25,7 @@ const config: ConversionConfig = {
   uvMap: 'uv2',
   stripeAngle: 45,
   noiseScale: 1,
+  halftoneScale: 1,
   seed: 1,
   aoBias: 0,
   aoPower: 1,
@@ -95,6 +96,13 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...base, stripeAngle: 0 })).toBe(true);
     expect(isConversionPreset({ ...base, stripeAngle: 135 })).toBe(true);
     expect(isConversionPreset({ ...base, stripeAngle: 136 })).toBe(false);
+  });
+
+  it('accepts halftone dot scales from 0.5 to 4', () => {
+    const base = createPreset('Boundary', '', config);
+    expect(isConversionPreset({ ...base, halftoneScale: 0.5 })).toBe(true);
+    expect(isConversionPreset({ ...base, halftoneScale: 4 })).toBe(true);
+    expect(isConversionPreset({ ...base, halftoneScale: 4.1 })).toBe(false);
   });
 
   it('validates lighting colors and intensity bounds', () => {
@@ -191,6 +199,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       saturation: 25,
       stripeAngle: 45,
       noiseScale: 1,
+      halftoneScale: 1,
       seed: 1,
       aoBias: 0,
       aoPower: 1,
@@ -205,7 +214,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(20);
+    expect(Object.keys(defaults)).toHaveLength(21);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -215,6 +224,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       saturation: 5,
       stripeAngle: 45,
       noiseScale: 1,
+      halftoneScale: 1,
       seed: 1,
       aoBias: 0,
       aoPower: 1,
@@ -244,6 +254,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       saturation: 25,
       stripeAngle: 45,
       noiseScale: 1,
+      halftoneScale: 1,
       seed: 1,
       aoBias: 0,
       aoPower: 1,

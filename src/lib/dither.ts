@@ -13,6 +13,13 @@ export type ProcessOptions = {
   stripeAngle: number;
   noiseScale: number;
   seed: number;
+  /** Multiplier on the halftone dot-cell size (1 = 4 px cells). Larger values
+   * make coarser dots; the dots scale with their cells. */
+  halftoneScale?: number;
+  /** Per-pixel shading factor for halftone dots (0 = fully dark, 1 = fully
+   * lit), sized width × height. Read at each dot's cell center; when absent,
+   * the pixel's own luminance drives the dots (classic halftone). */
+  lighting?: Float32Array | null;
 };
 
 const BAYER_4 = [
@@ -26,10 +33,9 @@ const BAYER_4 = [
 const thresholdModes = new Set<DitherMode>(['ordered', 'cross', 'stripes', 'noise', 'checker']);
 const LUMA = { red: 0.299, green: 0.587, blue: 0.114 };
 
-// Halftone cell size and the largest radius a dot can reach (half the cell
-// diagonal — dots just touch at full black, classic print behavior).
+// Base halftone dot-cell size in pixels; `halftoneScale` multiplies it so the
+// pattern period and the dots scale together (dots just touch at full black).
 const HALFTONE_CELL = 4;
-const halftoneMaxRadius = Math.hypot(HALFTONE_CELL / 2, HALFTONE_CELL / 2);
 
 export function patternThreshold(mode: DitherMode, x: number, y: number, stripeAngle = 45, noiseScale = 1, seed = 0): number {
   switch (mode) {
@@ -99,26 +105,9 @@ export function processImageData(source: ImageData, options: ProcessOptions): Im
   const palette = options.palette.map(hexToRgb);
   const work = new Float32Array(source.width * source.height * 3);
 
-  // True halftone renders each pixel as part of a single dot: the darkest
-  // palette color inside the dot, the lightest outside. Precompute the ink and
-  // paper extremes once per call.
-  let halftoneInk: RGB = [0, 0, 0];
-  let halftonePaper: RGB = [255, 255, 255];
-  if (options.mode === 'halftone') {
-    let inkLuma = Number.POSITIVE_INFINITY;
-    let paperLuma = Number.NEGATIVE_INFINITY;
-    for (const color of palette) {
-      const luma = color[0] * LUMA.red + color[1] * LUMA.green + color[2] * LUMA.blue;
-      if (luma < inkLuma) {
-        inkLuma = luma;
-        halftoneInk = color;
-      }
-      if (luma > paperLuma) {
-        paperLuma = luma;
-        halftonePaper = color;
-      }
-    }
-  }
+  // Halftone splits color from shading: the base is the palette hard-map of
+  // the adjusted color and the dot screen carries the shading, so no ink/paper
+  // extremes are precomputed.
 
   for (let pixel = 0; pixel < source.width * source.height; pixel += 1) {
     const index = pixel * 4;
@@ -149,17 +138,33 @@ export function processImageData(source: ImageData, options: ProcessOptions): Im
 
       let matched: RGB;
       if (options.mode === 'halftone') {
-        // Staggered diamond-lattice dot centers: mid-cell on even rows,
-        // cell-boundary on odd rows. The dot radius grows as the pixel
-        // darkens, so circle size tracks luminosity.
-        const centerX = Math.floor(y / HALFTONE_CELL) % 2 === 0 ? HALFTONE_CELL / 2 : HALFTONE_CELL;
-        const dx = Math.abs((x % HALFTONE_CELL) - centerX);
-        const wrappedX = HALFTONE_CELL - dx;
-        const dy = Math.abs((y % HALFTONE_CELL) - HALFTONE_CELL / 2);
-        const distance = Math.sqrt(Math.min(dx, wrappedX) ** 2 + dy * dy);
-        const luminance = current[0] * LUMA.red + current[1] * LUMA.green + current[2] * LUMA.blue;
-        const dotRadius = halftoneMaxRadius * (1 - luminance / 255) * (0.15 + 0.85 * options.strength);
-        matched = distance <= dotRadius ? halftoneInk : halftonePaper;
+        // Staggered lattice of dot centers (mid-cell on even rows, shared
+        // boundary on odd rows). Each dot's radius is driven by the shading
+        // factor sampled at its cell center, so sizes stay uniform per cell
+        // and grade smoothly across the image. Fully dark (factor 0) fills
+        // the cell with black; fully lit (factor 1) leaves no dot at all.
+        // Dither strength deliberately does NOT touch the dots: halftone is
+        // shading, not error diffusion.
+        const cell = Math.max(1, Math.round(HALFTONE_CELL * (options.halftoneScale ?? 1)));
+        const row = Math.floor(y / cell);
+        const col = Math.floor(x / cell);
+        const rowOdd = row % 2 === 1;
+        const centerX = rowOdd
+          ? (x - col * cell < cell / 2 ? col : col + 1) * cell
+          : (col + 0.5) * cell;
+        const centerY = (row + 0.5) * cell;
+        const distance = Math.hypot(x + 0.5 - centerX, y + 0.5 - centerY);
+        let factor: number;
+        if (options.lighting) {
+          const sampleX = clamp(Math.round(centerX), 0, source.width - 1);
+          const sampleY = clamp(Math.round(centerY), 0, source.height - 1);
+          factor = options.lighting[sampleY * source.width + sampleX];
+        } else {
+          factor = (current[0] * LUMA.red + current[1] * LUMA.green + current[2] * LUMA.blue) / 255;
+        }
+        const maxRadius = Math.hypot(cell / 2, cell / 2);
+        const dotRadius = maxRadius * (1 - factor);
+        matched = distance <= dotRadius ? [0, 0, 0] : nearestColor(current, palette);
       } else {
         matched = nearestColor(current, palette);
       }

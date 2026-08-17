@@ -286,6 +286,9 @@ app.innerHTML = `
             ${rangeControl('noiseScale', 'Noise scale', 1, 32, 1, 1, '1 px', 'Grain size')}
             ${rangeControl('seed', 'Seed', 0, 9999, 1, 1, '1', 'Noise pattern')}
           </div>
+          <div class="halftone-scale-control" id="halftoneScaleControl" hidden>
+            ${rangeControl('halftoneScale', 'Dot scale', 0.5, 4, 0.1, 1, '1.00×', 'Halftone dot size')}
+          </div>
         </section>
 
         <section class="panel adjustments">
@@ -394,6 +397,9 @@ const stripeAngleValue = document.querySelector<HTMLOutputElement>('#stripeAngle
 const noiseScaleControl = document.querySelector<HTMLDivElement>('#noiseScaleControl')!;
 const noiseScaleInput = document.querySelector<HTMLInputElement>('#noiseScale')!;
 const noiseScaleValue = document.querySelector<HTMLOutputElement>('#noiseScaleValue')!;
+const halftoneScaleControl = document.querySelector<HTMLDivElement>('#halftoneScaleControl')!;
+const halftoneScaleInput = document.querySelector<HTMLInputElement>('#halftoneScale')!;
+const halftoneScaleValue = document.querySelector<HTMLOutputElement>('#halftoneScaleValue')!;
 const seedInput = document.querySelector<HTMLInputElement>('#seed')!;
 const seedValue = document.querySelector<HTMLOutputElement>('#seedValue')!;
 const loadConfigInput = document.querySelector<HTMLInputElement>('#loadConfigInput')!;
@@ -713,6 +719,7 @@ function renderSunControl(): void {
 function updatePatternControls(): void {
   stripeAngleControl.hidden = state.mode !== 'stripes';
   noiseScaleControl.hidden = state.mode !== 'noise';
+  halftoneScaleControl.hidden = state.mode !== 'halftone';
 }
 
 function updateAOControls(): void {
@@ -1171,6 +1178,7 @@ function syncControlsFromState(): void {
   syncRangeValue(strengthInput, strengthValue, Math.round(state.strength * 100), formatPercent);
   syncRangeValue(stripeAngleInput, stripeAngleValue, state.stripeAngle, formatDegrees);
   syncRangeValue(noiseScaleInput, noiseScaleValue, state.noiseScale, formatPixels);
+  syncRangeValue(halftoneScaleInput, halftoneScaleValue, state.halftoneScale, formatTimes2);
   syncRangeValue(seedInput, seedValue, state.seed, formatPlain);
   setActiveMode(state.mode);
   updatePatternControls();
@@ -1533,6 +1541,12 @@ bindRange({
   output: noiseScaleValue,
   format: formatPixels,
   apply: (value) => { state.noiseScale = value; },
+});
+bindRange({
+  input: halftoneScaleInput,
+  output: halftoneScaleValue,
+  format: formatTimes2,
+  apply: (value) => { state.halftoneScale = value; },
 });
 bindRange({
   input: seedInput,

@@ -46,6 +46,31 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
    * inspected would alter what it shows. */
   function skipLighting(): void {}
 
+  /** Per-pixel shading factor for the halftone dot screen: AO visibility
+   * (bias/power remapped exactly as the lighting pass applies it) times the
+   * lightmap's luminance. 1 = fully lit, 0 = fully dark. Returns null when
+   * there is no AO bake and no lightmap at all (halftone then falls back to
+   * luminance-driven dots). The lightmap source matches the lighting pass:
+   * the explicit bake if present, else the live implicit bake, so moving the
+   * sun re-sizes the dots. */
+  function halftoneLighting(width: number, height: number): Float32Array | null {
+    const aoFactors = currentAOFactors(width, height);
+    const lightmap = textures.lightmap.image ?? shared.implicitLightmapCanvas;
+    if (!aoFactors && !lightmap) return null;
+    const lightmapPixels = lightmap ? imagePixels(lightmap, width, height) : null;
+    const lighting = new Float32Array(width * height);
+    for (let i = 0; i < width * height; i += 1) {
+      let factor = 1;
+      if (aoFactors) factor *= aoMultiplier(aoFactors[i], state.aoBias, state.aoPower);
+      if (lightmapPixels) {
+        const offset = i * 4;
+        factor *= (lightmapPixels[offset] * 0.299 + lightmapPixels[offset + 1] * 0.587 + lightmapPixels[offset + 2] * 0.114) / 255;
+      }
+      lighting[i] = factor;
+    }
+    return lighting;
+  }
+
   function litCanvas(image: CanvasImageSource, width: number, height: number): HTMLCanvasElement {
     const { canvas, context } = drawImageToCanvas(image, width, height);
     if (!context) return canvas;
@@ -152,12 +177,25 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared, overlay
         palette: currentColors(), mode: state.mode, strength: state.strength,
         brightness: state.brightness, contrast: state.contrast, saturation: state.saturation,
         stripeAngle: state.stripeAngle, noiseScale: state.noiseScale, seed: state.seed,
+        halftoneScale: state.halftoneScale,
       };
-      const { processed: processedData } = processLitImageData(
-        sourceData,
-        processedOnlySource ? skipLighting : applyLighting,
-        (lit) => processImageData(lit, processedOptions),
-      );
+      let processedData: ImageData;
+      if (state.mode === 'halftone') {
+        // Halftone splits color from shading: the dot screen carries the
+        // lighting, so the base is the hard-mapped *unlit* color (lighting is
+        // not multiplied into it). Inspected maps still skip lighting, exactly
+        // like the other modes.
+        processedData = processImageData(sourceData, {
+          ...processedOptions,
+          lighting: processedOnlySource ? null : halftoneLighting(width, height),
+        });
+      } else {
+        processedData = processLitImageData(
+          sourceData,
+          processedOnlySource ? skipLighting : applyLighting,
+          (lit) => processImageData(lit, processedOptions),
+        ).processed;
+      }
       renderContext.putImageData(processedData, 0, 0);
     }
 

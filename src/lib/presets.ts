@@ -24,6 +24,7 @@ export type ConversionConfig = {
   uvMap: string;
   stripeAngle: number;
   noiseScale: number;
+  halftoneScale: number;
   seed: number;
   aoBias: number;
   aoPower: number;
@@ -92,6 +93,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'saturation', path: ['saturation'], default: 5, validate: inRange(-100, 100) },
   { key: 'stripeAngle', path: ['stripeAngle'], default: 45, migrateDefault: 45, validate: inRange(0, 135) },
   { key: 'noiseScale', path: ['noiseScale'], default: 1, migrateDefault: 1, validate: inRange(1, 32) },
+  { key: 'halftoneScale', path: ['halftoneScale'], default: 1, migrateDefault: 1, validate: inRange(0.5, 4) },
   { key: 'seed', path: ['seed'], default: 1, migrateDefault: 1, validate: inRange(0, 9999) },
   { key: 'aoBias', path: ['aoBias'], default: 0, migrateDefault: 0, validate: inRange(-1, 1) },
   { key: 'aoPower', path: ['aoPower'], default: 1, migrateDefault: 1, validate: inRange(0, 16) },

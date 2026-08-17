@@ -36,6 +36,7 @@ export type State = {
   cameraDirection: DirectionVector;
   stripeAngle: number;
   noiseScale: number;
+  halftoneScale: number;
   seed: number;
   aoBias: number;
   aoPower: number;

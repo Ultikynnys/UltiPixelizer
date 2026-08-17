@@ -20,6 +20,7 @@ const options = (mode: DitherMode) => ({
   saturation: 0,
   stripeAngle: 45,
   noiseScale: 1,
+  halftoneScale: 1,
   seed: 1,
 });
 
@@ -219,15 +220,57 @@ describe('halftone dot rendering', () => {
     expect(inkCount(dark)).toBeGreaterThan(inkCount(light));
   });
 
-  it('uses the darkest palette color as ink and the lightest as paper', () => {
+  it('renders black dots over the hard-mapped palette base', () => {
     const source = imageData([[80, 80, 80, 255], [80, 80, 80, 255], [80, 80, 80, 255], [80, 80, 80, 255]], 2);
     const output = processImageData(source, { ...halftone, palette: ['#123456', '#f0e8d0'] });
     const values = new Set<string>();
     for (let i = 0; i < output.data.length; i += 4) {
       values.add(`${output.data[i]},${output.data[i + 1]},${output.data[i + 2]}`);
     }
-    expect(values.size).toBeLessThanOrEqual(2);
+    // Dots are pure black ink; everything else is the hard-mapped base color
+    // (the dark palette color for a dark source, never the light paper).
+    expect(values).toContain('0,0,0');
     expect(values).toContain('18,52,86');
-    expect(values).toContain('240,232,208');
+    expect(values).not.toContain('240,232,208');
+  });
+
+  it('maps lighting to dot size: fully dark fills black, fully lit leaves none', () => {
+    const source = imageData([[128, 128, 128, 255], [128, 128, 128, 255], [128, 128, 128, 255], [128, 128, 128, 255]], 2);
+    const lit = processImageData(source, { ...halftone, lighting: new Float32Array([1, 1, 1, 1]) });
+    expect([...lit.data]).toEqual([255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255]);
+    const dark = processImageData(source, { ...halftone, lighting: new Float32Array([0, 0, 0, 0]) });
+    expect([...dark.data]).toEqual([0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255]);
+  });
+
+  it('samples the lighting once per dot cell, not per pixel', () => {
+    // A single 4×4 cell with one dark pixel off-center: the dot reads the
+    // lighting at the cell center (fully lit) and stays absent everywhere.
+    const source = imageData(Array(16).fill([128, 128, 128, 255]), 4);
+    const lighting = new Float32Array(16).fill(1);
+    lighting[5] = 0;
+    const output = processImageData(source, { ...halftone, lighting });
+    const values = new Set<number>();
+    for (let i = 0; i < output.data.length; i += 4) values.add(output.data[i]);
+    expect(values).toEqual(new Set([255]));
+  });
+
+  it('ignores dither strength: halftone is shading, not diffusion', () => {
+    const source = imageData(Array(16).fill([64, 64, 64, 255]), 4);
+    const lighting = new Float32Array(16).fill(0.5);
+    const weak = processImageData(source, { ...halftone, lighting, strength: 0 });
+    const strong = processImageData(source, { ...halftone, lighting, strength: 1 });
+    expect([...weak.data]).toEqual([...strong.data]);
+  });
+
+  it('halftone scale multiplies the dot-cell size', () => {
+    const source = imageData(Array(16).fill([128, 128, 128, 255]), 4);
+    const lighting = new Float32Array(16).fill(0.5);
+    const small = processImageData(source, { ...halftone, lighting });
+    const large = processImageData(source, { ...halftone, lighting, halftoneScale: 2 });
+    // Scale 1 dots cover the cell cores; scale 2 makes one bigger dot that
+    // reaches further into the same 4×4 frame.
+    expect(inkCount(large)).toBeGreaterThan(inkCount(small));
+    expect(inkCount(small)).toBe(4);
+    expect(inkCount(large)).toBe(6);
   });
 });

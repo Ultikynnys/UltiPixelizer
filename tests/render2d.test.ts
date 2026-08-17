@@ -73,6 +73,41 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 
+  it('halftone dots follow implicit lightmap changes (sun re-bakes)', () => {
+    const deps = createRendererDeps({ textures: { base: { image: solidTexture([200, 200, 200, 255]), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.mode = 'halftone';
+    const shared = sharedState();
+    const render2d = createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() });
+
+    // Sun moved to full shadow: the implicit lightmap goes black and the dot
+    // screen fills with black over the hard-mapped white base.
+    shared.implicitLightmapCanvas = solidTexture([0, 0, 0, 255]) as unknown as HTMLCanvasElement;
+    render2d.render();
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
+
+    // Sun moved to full light: the dots disappear and the plain base returns.
+    shared.implicitLightmapCanvas = solidTexture([255, 255, 255, 255]) as unknown as HTMLCanvasElement;
+    render2d.render();
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
+  });
+
+  it('halftone dots follow AO changes', () => {
+    const deps = createRendererDeps({ textures: { base: { image: solidTexture([200, 200, 200, 255]), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.mode = 'halftone';
+    const shared = sharedState();
+    const render2d = createRender2D(deps, shared, { hasWireframe: () => false, drawWireframe: vi.fn() });
+
+    // No AO yet: luminance-driven dots on a bright base stay below dot size in
+    // the 2×2 cell, so the preview is the plain white base.
+    render2d.render();
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
+
+    // AO bake lands (fully occluded): the dot screen fills with black.
+    deps.textures.ao.image = solidTexture([0, 0, 0, 255]);
+    render2d.render();
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
+  });
+
   it('shows the raw lightmap in both panes when lightmap-only mode is on', () => {
     const lightmap = solidTexture([200, 200, 200, 255]);
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: lightmap, name: '' } } });
