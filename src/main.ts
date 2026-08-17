@@ -1667,14 +1667,16 @@ function droppedFiles(event: DragEvent): File[] {
   return Array.from(event.dataTransfer?.files ?? []);
 }
 
-// Drag highlight, delegated to the ribbon: a single "active" slot so the
+// Drag highlight, owned document-wide with a single "active" slot so the
 // white outline always tracks the slot actually under the pointer.
-// dragenter/dragover (both bubble up from slot children) re-derive the
-// hovered slot; dragleave only clears it when the pointer truly left that
-// slot — a leave into the slot's own descendants is ignored. Per-slot
-// enter/leave handlers flicker because every child-boundary crossing fires a
-// dragleave on the slot, so the highlight is owned by the ribbon instead.
-const textureRibbonElement = document.querySelector<HTMLElement>('#textureRibbon')!;
+// dragenter/dragover (which bubble from slot children — including the
+// thumbnail canvases of already-filled slots) re-derive the hovered slot from
+// event.target, and any dragenter/dragover over a non-slot area drops the
+// highlight. Element-level dragleave is deliberately NOT used: it fires
+// spuriously when crossing into children (relatedTarget is unreliable,
+// especially over GPU-composited canvases), which made the outline vanish on
+// filled slots. Only a window exit (document dragleave) and drop clear it
+// outside the enter/dragover cycle.
 let activeDragSlot: HTMLElement | null = null;
 function highlightDragSlot(slot: HTMLElement): void {
   if (activeDragSlot === slot) return;
@@ -1690,30 +1692,25 @@ function slotUnderDrag(event: Event): HTMLElement | null {
   const target = event.target;
   return target instanceof Element ? target.closest<HTMLElement>('.texture-slot') : null;
 }
-function bindRibbonDragState(): void {
-  ['dragenter', 'dragover'].forEach((type) => textureRibbonElement.addEventListener(type, (event) => {
-    const slot = slotUnderDrag(event);
-    // Disabled slots are not valid targets: no highlight, and no
-    // preventDefault, so the browser shows its native no-drop cursor.
-    if (!slot || slot.classList.contains('disabled')) return;
-    event.preventDefault();
-    highlightDragSlot(slot);
-  }));
-  textureRibbonElement.addEventListener('dragleave', (event) => {
-    const slot = slotUnderDrag(event);
-    if (!slot || slot !== activeDragSlot) return;
-    const related = (event as DragEvent).relatedTarget;
-    if (related instanceof Node && slot.contains(related)) return;
+['dragenter', 'dragover'].forEach((type) => document.addEventListener(type, (event) => {
+  const slot = slotUnderDrag(event);
+  if (!slot || slot.classList.contains('disabled')) {
+    // Pointer over a non-slot or disabled slot: drop any stale highlight. No
+    // preventDefault, so the browser keeps its native no-drop cursor there.
     clearDragHighlight();
-  });
-  // Drop must be allowed and the highlight cleared even when the drop lands
-  // on the ribbon's own surface; the per-slot drop handlers do the work.
-  textureRibbonElement.addEventListener('drop', (event) => {
-    event.preventDefault();
-    clearDragHighlight();
-  });
-}
-bindRibbonDragState();
+    return;
+  }
+  event.preventDefault();
+  highlightDragSlot(slot);
+}));
+// Leaving the window entirely (no more enter/dragover events to re-derive
+// from) clears the highlight; drop is prevented everywhere so dropping a file
+// on any non-slot area never navigates the webview to that file.
+document.addEventListener('dragleave', () => clearDragHighlight());
+document.addEventListener('drop', (event) => {
+  event.preventDefault();
+  clearDragHighlight();
+});
 
 TEXTURE_CHANNELS.forEach((channel) => {
   const slot = document.querySelector<HTMLElement>(`[data-texture="${channel.id}"]`);
