@@ -8,7 +8,7 @@ On the surface, UltiPixelizer is an easy-to-use dithering tool for textures. But
 
 Drag and drop a texture or a 3D model bundle straight into the window:
 
-<video src="Assets/DragAndDropTexturesAndMeshObject.mp4" controls muted loop></video>
+https://github.com/user-attachments/assets/6b8c5ee4-aa61-4b82-be04-40ee0191f909
 
 ## Showcase
 
