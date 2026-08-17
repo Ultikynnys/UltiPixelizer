@@ -52,22 +52,6 @@ Build your own palettes with the custom palette editor, save them in the app, an
 
 Open the live app at [ultikynnys.github.io/UltiPixelizer](https://ultikynnys.github.io/UltiPixelizer/).
 
-## Desktop app
-
-UltiPixelizer also ships as a standalone desktop app for Windows and Linux via [Tauri 2](https://v2.tauri.app/) — a few megabytes instead of a whole browser, using the OS webview. The `Build desktop apps` workflow packages every push to `main` and publishes the installers as a GitHub Release, auto-tagging each build with its version (e.g. `v2.0.5`).
-
-To build locally you need [Rust](https://rustup.rs/) and the [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/):
-
-```sh
-npm install
-npm run tauri dev      # run against the Vite dev server
-npm run tauri build    # production bundles in src-tauri/target/release/bundle/
-```
-
-All processing stays local either way. One caveat: the UI fonts load from Google Fonts, so the desktop app needs a network connection for the custom typography — offline it falls back to system fonts.
-
-Installer versions use a static `2.0.0` base with the git commit count as the patch offset (commit 1 → `2.0.0`, commit 2 → `2.0.1`), matching the build count shown in the in-app badge.
-
 ## License
 
 [MIT](LICENSE)
