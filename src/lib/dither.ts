@@ -1,7 +1,7 @@
 import { hexToRgb } from './palettes';
 import { clamp, type RGB } from './math';
 
-export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'cross' | 'stripes' | 'noise' | 'checker' | 'none';
+export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'halftone' | 'cross' | 'stripes' | 'noise' | 'checker' | 'none';
 
 export type ProcessOptions = {
   palette: string[];
@@ -22,8 +22,14 @@ const BAYER_4 = [
   [15, 7, 13, 5],
 ];
 
+
 const thresholdModes = new Set<DitherMode>(['ordered', 'cross', 'stripes', 'noise', 'checker']);
 const LUMA = { red: 0.299, green: 0.587, blue: 0.114 };
+
+// Halftone cell size and the largest radius a dot can reach (half the cell
+// diagonal — dots just touch at full black, classic print behavior).
+const HALFTONE_CELL = 4;
+const halftoneMaxRadius = Math.hypot(HALFTONE_CELL / 2, HALFTONE_CELL / 2);
 
 export function patternThreshold(mode: DitherMode, x: number, y: number, stripeAngle = 45, noiseScale = 1, seed = 0): number {
   switch (mode) {
@@ -93,6 +99,27 @@ export function processImageData(source: ImageData, options: ProcessOptions): Im
   const palette = options.palette.map(hexToRgb);
   const work = new Float32Array(source.width * source.height * 3);
 
+  // True halftone renders each pixel as part of a single dot: the darkest
+  // palette color inside the dot, the lightest outside. Precompute the ink and
+  // paper extremes once per call.
+  let halftoneInk: RGB = [0, 0, 0];
+  let halftonePaper: RGB = [255, 255, 255];
+  if (options.mode === 'halftone') {
+    let inkLuma = Number.POSITIVE_INFINITY;
+    let paperLuma = Number.NEGATIVE_INFINITY;
+    for (const color of palette) {
+      const luma = color[0] * LUMA.red + color[1] * LUMA.green + color[2] * LUMA.blue;
+      if (luma < inkLuma) {
+        inkLuma = luma;
+        halftoneInk = color;
+      }
+      if (luma > paperLuma) {
+        paperLuma = luma;
+        halftonePaper = color;
+      }
+    }
+  }
+
   for (let pixel = 0; pixel < source.width * source.height; pixel += 1) {
     const index = pixel * 4;
     const adjusted = adjustColor([data[index], data[index + 1], data[index + 2]], options.brightness, options.contrast, options.saturation);
@@ -120,7 +147,22 @@ export function processImageData(source: ImageData, options: ProcessOptions): Im
         current = [clamp(current[0] + offset, 0, 255), clamp(current[1] + offset, 0, 255), clamp(current[2] + offset, 0, 255)];
       }
 
-      const matched = nearestColor(current, palette);
+      let matched: RGB;
+      if (options.mode === 'halftone') {
+        // Staggered diamond-lattice dot centers: mid-cell on even rows,
+        // cell-boundary on odd rows. The dot radius grows as the pixel
+        // darkens, so circle size tracks luminosity.
+        const centerX = Math.floor(y / HALFTONE_CELL) % 2 === 0 ? HALFTONE_CELL / 2 : HALFTONE_CELL;
+        const dx = Math.abs((x % HALFTONE_CELL) - centerX);
+        const wrappedX = HALFTONE_CELL - dx;
+        const dy = Math.abs((y % HALFTONE_CELL) - HALFTONE_CELL / 2);
+        const distance = Math.sqrt(Math.min(dx, wrappedX) ** 2 + dy * dy);
+        const luminance = current[0] * LUMA.red + current[1] * LUMA.green + current[2] * LUMA.blue;
+        const dotRadius = halftoneMaxRadius * (1 - luminance / 255) * (0.15 + 0.85 * options.strength);
+        matched = distance <= dotRadius ? halftoneInk : halftonePaper;
+      } else {
+        matched = nearestColor(current, palette);
+      }
       const outputIndex = pixel * 4;
       data[outputIndex] = matched[0];
       data[outputIndex + 1] = matched[1];

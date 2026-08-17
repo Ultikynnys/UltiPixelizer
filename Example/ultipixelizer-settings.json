@@ -1,0 +1,55 @@
+{
+  "version": 7,
+  "id": "1786930255202-saved",
+  "name": "saved",
+  "description": "",
+  "createdAt": "2026-08-17T01:30:55.202Z",
+  "resolution": 128,
+  "mode": "floyd",
+  "strength": 0.85,
+  "brightness": 0,
+  "contrast": 8,
+  "saturation": 5,
+  "stripeAngle": 45,
+  "noiseScale": 1,
+  "seed": 1,
+  "aoBias": 0,
+  "aoPower": 1,
+  "aoDistance": 2,
+  "sunColor": "#ffffff",
+  "sunIntensity": 1,
+  "ambientColor": "#ffffff",
+  "ambientIntensity": 0.2,
+  "normalStrength": 1,
+  "normalFormat": "opengl",
+  "sunDirection": {
+    "x": 0.022485174080617124,
+    "y": -0.5661548513999342,
+    "z": -0.8239921730106924
+  },
+  "cameraDirection": {
+    "x": -8.026579970989156e-9,
+    "y": -0.9999999999995001,
+    "z": -9.999677865746293e-7
+  },
+  "paletteKey": "desert",
+  "palette": {
+    "name": "Desert Bloom",
+    "category": "compact",
+    "colors": [
+      "#251b18",
+      "#473026",
+      "#6e4933",
+      "#986743",
+      "#c58a57",
+      "#e5ae70",
+      "#f4d194",
+      "#f9e7bd",
+      "#7a8140",
+      "#4d6539",
+      "#9f4e55",
+      "#d97569"
+    ]
+  },
+  "uvMap": "uv"
+}

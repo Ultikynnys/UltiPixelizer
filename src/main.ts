@@ -2,7 +2,9 @@ import './style.css';
 import { createCanvas, createSampleTexture, downloadCanvas, downloadText, drawImageToCanvas, loadImageFile, resizeNearest } from './lib/canvas';
 import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomPalettes, paletteFromImport, selectOrCreatePalette, serializeCustomPalette, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
 import type { DitherMode } from './lib/dither';
-import { palettes, type Palette, type PaletteCategory } from './lib/palettes';
+import { sampleColorAt } from './lib/eyedropper';
+import { hexToRgb, hsvToRgb, palettes, rgbToHex, rgbToHsv, type Palette, type PaletteCategory } from './lib/palettes';
+import { computePosterizeStats, posterizeColors, type PosterizeStats } from './lib/posterize';
 import { createRenderScheduler } from './lib/renderScheduler';
 import { createModelFileBundle, modelFormat, type ModelFileBundle, type WorldAxis } from './lib/modelFiles';
 import { collectModelTextures, type ExtractedModelTextures } from './lib/modelTextures';
@@ -39,6 +41,18 @@ const DOWNLOAD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 14 14" aria-
 // the shaft so the arrow points up, out of storage into the app.
 const IMPORT_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 9v-7M4.5 4.5L7 2l2.5 2.5M1 11.5h12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+// Eyedropper (pipette) icon for the screen color-picker button in the palette
+// editor — a round bulb, tube, and needle tip so it reads as a dropper (the
+// previous straight-shaft glyph looked like a sword). Phosphor icons, MIT.
+const EYEDROPPER_ICON_SVG = '<svg width="28" height="28" viewBox="0 0 256 256" aria-hidden="true" fill="currentColor"><path d="M224,67.3a35.79,35.79,0,0,0-11.26-25.66c-14-13.28-36.72-12.78-50.62,1.13L142.8,62.2a24,24,0,0,0-33.14.77l-9,9a16,16,0,0,0,0,22.64l2,2.06-51,51a39.75,39.75,0,0,0-10.53,38l-8,18.41A13.68,13.68,0,0,0,36,219.3a15.92,15.92,0,0,0,17.71,3.35L71.23,215a39.89,39.89,0,0,0,37.06-10.75l51-51,2.06,2.06a16,16,0,0,0,22.62,0l9-9a24,24,0,0,0,.74-33.18l19.75-19.87A35.75,35.75,0,0,0,224,67.3ZM97,193a24,24,0,0,1-24,6,8,8,0,0,0-5.55.31l-18.1,7.91L57,189.41a8,8,0,0,0,.25-5.75A23.88,23.88,0,0,1,63,159l51-51,33.94,34ZM202.13,82l-25.37,25.52a8,8,0,0,0,0,11.3l4.89,4.89a8,8,0,0,1,0,11.32l-9,9L112,83.26l9-9a8,8,0,0,1,11.31,0l4.89,4.89a8,8,0,0,0,11.33,0l24.94-25.09c7.81-7.82,20.5-8.18,28.29-.81a20,20,0,0,1,.39,28.7Z"/></svg>';
+
+// The same pipette as a cursor image (explicit fill — a cursor can't inherit
+// currentColor). Encoded at runtime so no hand-escaped SVG sits in the CSS.
+const EYEDROPPER_CURSOR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 256 256"><path fill="#e8e8e2" d="M224,67.3a35.79,35.79,0,0,0-11.26-25.66c-14-13.28-36.72-12.78-50.62,1.13L142.8,62.2a24,24,0,0,0-33.14.77l-9,9a16,16,0,0,0,0,22.64l2,2.06-51,51a39.75,39.75,0,0,0-10.53,38l-8,18.41A13.68,13.68,0,0,0,36,219.3a15.92,15.92,0,0,0,17.71,3.35L71.23,215a39.89,39.89,0,0,0,37.06-10.75l51-51,2.06,2.06a16,16,0,0,0,22.62,0l9-9a24,24,0,0,0,.74-33.18l19.75-19.87A35.75,35.75,0,0,0,224,67.3ZM97,193a24,24,0,0,1-24,6,8,8,0,0,0-5.55.31l-18.1,7.91L57,189.41a8,8,0,0,0,.25-5.75A23.88,23.88,0,0,1,63,159l51-51,33.94,34ZM202.13,82l-25.37,25.52a8,8,0,0,0,0,11.3l4.89,4.89a8,8,0,0,1,0,11.32l-9,9L112,83.26l9-9a8,8,0,0,1,11.31,0l4.89,4.89a8,8,0,0,0,11.33,0l24.94-25.09c7.81-7.82,20.5-8.18,28.29-.81a20,20,0,0,1,.39,28.7Z"/></svg>';
+// Hotspot (6, 18) sits on the dropper's needle tip (≈64, 192 in the 256²
+// viewBox, scaled to the 24px cursor).
+const EYEDROPPER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(EYEDROPPER_CURSOR_SVG)}") 6 18, crosshair`;
+
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('Application root not found.');
 
@@ -53,6 +67,12 @@ const textures: Record<TextureChannelId, TextureSlot> = {
   normal: { image: null, name: '' },
   lightmap: { image: null, name: '' },
 };
+
+// Posterize ramps adapt to the BaseColor texture's own tonal distribution
+// (see refreshPosterizeStats) — recomputed whenever the base image changes.
+const POSTERIZE_SAMPLE_MAX = 64;
+let posterizeStats: PosterizeStats | null = null;
+refreshPosterizeStats();
 const sunOverlayMarkup = (): string => `
   <div class="sun-overlay" id="sunControl" hidden>
     <div class="sun-overlay-heading">
@@ -128,10 +148,6 @@ app.innerHTML = `
     <main class="workspace">
       <section class="preview-column" aria-label="Texture preview">
         <div class="preview-toolbar">
-          <div>
-            <p class="eyebrow">TEXTURE PREVIEW</p>
-            <h1 id="fileName">${textures.base.name}</h1>
-          </div>
           <div class="texture-ribbon" id="textureRibbon" aria-label="Texture sources">
             ${TEXTURE_CHANNELS.map((channel) => `
               <div class="texture-slot" data-texture="${channel.id}" tabindex="0" aria-label="${channel.label} texture slot">
@@ -220,6 +236,7 @@ app.innerHTML = `
             <button type="button" data-filter="hardware">Hardware</button>
             <button type="button" data-filter="themed">Themed</button>
             <button type="button" data-filter="extended">Extended</button>
+            <button type="button" data-filter="posterize">Posterize</button>
             <button type="button" data-filter="custom">Custom</button>
           </div>
           <div class="palette-grid" id="paletteGrid"></div>
@@ -228,6 +245,19 @@ app.innerHTML = `
             <fieldset class="palette-editor" id="paletteEditor">
               <div class="palette-editor-fields">
                 <label><span>Name</span><input id="customPaletteName" maxlength="60" placeholder="Palette name" /></label>
+              </div>
+              <div class="color-picker" id="colorPicker">
+                <div class="color-picker-head">
+                  <span class="color-picker-swatch" id="colorPickerSwatch" style="--swatch:#ffffff"></span>
+                  <input id="colorPickerHex" class="color-picker-hex" maxlength="7" spellcheck="false" aria-label="Hex color" />
+                </div>
+                <div class="color-picker-body">
+                  <div class="color-picker-field" id="colorPickerField"></div>
+                  <div class="color-picker-side">
+                    <div class="color-picker-hue" id="colorPickerHue"></div>
+                    <button class="color-picker-button" id="colorPickerButton" type="button" title="Pick a color from the screen" aria-label="Pick a color from the screen">${EYEDROPPER_ICON_SVG}</button>
+                  </div>
+                </div>
               </div>
               <div id="customColors" class="custom-colors"></div>
             </fieldset>
@@ -245,6 +275,7 @@ app.innerHTML = `
             <button class="mode-button" data-mode="stripes" type="button"><span class="pattern pattern-stripes"></span><strong>Stripes</strong><small>Directional bands</small></button>
             <button class="mode-button" data-mode="noise" type="button"><span class="pattern pattern-random"></span><strong>Noise</strong><small>Randomized grain</small></button>
             <button class="mode-button" data-mode="checker" type="button"><span class="pattern pattern-checker"></span><strong>Checker</strong><small>Alternating grid</small></button>
+            <button class="mode-button" data-mode="halftone" type="button"><span class="pattern pattern-halftone"></span><strong>Halftone</strong><small>Print-style dots</small></button>
             <button class="mode-button" data-mode="none" type="button"><span class="pattern pattern-none"></span><strong>Hard map</strong><small>No diffusion</small></button>
           </div>
           ${rangeControl('strength', 'Dither strength', 0, 100, 1, 85, '85%', 'Error diffusion amount')}
@@ -307,6 +338,15 @@ const customPaletteSection = document.querySelector<HTMLDivElement>('.custom-pal
 const customColors = document.querySelector<HTMLDivElement>('#customColors')!;
 const customPaletteName = document.querySelector<HTMLInputElement>('#customPaletteName')!;
 const paletteEditor = document.querySelector<HTMLFieldSetElement>('#paletteEditor')!;
+const colorPickerSwatch = document.querySelector<HTMLSpanElement>('#colorPickerSwatch')!;
+const colorPickerHex = document.querySelector<HTMLInputElement>('#colorPickerHex')!;
+const colorPickerField = document.querySelector<HTMLDivElement>('#colorPickerField')!;
+const colorPickerHue = document.querySelector<HTMLDivElement>('#colorPickerHue')!;
+const colorPickerButton = document.querySelector<HTMLButtonElement>('#colorPickerButton')!;
+// Current picker position as [hue, saturation, value] (0-360, 0-100, 0-100).
+let pickerHsv: [number, number, number] = [0, 100, 100];
+// Which chip in the custom palette editor the in-app picker is editing.
+let activeColorIndex = 0;
 const originalModelHost = document.querySelector<HTMLDivElement>('#originalModelHost')!;
 const processedModelHost = document.querySelector<HTMLDivElement>('#processedModelHost')!;
 const processedTexelDensity = document.querySelector<HTMLDivElement>('#processedTexelDensity')!;
@@ -408,7 +448,18 @@ function customPaletteByKey(key: string | null): CustomPalette | undefined {
 }
 
 function paletteCatalog(): Record<string, Palette> {
-  return { ...palettes, ...customPaletteRecord() };
+  const catalog = { ...palettes, ...customPaletteRecord() };
+  if (posterizeStats) {
+    for (const [key, palette] of Object.entries(catalog)) {
+      if (palette.category === 'posterize') {
+        const levels = Number(key.slice('posterize'.length));
+        if (Number.isInteger(levels) && levels >= 2) {
+          catalog[key] = { ...palette, colors: posterizeColors(posterizeStats, levels, palette.colors) };
+        }
+      }
+    }
+  }
+  return catalog;
 }
 
 function currentPalette(): Palette {
@@ -847,7 +898,6 @@ async function setModel(files: File[]): Promise<void> {
     renderTextureRibbon();
     render();
     updateTexelDensity();
-    document.querySelector('#fileName')!.textContent = modelBundle.primary.name;
     bundle = null;
   } catch (error) {
     if (modelBundle === bundle) closeModelPreview();
@@ -867,8 +917,10 @@ function applyExtractedModelTextures(extracted: ExtractedModelTextures, modelNam
   if (extracted.base) {
     textures.base.image = extracted.base;
     textures.base.name = `${stem}_BaseColor.png`;
-    updateFileMeta(textures.base.name, extracted.base.width, extracted.base.height, false);
+    updateFileMeta(extracted.base.width, extracted.base.height);
     refreshUVOverlap();
+    refreshPosterizeStats();
+    renderPalettes();
   }
   if (extracted.normal) {
     textures.normal.image = extracted.normal;
@@ -919,7 +971,7 @@ function renderPalettes(): void {
   ` : '');
   const selectedColors = currentColors();
   customColors.innerHTML = selectedColors.map((color, index) => `
-    <div class="custom-color">
+    <div class="custom-color ${index === activeColorIndex ? 'active' : ''}">
       <label title="Edit ${color}">${colorControl(color, `Color ${index + 1}, ${color}`, `data-color-index="${index}"`)}</label>
       <button type="button" class="icon-button" data-remove-color="${index}" aria-label="Remove color ${index + 1}">×</button>
     </div>
@@ -927,6 +979,7 @@ function renderPalettes(): void {
     <button type="button" class="custom-color-add" data-add-color aria-label="Add color">+</button>
   `;
   paletteEditor.disabled = !activePaletteIsCustom();
+  syncColorPicker();
 }
 
 // Single slider generator — every range control in the app goes through this.
@@ -1028,6 +1081,9 @@ function revealPalette(key: string): void {
 
 function duplicatePaletteByKey(key: string): void {
   const source = paletteCatalog()[key];
+  // Posterize is adaptive — duplicating it copies the *generated* colors as a
+  // normal custom palette, snapshotting the ramp derived from the current
+  // BaseColor so it stays fixed even if the texture changes later.
   if (!source) return;
   const duplicate = duplicatePalette(source);
   beginCustomDraft(duplicate.name, duplicate.colors, duplicate.key);
@@ -1289,9 +1345,31 @@ function textureLabel(channel: TextureChannelId): string {
   return TEXTURE_CHANNELS.find((entry) => entry.id === channel)?.label ?? 'Texture';
 }
 
-function updateFileMeta(name: string, width: number, height: number, updateHeading = true): void {
-  if (updateHeading) document.querySelector('#fileName')!.textContent = name;
+function updateFileMeta(width: number, height: number): void {
   document.querySelector('#sourceDimensions')!.textContent = formatDimensions(width, height);
+}
+
+/**
+ * Recomputes the posterize stats from the current BaseColor texture. The
+ * texture is downsampled to at most 64×64 first, so the histogram pass stays
+ * cheap even for 2K sources; callers re-render the palette library and the
+ * output so the adaptive ramps update live.
+ */
+function refreshPosterizeStats(): void {
+  const image = textures.base.image;
+  if (!image || image.width === 0 || image.height === 0) {
+    posterizeStats = null;
+    return;
+  }
+  const scale = Math.min(1, POSTERIZE_SAMPLE_MAX / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const { context } = drawImageToCanvas(image, width, height);
+  if (!context) {
+    posterizeStats = null;
+    return;
+  }
+  posterizeStats = computePosterizeStats(context.getImageData(0, 0, width, height));
 }
 
 function clearTexture(channel: TextureChannelId): void {
@@ -1299,9 +1377,11 @@ function clearTexture(channel: TextureChannelId): void {
     if (lightmapIsActive(textures)) clearLightmap();
     textures.base.image = sample;
     textures.base.name = 'sample-landscape.png';
-    updateFileMeta(textures.base.name, sample.width, sample.height);
+    updateFileMeta(sample.width, sample.height);
     refreshUVOverlap();
     updateTexelDensity();
+    refreshPosterizeStats();
+    renderPalettes();
   } else if (channel === 'lightmap') {
     // The slot X is a hard remove: drop the live implicit bake too and stay
     // unlit (pure-white lightmap) until the user explicitly bakes or loads one.
@@ -1328,7 +1408,7 @@ function clearModel(): void {
   renderScheduler.cancel();
   closeModelPreview();
   const base = textures.base.image!;
-  updateFileMeta(textures.base.name, base.width, base.height);
+  updateFileMeta(base.width, base.height);
   renderTextureRibbon();
   render();
 }
@@ -1350,9 +1430,11 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
     textures[channel].image = image;
     textures[channel].name = file.name;
     if (channel === 'base') {
-      updateFileMeta(file.name, image.width, image.height, !modelBundle);
+      updateFileMeta(image.width, image.height);
       refreshUVOverlap();
       updateTexelDensity();
+      refreshPosterizeStats();
+      renderPalettes();
     }
     if (channel === 'lightmap') {
       renderLightmapControls();
@@ -1533,15 +1615,12 @@ paletteGrid.addEventListener('keydown', (event) => {
   event.preventDefault();
   selectPalette(card.dataset.palette);
 });
-customColors.addEventListener('change', (event) => {
+// The native color picker is replaced by the in-app picker above the chip row:
+// suppress the hidden inputs' default actions (mouse and keyboard) so the OS
+// dialog never opens — the chips just select the color being edited.
+customColors.addEventListener('keydown', (event) => {
   const input = (event.target as HTMLElement).closest<HTMLInputElement>('input[type="color"]');
-  if (!input) return;
-  ensureCustomDraft();
-  state.customColors[Number(input.dataset.colorIndex)] = input.value;
-  syncColorChip(input);
-  input.setAttribute('aria-label', `Color ${Number(input.dataset.colorIndex) + 1}, ${input.value}`);
-  state.paletteSnapshot = activePaletteSnapshot();
-  persistCustomDraft();
+  if (input && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
 });
 customColors.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
@@ -1549,8 +1628,18 @@ customColors.addEventListener('click', (event) => {
     ensureCustomDraft();
     if (state.customColors.length >= 256) return;
     state.customColors.push('#ffffff');
+    activeColorIndex = state.customColors.length - 1;
     state.paletteSnapshot = activePaletteSnapshot();
     persistCustomDraft();
+    return;
+  }
+  const chip = target.closest<HTMLElement>('.color-chip');
+  if (chip) {
+    // Suppress the hidden input's default action (opening the OS picker) —
+    // the in-app picker above the chips is the editor now.
+    event.preventDefault();
+    const index = Number((chip.previousElementSibling as HTMLInputElement | null)?.dataset.colorIndex);
+    if (Number.isInteger(index)) selectActiveColor(index);
     return;
   }
   const button = target.closest<HTMLButtonElement>('[data-remove-color]');
@@ -1558,8 +1647,154 @@ customColors.addEventListener('click', (event) => {
   ensureCustomDraft();
   if (state.customColors.length <= 2) return;
   state.customColors.splice(Number(button.dataset.removeColor), 1);
+  if (activeColorIndex >= state.customColors.length) activeColorIndex = Math.max(0, state.customColors.length - 1);
   state.paletteSnapshot = activePaletteSnapshot();
   persistCustomDraft();
+});
+// The gradient picker edits whichever chip is active: click/drag in the
+// saturation×value field or on the hue strip applies the color live;
+// releasing persists. The hex field still accepts direct input.
+function syncColorPicker(): void {
+  const colors = currentColors();
+  if (activeColorIndex >= colors.length) activeColorIndex = Math.max(0, colors.length - 1);
+  syncPickerToColor(colors[activeColorIndex] ?? '#ffffff');
+}
+
+// Keep the saturation×value square tinted with the current hue. There are no
+// overlay indicators (dot/line) — the field and strip themselves are the UI.
+function updatePickerFieldHue(): void {
+  colorPickerField.style.setProperty('--field-hue', rgbToHex(...hsvToRgb(pickerHsv[0], 100, 100)));
+}
+
+// Read a color into the picker in HSV space, carrying the last hue over when
+// the color is achromatic (white/black/gray) so it isn't lost at the
+// pure-white corner. Always reason in HSV — never reconstruct hue from RGB.
+function syncPickerToColor(hex: string): void {
+  colorPickerSwatch.style.setProperty('--swatch', hex);
+  colorPickerHex.value = hex;
+  const [h, s, v] = rgbToHsv(...hexToRgb(hex));
+  pickerHsv = s > 0 && v > 0 ? [h, s, v] : [pickerHsv[0], s, v];
+  updatePickerFieldHue();
+}
+
+function selectActiveColor(index: number): void {
+  activeColorIndex = index;
+  customColors.querySelectorAll('.custom-color').forEach((row, rowIndex) => row.classList.toggle('active', rowIndex === index));
+  syncColorPicker();
+}
+
+function applyPickerColor(hex: string): void {
+  ensureCustomDraft();
+  const index = activeColorIndex;
+  state.customColors[index] = hex;
+  const input = customColors.querySelector<HTMLInputElement>(`input[data-color-index="${index}"]`);
+  if (input) {
+    input.value = hex;
+    input.setAttribute('aria-label', `Color ${index + 1}, ${hex}`);
+    syncColorChip(input);
+  }
+  syncPickerToColor(hex);
+  state.paletteSnapshot = activePaletteSnapshot();
+  renderScheduler.request();
+}
+
+// The gradient field is a click-and-drag saturation×value square for the
+// selected hue; the strip sets the hue.
+function pickFromField(clientX: number, clientY: number): void {
+  const rect = colorPickerField.getBoundingClientRect();
+  const sat = ((clientX - rect.left) / rect.width) * 100;
+  const value = 100 - ((clientY - rect.top) / rect.height) * 100;
+  applyPickerColor(rgbToHex(...hsvToRgb(pickerHsv[0], sat, value)));
+}
+
+function pickFromHue(clientY: number): void {
+  const rect = colorPickerHue.getBoundingClientRect();
+  pickerHsv = [((clientY - rect.top) / rect.height) * 360, pickerHsv[1], pickerHsv[2]];
+  applyPickerColor(rgbToHex(...hsvToRgb(...pickerHsv)));
+}
+
+// The drag listens on window-level pointer events (no capture), so every move
+// reaches the picker even when the pointer leaves the field or strip.
+let pickerDrag: 'field' | 'hue' | null = null;
+
+colorPickerField.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  pickerDrag = 'field';
+  pickFromField(event.clientX, event.clientY);
+});
+colorPickerHue.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  pickerDrag = 'hue';
+  pickFromHue(event.clientY);
+});
+window.addEventListener('pointermove', (event) => {
+  if (!pickerDrag) return;
+  if (!(event.buttons & 1)) {
+    // A pointerup was missed (button released outside the window): end the drag.
+    pickerDrag = null;
+    persistCustomDraft();
+    return;
+  }
+  if (pickerDrag === 'field') pickFromField(event.clientX, event.clientY);
+  else pickFromHue(event.clientY);
+});
+window.addEventListener('pointerup', () => {
+  if (!pickerDrag) return;
+  pickerDrag = null;
+  persistCustomDraft();
+});
+colorPickerHex.addEventListener('change', () => {
+  const value = colorPickerHex.value.trim();
+  if (/^#[0-9a-f]{6}$/i.test(value)) {
+    applyPickerColor(value.toLowerCase());
+    syncColorPicker();
+    persistCustomDraft();
+  } else {
+    syncColorPicker();
+  }
+});
+// The button under the hue bar is an eyedropper. The native EyeDropper API
+// samples anywhere on screen, but its picker takes ~1s to appear in
+// Chromium/WebView2 (browser-internal startup, not fixable from JS). Instead
+// we run a custom pick mode: the OS cursor itself becomes the dropper icon
+// and sampling the app's own rendering is instant — exact pixels from the
+// preview canvases, solid fills elsewhere. Click applies, Escape / right-click
+// cancels.
+let eyedropperActive = false;
+
+function eyedropperCancel(): void {
+  if (!eyedropperActive) return;
+  eyedropperActive = false;
+  document.body.classList.remove('eyedropping');
+  document.body.style.removeProperty('--eyedropper-cursor');
+  window.removeEventListener('pointerdown', eyedropperPick, true);
+  window.removeEventListener('keydown', eyedropperKey);
+}
+
+function eyedropperPick(event: PointerEvent): void {
+  if (event.button !== 0) {
+    // Right/middle click cancels.
+    eyedropperCancel();
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  const hex = sampleColorAt(event.clientX, event.clientY);
+  eyedropperCancel();
+  if (hex) applyPickerColor(hex);
+}
+
+function eyedropperKey(event: KeyboardEvent): void {
+  if (event.key === 'Escape') eyedropperCancel();
+}
+
+colorPickerButton.addEventListener('click', () => {
+  if (eyedropperActive) return;
+  eyedropperActive = true;
+  document.body.style.setProperty('--eyedropper-cursor', EYEDROPPER_CURSOR);
+  document.body.classList.add('eyedropping');
+  window.addEventListener('pointerdown', eyedropperPick, true);
+  window.addEventListener('keydown', eyedropperKey);
 });
 customPaletteName.addEventListener('change', persistCustomDraft);
 

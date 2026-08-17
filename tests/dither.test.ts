@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { adjustColor, nearestColor, patternThreshold, processImageData, type DitherMode } from '../src/lib/dither';
-import { hexToRgb, palettes } from '../src/lib/palettes';
+import { hexToRgb, hslToRgb, hsvToRgb, palettes, paletteCategories, rgbToHex, rgbToHsl, rgbToHsv } from '../src/lib/palettes';
 import { FakeImageData, installDomStubs } from './helpers/domStubs';
 
 beforeAll(() => {
@@ -28,12 +28,34 @@ describe('palette helpers', () => {
     expect(hexToRgb('#ff8040')).toEqual([255, 128, 64]);
   });
 
+  it('converts between hex, RGB, and HSL', () => {
+    expect(rgbToHsl(...hexToRgb('#ff0000'))).toEqual([0, 100, 50]);
+    expect(hslToRgb(0, 100, 50)).toEqual([255, 0, 0]);
+    expect(rgbToHex(...hslToRgb(210, 50, 40))).toBe('#336699');
+    const [h, s, l] = rgbToHsl(200, 120, 40);
+    expect(hslToRgb(h, s, l).map((channel) => Math.round(channel))).toEqual([200, 120, 40]);
+    expect(hslToRgb(120, 0, 50)).toEqual([127.5, 127.5, 127.5]);
+  });
+
+  it('converts between RGB and HSV', () => {
+    expect(rgbToHsv(255, 0, 0)).toEqual([0, 100, 100]);
+    expect(rgbToHsv(0, 0, 255)).toEqual([240, 100, 100]);
+    expect(rgbToHsv(255, 255, 255)).toEqual([0, 0, 100]);
+    expect(hsvToRgb(0, 100, 100)).toEqual([255, 0, 0]);
+    expect(hsvToRgb(120, 100, 100)).toEqual([0, 255, 0]);
+    expect(hsvToRgb(240, 100, 100)).toEqual([0, 0, 255]);
+    expect(rgbToHex(...hsvToRgb(210, 50, 80))).toBe('#6699cc');
+    expect(rgbToHex(...hsvToRgb(0, 0, 40))).toBe('#666666');
+    const [h, s, v] = rgbToHsv(200, 120, 40);
+    expect(hsvToRgb(h, s, v).map((channel) => Math.round(channel))).toEqual([200, 120, 40]);
+  });
+
   it('ships a large, valid catalog with unique colors and metadata', () => {
     expect(Object.keys(palettes).length).toBeGreaterThanOrEqual(28);
     for (const [key, palette] of Object.entries(palettes)) {
       expect(key).toMatch(/^[a-z0-9]+$/);
       expect(palette.name.length).toBeGreaterThan(0);
-      expect(['compact', 'pixel-art', 'hardware', 'themed', 'extended']).toContain(palette.category);
+      expect(paletteCategories).toContain(palette.category);
       expect(palette.colors.length).toBeGreaterThanOrEqual(2);
       expect(new Set(palette.colors).size, `${palette.name} has duplicate colors`).toBe(palette.colors.length);
       expect(palette.colors.every((color) => /^#[0-9a-f]{6}$/i.test(color))).toBe(true);
@@ -73,7 +95,7 @@ describe('dithering engine', () => {
     [64, 64, 64, 255], [128, 128, 128, 255], [224, 224, 224, 255],
   ];
 
-  it.each<DitherMode>(['none', 'ordered', 'floyd', 'atkinson', 'cross', 'stripes', 'noise', 'checker'])('processes %s mode into palette colors', (mode) => {
+  it.each<DitherMode>(['none', 'ordered', 'halftone', 'floyd', 'atkinson', 'cross', 'stripes', 'noise', 'checker'])('processes %s mode into palette colors', (mode) => {
     const source = imageData(sourcePixels, 3);
     const result = processImageData(source, options(mode));
     expect(result.width).toBe(3);
@@ -164,5 +186,48 @@ describe('dithering engine', () => {
     const bright = processImageData(source, { ...options('none'), brightness: 20 });
     expect([...dark.data]).toEqual([0, 0, 0, 255]);
     expect([...bright.data]).toEqual([255, 255, 255, 255]);
+  });
+});
+
+describe('halftone dot rendering', () => {
+  const halftone = options('halftone');
+
+  const inkCount = (output: ImageData): number => {
+    let count = 0;
+    for (let i = 0; i < output.data.length; i += 4) {
+      if (output.data[i] === 0) count += 1;
+    }
+    return count;
+  };
+
+  it('fills the whole frame with ink for a fully dark image', () => {
+    const source = imageData([[0, 0, 0, 255], [0, 0, 0, 255], [0, 0, 0, 255], [0, 0, 0, 255], [0, 0, 0, 255], [0, 0, 0, 255]], 2);
+    const output = processImageData(source, halftone);
+    expect(inkCount(output)).toBe(6);
+    expect([...output.data]).toEqual([0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255]);
+  });
+
+  it('leaves a fully light image as paper', () => {
+    const source = imageData([[255, 255, 255, 255], [255, 255, 255, 255], [255, 255, 255, 255], [255, 255, 255, 255], [255, 255, 255, 255], [255, 255, 255, 255]], 2);
+    const output = processImageData(source, halftone);
+    expect(inkCount(output)).toBe(0);
+  });
+
+  it('draws larger dots for darker pixels', () => {
+    const dark = processImageData(imageData([[64, 64, 64, 255], [64, 64, 64, 255], [64, 64, 64, 255], [64, 64, 64, 255], [64, 64, 64, 255], [64, 64, 64, 255]], 2), halftone);
+    const light = processImageData(imageData([[192, 192, 192, 255], [192, 192, 192, 255], [192, 192, 192, 255], [192, 192, 192, 255], [192, 192, 192, 255], [192, 192, 192, 255]], 2), halftone);
+    expect(inkCount(dark)).toBeGreaterThan(inkCount(light));
+  });
+
+  it('uses the darkest palette color as ink and the lightest as paper', () => {
+    const source = imageData([[80, 80, 80, 255], [80, 80, 80, 255], [80, 80, 80, 255], [80, 80, 80, 255]], 2);
+    const output = processImageData(source, { ...halftone, palette: ['#123456', '#f0e8d0'] });
+    const values = new Set<string>();
+    for (let i = 0; i < output.data.length; i += 4) {
+      values.add(`${output.data[i]},${output.data[i + 1]},${output.data[i + 2]}`);
+    }
+    expect(values.size).toBeLessThanOrEqual(2);
+    expect(values).toContain('18,52,86');
+    expect(values).toContain('240,232,208');
   });
 });

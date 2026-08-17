@@ -10,7 +10,7 @@ import type { State } from './state';
 
 export const PRESET_VERSION = 7;
 
-export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'none'];
+export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'halftone', 'none'];
 
 export type ConversionConfig = {
   resolution: number;

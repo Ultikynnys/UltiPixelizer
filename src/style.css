@@ -88,7 +88,6 @@ button { border: 0; color: inherit; }
 .preview-column { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; overflow: hidden; }
 .preview-toolbar { align-items: center; display: flex; gap: 24px; min-height: 86px; padding: 18px 28px; }
 .eyebrow { color: var(--accent); font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500; letter-spacing: .15em; margin: 0 0 7px; }
-.preview-toolbar h1 { font-size: 14px; font-weight: 600; margin: 0; max-width: 45vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .toolbar-actions { align-items: center; display: flex; gap: 10px; margin-left: auto; }
 .value-pill { background: var(--card); color: var(--paper-dim); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .08em; padding: 9px 11px; }
 .uv-control { align-items: center; display: flex; gap: 6px; }
@@ -313,12 +312,33 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .palette-editor-fields { display: grid; gap: 8px; margin-top: 14px; }
 .palette-editor-fields label { display: grid; gap: 5px; }
 .palette-editor-fields label > span { color: var(--muted); font: 500 8px 'DM Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
-.palette-editor-fields input { background: var(--card); color: var(--paper); font-size: 10px; padding: 8px 9px; width: 100%; }
+.palette-editor-fields input { background: var(--card); border: 1px solid var(--line); color: var(--paper); font-size: 10px; padding: 8px 9px; width: 100%; }
 .custom-colors { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
 .custom-color { height: 31px; position: relative; width: 31px; }
 .custom-color label { cursor: pointer; display: block; height: 25px; position: relative; width: 25px; }
 .custom-color .color-chip { height: 100%; width: 100%; }
-.custom-color button { font-size: 10px; height: 15px; position: absolute; right: 0; top: 16px; width: 15px; }
+.custom-color button { font-size: 10px; height: 15px; position: absolute; right: 0; top: 16px; width: 15px; z-index: 3; }
+.color-picker { border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); display: grid; gap: 10px; margin: 0 0 14px; padding: 14px 0; }
+.color-picker-head { align-items: center; display: flex; gap: 8px; }
+.color-picker-swatch { background: var(--swatch); border: 1px solid var(--line-bright); flex: 0 0 auto; height: 26px; width: 26px; }
+.color-picker-hex { background: var(--card); border: 1px solid var(--line); color: var(--paper); font: 500 10px 'DM Mono', monospace; padding: 6px 8px; text-transform: uppercase; width: 68px; }
+.color-picker-body { display: grid; gap: 6px; grid-template-columns: 1fr 32px; height: 140px; user-select: none; }
+.color-picker-field { background: linear-gradient(to top, #000, rgba(0, 0, 0, 0)), linear-gradient(to right, #fff, var(--field-hue, #f00)); cursor: default; touch-action: none; }
+.color-picker-side { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.color-picker-hue { background: linear-gradient(to bottom, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%); cursor: default; flex: 1 1 auto; min-height: 0; touch-action: none; }
+.color-picker-button { align-items: center; background: var(--chip); border: 1px solid var(--line); color: var(--paper-soft); cursor: pointer; display: flex; flex: 0 0 32px; justify-content: center; padding: 0; }
+.color-picker-button:hover, .color-picker-button:focus-visible { border-color: var(--accent); color: var(--paper); }
+/* Eyedropper pick mode: the OS cursor itself becomes the dropper icon (the
+   data-URI image comes from main.ts as --eyedropper-cursor; crosshair is the
+   fallback if a platform rejects SVG cursors) and text selection stops —
+   picking is the only interaction while active. */
+body.eyedropping, body.eyedropping * { cursor: var(--eyedropper-cursor, crosshair) !important; }
+body.eyedropping { user-select: none; }
+/* Active chip indicator: dual-color frame — 1px black hugging the color with
+   2px white outside it — so the selected chip reads against any swatch (a pure
+   white outline vanishes on a white color). pointer-events: none keeps the
+   chip's own click handling. */
+.custom-color.active label::after { box-shadow: 0 0 0 1px #000, 0 0 0 3px #fff; content: ''; inset: 0; pointer-events: none; position: absolute; z-index: 2; }
 .custom-color-add { align-items: center; background: var(--card); color: var(--muted); cursor: pointer; display: flex; font: 500 15px 'DM Mono', monospace; height: 25px; justify-content: center; line-height: 1; padding: 0; width: 25px; }
 .mode-grid { display: grid; gap: 6px; grid-template-columns: repeat(2,1fr); }
 .mode-button { background: var(--card); cursor: pointer; display: grid; gap: 2px; grid-template-columns: 40px 1fr; padding: 8px; text-align: left; }
@@ -334,6 +354,7 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .pattern-stripes { background-image: repeating-linear-gradient(135deg,var(--pattern-dot) 0 2px,transparent 2px 6px); }
 .pattern-random { background-image: radial-gradient(circle at 10% 20%,var(--pattern-dot) 0 1px,transparent 2px),radial-gradient(circle at 75% 15%,var(--pattern-dot-dim) 0 1px,transparent 2px),radial-gradient(circle at 35% 70%,var(--pattern-dot) 0 1px,transparent 2px),radial-gradient(circle at 85% 80%,var(--pattern-dot-soft) 0 1px,transparent 2px); background-size: 11px 13px,13px 9px,9px 11px,15px 15px; }
 .pattern-checker { background-image: linear-gradient(45deg,var(--pattern-dot) 25%,transparent 25%,transparent 75%,var(--pattern-dot) 75%),linear-gradient(45deg,var(--pattern-dot) 25%,transparent 25%,transparent 75%,var(--pattern-dot) 75%); background-position: 0 0,4px 4px; background-size: 8px 8px; }
+.pattern-halftone { background-image: radial-gradient(var(--pattern-dot) 26%,transparent 29%); background-position: 0 0,3.5px 3.5px; background-size: 7px 7px; }
 .pattern-none { background: linear-gradient(135deg,var(--ink) 50%,var(--paper-soft) 50%); }
 .control-row { margin-top: 15px; }
 .control-row > label { align-items: end; display: flex; justify-content: space-between; margin-bottom: 7px; }
@@ -377,7 +398,6 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
 @media (max-width: 620px) {
   .topbar { height: 62px; padding: 0 16px; }
   .preview-toolbar { min-height: 74px; padding: 14px 16px; }
-  .preview-toolbar h1 { max-width: 48vw; }
   .canvas-stage { padding: 10px; }
   .model-host { height: clamp(240px, 44vh, 380px); }
   .comparison-grid { gap: 8px; }
