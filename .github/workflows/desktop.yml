@@ -64,13 +64,15 @@ jobs:
 
       # The build version badge (topbar) is stamped at build time by Vite. The
       # installer version is generated from the SAME git build count via
-      # scripts/build-version.mjs — a static 2.0.0 base with the commit count
-      # as the patch offset (commit 1 -> 2.0.0, commit 2 -> 2.0.1; the squash
-      # to one commit anchors releases at 2.0.0 instead of a downgrade to
-      # 0.0.1) — and written to src-tauri/tauri.version.json, which
-      # tauri-action merges into the bundle config with --config — no version
-      # is hardcoded here, in tauri.conf.json, or in any env file; local `npm
-      # run tauri:build` derives it the exact same way.
+      # scripts/build-version.mjs — a static 2.0.0 OFFSET (200) is added to
+      # the commit count and split into semver digits, and the badge shows the
+      # same offset count, so the topbar `v209` always matches installer
+      # `2.0.9` (commit 1 -> v201/2.0.1; the squash to one commit keeps
+      # releases in the 2.0.x range instead of downgrading to 0.0.1) — written
+      # to src-tauri/tauri.version.json, which tauri-action merges into the
+      # bundle config with --config — no version is hardcoded here, in
+      # tauri.conf.json, or in any env file; local `npm run tauri:build`
+      # derives it the exact same way.
       - name: Set build version
         shell: bash
         run: |
