@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   deferTextureItem: false,
   releaseTextureItem: null as (() => void) | null,
   rendererCalls: [] as string[],
+  renderer: null as unknown,
   mixers: [] as Array<{ actions: Array<{ play: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }>; update: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }>,
   controls: [] as Array<{
     listeners: Map<string, () => void>;
@@ -27,6 +28,9 @@ vi.mock('three', async (importOriginal) => {
   const three = await importOriginal<typeof import('three')>();
   class FakeWebGLRenderer {
     domElement = { className: '', remove: vi.fn(), style: {} };
+    constructor() {
+      mocks.renderer = this;
+    }
     setPixelRatio = vi.fn((ratio: number) => mocks.rendererCalls.push(`ratio:${ratio}`));
     getPixelRatio = vi.fn(() => 1);
     setClearColor = vi.fn(() => mocks.rendererCalls.push('clear'));
@@ -535,6 +539,32 @@ describe('ModelViewport', () => {
     // the model scene plus the corner sun-axis gizmo.
     expect(mocks.rendererCalls.filter((call) => call === 'render')).toHaveLength(rendersBefore + 2);
     expect(mocks.mixers[0].update).toHaveBeenCalled();
+    viewport.dispose();
+  });
+
+  it('keeps the gizmo box inside the buffer on HiDPI screens (pixel ratio 2)', () => {
+    const viewport = new ModelViewport(host());
+    viewport.setModel(meshScene(), []);
+    const renderer = mocks.renderer as unknown as {
+      getPixelRatio: ReturnType<typeof vi.fn>;
+      setViewport: ReturnType<typeof vi.fn>;
+      setScissor: ReturnType<typeof vi.fn>;
+    };
+    renderer.getPixelRatio.mockReturnValue(2);
+    flushRaf(16);
+    // three multiplies viewport/scissor by pixel ratio internally, so the gizmo
+    // must pass logical pixels — the old device-pixel math pushed the box off
+    // the buffer entirely at ratio 2.
+    const scissorCalls = renderer.setScissor.mock.calls;
+    const [sx, sy, sw, sh] = scissorCalls[scissorCalls.length - 1] as [number, number, number, number];
+    expect(sx).toBeGreaterThanOrEqual(0);
+    expect(sy).toBeGreaterThanOrEqual(0);
+    expect(sx + sw).toBeLessThanOrEqual(800);
+    expect(sy + sh).toBeLessThanOrEqual(600);
+    // The full-frame viewport reset is also logical, so the next model render
+    // fills the buffer exactly.
+    const viewportCalls = renderer.setViewport.mock.calls;
+    expect(viewportCalls[viewportCalls.length - 1]).toEqual([0, 0, 800, 600]);
     viewport.dispose();
   });
 

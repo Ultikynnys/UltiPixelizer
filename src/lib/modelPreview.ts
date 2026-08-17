@@ -496,7 +496,6 @@ export class ModelViewport {
     const height = this.host.clientHeight;
     if (width <= 0 || height <= 0) return;
     const size = Math.max(48, Math.min(72, Math.round(Math.min(width, height) * 0.16)));
-    const pixelRatio = this.renderer.getPixelRatio();
     // The world-axis toggle is pinned to the same corner below the gizmo — keep
     // the gizmo's bottom edge clear of it (fall back to the corner margin when
     // no toggle is present or hidden).
@@ -505,9 +504,13 @@ export class ModelViewport {
     const bottom = toggleHeight > 0 ? toggleHeight + 16 : 12;
     this.gizmoCamera.quaternion.copy(this.camera.quaternion);
     this.gizmoCamera.position.copy(this.gizmoCamera.getWorldDirection(new Vector3())).multiplyScalar(-3.5);
-    const x = Math.round((width - size - 12) * pixelRatio);
-    const y = Math.round(bottom * pixelRatio);
-    const s = Math.round(size * pixelRatio);
+    // Viewport and scissor values are logical pixels: the renderer scales them
+    // by pixel ratio internally (three r150+), so passing device pixels here
+    // would double-scale and push the gizmo box outside the drawing buffer on
+    // HiDPI displays (e.g. Windows at 150%).
+    const x = Math.round(width - size - 12);
+    const y = Math.round(bottom);
+    const s = Math.round(size);
     this.renderer.setScissorTest(true);
     this.renderer.setScissor(x, y, s, s);
     this.renderer.setViewport(x, y, s, s);
@@ -517,7 +520,7 @@ export class ModelViewport {
     this.renderer.autoClear = false;
     this.renderer.render(this.gizmoScene, this.gizmoCamera);
     this.renderer.autoClear = true;
-    this.renderer.setViewport(0, 0, Math.round(width * pixelRatio), Math.round(height * pixelRatio));
+    this.renderer.setViewport(0, 0, width, height);
     this.renderer.setScissorTest(false);
   }
 
