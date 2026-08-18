@@ -306,7 +306,7 @@ body.drag-active::before {
   pointer-events: none; position: fixed; z-index: 30;
 }
 body.drag-active .texture-ribbon { position: relative; z-index: 31; }
-.texture-slot.disabled { cursor: not-allowed; opacity: .45; }
+.texture-slot[hidden] { display: none; }
 .texture-slot-model { max-width: 150px; }
 .texture-slot-preview { align-items: center; display: flex; height: 30px; justify-content: center; overflow: hidden; width: 40px; }
 .texture-slot-preview canvas { display: block; image-rendering: pixelated; height: 100%; object-fit: cover; width: 100%; }

@@ -1026,13 +1026,16 @@ function renderTextureRibbon(): void {
       : textures[channel.id].image;
     const preview = slotElement.querySelector<HTMLElement>('.texture-slot-preview');
     const label = slotElement.querySelector<HTMLElement>('.texture-slot-label');
+    // Displacement is a fallback-plane-only feature — hide the slot entirely
+    // while a model is loaded (models are never displaced) so it can't be
+    // mistaken for a usable-but-locked slot. With no model it behaves like
+    // the rest: the fallback quad's bakes consume every slot, so nothing is
+    // ever grayed out in the no-model state.
+    if (channel.id === 'displacement') {
+      slotElement.hidden = modelBundle !== null;
+      if (modelBundle !== null) continue;
+    }
     slotElement.classList.toggle('filled', !!data);
-    // Displacement is a fallback-plane-only feature — the slot is disabled
-    // while a model is loaded because models are never displaced. The other
-    // non-base channels are disabled in the opposite case (no model).
-    const noModel = modelBundle === null;
-    const disabled = channel.id === 'displacement' ? !noModel : noModel && channel.id !== 'base';
-    slotElement.classList.toggle('disabled', disabled);
     if (preview) {
       if (data) {
         const { canvas, context } = createCanvas(40, 34);
