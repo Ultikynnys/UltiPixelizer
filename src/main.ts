@@ -737,16 +737,24 @@ const formatTexelDensity = (value: number): string => `${value.toFixed(value >= 
 // from the UV face size compared with the mesh face size in world space. The
 // AO bake scene always mirrors the current UV channel and LOD level, so it is
 // the measure source; the dithered output resolution sizes the texel count.
-// Hidden without a model or when no face carries a usable UV.
+// Without a model the chip shows a plane message — the fallback quad spans
+// the full UV square, so every texel covers the same world area. Hidden only
+// when a loaded model has no face carrying a usable UV.
 // Memoized: density depends only on the model's UVs and the target resolution,
 // so basecolor swaps (which don't touch the scene) skip the 60k-tri walk.
 let texelDensityCache: { scene: Object3D | null; width: number; height: number } | null = null;
 function updateTexelDensity(): void {
   if (!aoBakeScene) {
-    processedTexelDensity.hidden = true;
+    // The fallback plane maps the whole UV square onto the whole quad, so
+    // every texel covers the same world area — a per-face average is
+    // meaningless. Show a plane-specific message instead of hiding the chip.
+    processedTexelDensity.hidden = false;
+    processedTexelDensityValue.textContent = 'Full UV';
+    processedTexelDensity.title = 'The fallback plane spans the full UV square — uniform texel density, no islands to average';
     texelDensityCache = null;
     return;
   }
+  processedTexelDensity.title = 'Average texture pixels per world unit — UV face size compared with mesh face size in world space';
   const { width, height } = dimensions();
   if (texelDensityCache && texelDensityCache.scene === aoBakeScene && texelDensityCache.width === width && texelDensityCache.height === height) return;
   texelDensityCache = { scene: aoBakeScene, width, height };
@@ -1846,6 +1854,9 @@ refreshFallbackQuads(true);
 renderTextureRibbon();
 applyPreviewMode();
 render();
+// The texel-density HUD shows its plane message in the no-model state — it
+// must run at boot, before the example model (if it loads) replaces it.
+updateTexelDensity();
 // No model is loaded yet — the bake scene falls back to the flat quad, so
 // the implicit lightmap bake lights it from the start, like a loaded mesh.
 // If the example model loads shortly after, setModel's applySun re-schedules
