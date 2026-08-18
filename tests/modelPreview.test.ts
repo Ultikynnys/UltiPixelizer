@@ -419,6 +419,27 @@ describe('ModelViewport', () => {
     viewport.dispose();
   });
 
+  it('applyDisplacement displaces along the original normals and restores', () => {
+    const viewport = new ModelViewport(host());
+    const model = meshScene();
+    viewport.setModel(model, []);
+    const position = (model.children[0] as Mesh).geometry.getAttribute('position');
+    viewport.applyDisplacement(() => 0.75, 0.2);
+    // offset = (0.75 − 0.5) × 2 × 0.2 = 0.1 along the model's normal (0, 0, −1).
+    expect(position.getZ(0)).toBeCloseTo(-0.1, 6);
+    expect(position.getX(0)).toBeCloseTo(0, 6);
+    // Clearing restores the pristine vertices.
+    viewport.applyDisplacement(null, 0.2);
+    expect(position.getZ(0)).toBeCloseTo(0, 6);
+    viewport.dispose();
+  });
+
+  it('applyDisplacement is a no-op without a model', () => {
+    const viewport = new ModelViewport(host());
+    expect(() => viewport.applyDisplacement(() => 0.5, 0.2)).not.toThrow();
+    viewport.dispose();
+  });
+
   it('setNormalsView swaps materials and restores the originals', () => {
     const viewport = new ModelViewport(host());
     const model = meshScene();

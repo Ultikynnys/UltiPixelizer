@@ -20,6 +20,8 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     updatePreviewBadge,
     getOriginalViewport,
     getProcessedViewport,
+    repeatTextureOriginal,
+    repeatTextureProcessed,
   } = deps;
 
   function currentAOFactors(width: number, height: number): Uint8ClampedArray | null {
@@ -81,6 +83,12 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
 
   function render(): void {
     const { width, height } = dimensions();
+    // Image-repeat diagnostic: render the texture tiled 3×3 in the 2D panes so
+    // seams at tile boundaries are visible. Only the display canvases tile —
+    // shared.renderedCanvas / originalBaseCanvas (export, viewports, UV
+    // overlays) keep the single-tile image. Each pane tiles independently.
+    const repeatOriginal = repeatTextureOriginal?.() ? 3 : 1;
+    const repeatProcessed = repeatTextureProcessed?.() ? 3 : 1;
     // Lightmap+AO inspection shows the combined map — AO visibility (remapped
     // by bias/scale exactly as the lighting pass applies it) multiplied into
     // the lightmap on white, staged at the target resolution.
@@ -198,9 +206,16 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       renderContext.putImageData(processedData, 0, 0);
     }
 
-    previewCanvas.width = width;
-    previewCanvas.height = height;
-    previewCanvas.getContext('2d')?.drawImage(shared.renderedCanvas, 0, 0);
+    previewCanvas.width = width * repeatProcessed;
+    previewCanvas.height = height * repeatProcessed;
+    const previewContext = previewCanvas.getContext('2d');
+    if (previewContext) {
+      for (let ty = 0; ty < repeatProcessed; ty += 1) {
+        for (let tx = 0; tx < repeatProcessed; tx += 1) {
+          previewContext.drawImage(shared.renderedCanvas, tx * width, ty * height);
+        }
+      }
+    }
 
     // Original pane shows its chosen source at native resolution — the pixel
     // grid slider must not affect it.
@@ -209,9 +224,16 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       ? drawImageToCanvas(originalSource, originalSource.width, originalSource.height).canvas
       : litCanvas(originalSource, originalSource.width, originalSource.height);
     shared.originalBaseCanvas = litSourceNative;
-    originalCanvas.width = originalSource.width;
-    originalCanvas.height = originalSource.height;
-    originalCanvas.getContext('2d')?.drawImage(litSourceNative, 0, 0);
+    originalCanvas.width = originalSource.width * repeatOriginal;
+    originalCanvas.height = originalSource.height * repeatOriginal;
+    const originalContext = originalCanvas.getContext('2d');
+    if (originalContext) {
+      for (let ty = 0; ty < repeatOriginal; ty += 1) {
+        for (let tx = 0; tx < repeatOriginal; tx += 1) {
+          originalContext.drawImage(litSourceNative, tx * originalSource.width, ty * originalSource.height);
+        }
+      }
+    }
 
     // The UV wireframe is drawn on display-resolution overlay canvases
     // (overlay.syncWireframeOverlays) — never into the low-res texture

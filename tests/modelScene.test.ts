@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshPhongMaterial, MeshStandardMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture, Vector3 } from 'three';
-import { applyUVChannel, cloneModelScene, computeSmoothNormals, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
+import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshPhongMaterial, MeshStandardMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture, Vector3 } from 'three';
+import { applyDisplacement, applyUVChannel, cloneModelScene, computeSmoothNormals, convertToLambertShading, createFallbackQuadScene, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
 
 function mesh(channels: string[], materials = 1): Mesh {
   const geometry = new BufferGeometry();
@@ -228,6 +228,175 @@ describe('model scene processing', () => {
     expect(materialDispose).toHaveBeenCalledOnce();
     expect(textureDispose).toHaveBeenCalledOnce();
     expect(close).not.toHaveBeenCalled();
+  });
+});
+
+describe('createFallbackQuadScene', () => {
+  it('is a flat quad facing up with full-UV coverage', () => {
+    const quad = createFallbackQuadScene() as Mesh;
+    expect(quad).toBeInstanceOf(Mesh);
+    // The quad's normal points +Y after the rotateX(-π/2) — it faces up, so
+    // the default sun (which travels downward) lights it.
+    const normals = quad.geometry.getAttribute('normal');
+    for (let i = 0; i < normals.count; i += 1) {
+      expect(normals.getX(i)).toBeCloseTo(0);
+      expect(normals.getY(i)).toBeCloseTo(1);
+      expect(normals.getZ(i)).toBeCloseTo(0);
+    }
+    // UVs span the whole 0..1 unit square, so a bake covers the full texture
+    // rather than a corner island.
+    const uv = quad.geometry.getAttribute('uv');
+    let minU = Number.POSITIVE_INFINITY;
+    let maxU = Number.NEGATIVE_INFINITY;
+    let minV = Number.POSITIVE_INFINITY;
+    let maxV = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < uv.count; i += 1) {
+      minU = Math.min(minU, uv.getX(i));
+      maxU = Math.max(maxU, uv.getX(i));
+      minV = Math.min(minV, uv.getY(i));
+      maxV = Math.max(maxV, uv.getY(i));
+    }
+    expect(minU).toBe(0);
+    expect(maxU).toBe(1);
+    expect(minV).toBe(0);
+    expect(maxV).toBe(1);
+  });
+
+  it('subdivides the plane by the tessellation parameter', () => {
+    const quad = createFallbackQuadScene(4, false) as Mesh;
+    // PlaneGeometry(1, 1, 4, 4) → (4 + 1)² vertices.
+    expect(quad.geometry.getAttribute('position').count).toBe(25);
+    expect(quad.geometry.getAttribute('uv').count).toBe(25);
+  });
+
+  it('arranges nine tiles around the origin in grid mode', () => {
+    const grid = createFallbackQuadScene(2, true);
+    const meshes = grid.children.filter((child): child is Mesh => child instanceof Mesh);
+    expect(meshes).toHaveLength(9);
+    // The middle tile sits at the origin; every tile is a tessellated quad
+    // facing up, so the bake layer can treat the middle tile as the single
+    // quad it always bakes.
+    const middle = meshes[4];
+    expect(middle.position.x).toBe(0);
+    expect(middle.position.z).toBe(0);
+    expect(middle.geometry.getAttribute('position').count).toBe(9);
+    expect(middle.geometry.getAttribute('normal').getY(0)).toBeCloseTo(1);
+  });
+
+  it('renders both sides so displaced cliffs never read as gaps', () => {
+    const quad = createFallbackQuadScene() as Mesh;
+    expect((quad.material as MeshBasicMaterial).side).toBe(DoubleSide);
+  });
+
+  /** World-space vertices of a tile (meshes sit at integer positions; the
+   * geometry is local). */
+  function worldVertices(tile: Mesh): Array<{ x: number; y: number; z: number }> {
+    const position = tile.geometry.getAttribute('position');
+    return Array.from({ length: position.count }, (_v, i) => ({
+      x: position.getX(i) + tile.position.x,
+      y: position.getY(i),
+      z: position.getZ(i) + tile.position.z,
+    }));
+  }
+
+  /** Max |y| difference between matching boundary vertices of horizontally
+   * adjacent tiles — a seamless heightmap must keep the grid watertight. */
+  function boundaryGap(grid: Object3D): number {
+    const tiles = grid.children.filter((child): child is Mesh => child instanceof Mesh);
+    const byPosition = new Map(tiles.map((tile) => [`${tile.position.x},${tile.position.z}`, worldVertices(tile)]));
+    let maxGap = 0;
+    for (const [key, vertices] of byPosition) {
+      const [tx, tz] = key.split(',').map(Number);
+      const neighbor = byPosition.get(`${tx + 1},${tz}`);
+      if (!neighbor) continue;
+      for (const a of vertices) {
+        for (const b of neighbor) {
+          if (Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.z - b.z) < 1e-9) {
+            maxGap = Math.max(maxGap, Math.abs(a.y - b.y));
+          }
+        }
+      }
+    }
+    return maxGap;
+  }
+
+  it('keeps adjacent displaced tiles flush with a seamless heightmap', () => {
+    // sin(2πu) is periodic — u=0 and u=1 sample identically, so the map wraps
+    // with zero discontinuity at every tile boundary.
+    const seamless = (u: number, v: number): number => 0.5 + 0.25 * Math.sin(u * Math.PI * 2) * Math.sin(v * Math.PI * 2);
+    const grid = createFallbackQuadScene(16, true);
+    applyDisplacement(grid, seamless, 0.15);
+    expect(boundaryGap(grid)).toBeLessThan(1e-9);
+  });
+
+  it('flags the boundary step a non-seamless map leaves behind (sanity)', () => {
+    // u=1 samples the last texel (white), u=0 the first (black) — a broken map
+    // leaves a ~0.3-unit vertical step at every boundary.
+    const step = (u: number): number => (u > 0.999 ? 1 : u < 0.001 ? 0 : 0.5);
+    const grid = createFallbackQuadScene(16, true);
+    applyDisplacement(grid, step, 0.15);
+    expect(boundaryGap(grid)).toBeGreaterThan(0.2);
+  });
+});
+
+describe('applyDisplacement', () => {
+  const snapshot = (attribute: { count: number; getX: (i: number) => number; getY: (i: number) => number; getZ: (i: number) => number }): number[] => {
+    const values: number[] = [];
+    for (let i = 0; i < attribute.count; i += 1) values.push(attribute.getX(i), attribute.getY(i), attribute.getZ(i));
+    return values;
+  };
+
+  it('pushes vertices along their normals by (height − 0.5) × 2 × strength', () => {
+    const quad = createFallbackQuadScene(1, false) as Mesh;
+    const position = quad.geometry.getAttribute('position');
+    const baselineX = Array.from({ length: position.count }, (_v, i) => position.getX(i));
+    applyDisplacement(quad, () => 0.75, 0.2);
+    // offset = (0.75 − 0.5) × 2 × 0.2 = 0.1 along the +Y normal.
+    for (let i = 0; i < position.count; i += 1) {
+      expect(position.getY(i)).toBeCloseTo(0.1, 6);
+      expect(position.getX(i)).toBeCloseTo(baselineX[i], 6);
+    }
+  });
+
+  it('leaves mid-gray heightmaps and zero strength untouched', () => {
+    const quad = createFallbackQuadScene(1, false) as Mesh;
+    const position = quad.geometry.getAttribute('position');
+    const baseline = snapshot(position);
+    applyDisplacement(quad, () => 0.5, 0.2);
+    expect(snapshot(position)).toEqual(baseline);
+  });
+
+  it('restores the pristine geometry when the sampler is cleared', () => {
+    const quad = createFallbackQuadScene(1, false) as Mesh;
+    const position = quad.geometry.getAttribute('position');
+    const normal = quad.geometry.getAttribute('normal');
+    const baselinePositions = snapshot(position);
+    const baselineNormals = snapshot(normal);
+    applyDisplacement(quad, () => 0.9, 0.5);
+    applyDisplacement(quad, null, 0.5);
+    snapshot(position).forEach((value, i) => expect(value).toBeCloseTo(baselinePositions[i], 6));
+    snapshot(normal).forEach((value, i) => expect(value).toBeCloseTo(baselineNormals[i], 6));
+  });
+
+  it('re-applies from the pristine base so repeated calls are idempotent', () => {
+    const quad = createFallbackQuadScene(1, false) as Mesh;
+    const position = quad.geometry.getAttribute('position');
+    applyDisplacement(quad, () => 0.8, 0.4);
+    const first = snapshot(position);
+    applyDisplacement(quad, () => 0.8, 0.4);
+    expect(snapshot(position)).toEqual(first);
+  });
+
+  it('recomputes normals after displacement so bumps shade', () => {
+    const quad = createFallbackQuadScene(4, false) as Mesh;
+    // Height ramps across the quad — the recomputed normals tilt off +Y.
+    applyDisplacement(quad, (u) => u, 0.5);
+    const normal = quad.geometry.getAttribute('normal');
+    let maxTilt = 0;
+    for (let i = 0; i < normal.count; i += 1) {
+      maxTilt = Math.max(maxTilt, Math.abs(normal.getX(i)));
+    }
+    expect(maxTilt).toBeGreaterThan(0.1);
   });
 });
 

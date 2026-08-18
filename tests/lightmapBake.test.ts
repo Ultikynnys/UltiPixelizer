@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, PlaneGeometry, Scene, Vector3 } from 'three';
 import { bakeMeshLightmap, type BakeLightmapOptions } from '../src/lib/lightmapBake';
+import { createFallbackQuadScene } from '../src/lib/modelScene';
 
 const defaults: BakeLightmapOptions = {
   // Orthographic rays travel down camera-local forward (-Z) onto the default +Z plane face.
@@ -94,6 +95,33 @@ describe('bakeMeshLightmap', () => {
     scene.add(new Mesh(blocker, new MeshBasicMaterial()));
     const pixels = bakeMeshLightmap(scene, 8, 8, defaults);
     expect(centerRGB(pixels)).toEqual([0, 0, 0]);
+  });
+
+  it('lets a displaced grid neighbor cast a shadow onto the middle tile', () => {
+    // The app's default sun travels down from the +X/+Z octant, so a raised
+    // neighbor on the +Z side blocks it on the middle tile's +Z/+X region.
+    const options: BakeLightmapOptions = { ...defaults, sunDirection: { x: -0.5, y: -Math.SQRT1_2, z: -0.5 } };
+    const flat = bakeMeshLightmap(createFallbackQuadScene(4, true), 16, 16, options);
+    const scene = createFallbackQuadScene(4, true);
+    const neighbor = scene.children.find((child) => child.position.x === 0 && child.position.z === 1) as Mesh;
+    neighbor.position.y = 0.6;
+    const shadowed = bakeMeshLightmap(scene, 16, 16, options);
+    const meanRed = (pixels: Uint8ClampedArray) => {
+      let sum = 0;
+      for (let i = 0; i < pixels.length; i += 4) sum += pixels[i];
+      return sum / (pixels.length / 4);
+    };
+    const minRed = (pixels: Uint8ClampedArray) => {
+      let min = 255;
+      for (let i = 0; i < pixels.length; i += 4) min = Math.min(min, pixels[i]);
+      return min;
+    };
+    // Flat grid: every middle-tile texel is lit at lambert(0,1,0)·sun ≈ 0.707.
+    expect(meanRed(flat)).toBeGreaterThan(170);
+    expect(meanRed(flat)).toBeLessThan(190);
+    // The raised neighbor occludes part of the middle tile.
+    expect(meanRed(shadowed)).toBeLessThan(meanRed(flat) - 20);
+    expect(minRed(shadowed)).toBe(0);
   });
 
   it('ignores the normal map at zero strength', () => {

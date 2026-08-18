@@ -10,6 +10,7 @@ import {
   rasterizeBakedPixels,
   type BakeTriangle,
 } from '../src/lib/bakeGeometry';
+import { createFallbackQuadScene } from '../src/lib/modelScene';
 
 function meshWith(attributes: { position?: number[]; uv?: number[]; normal?: number[] }, visible = true): Mesh {
   const geometry = new BufferGeometry();
@@ -117,6 +118,18 @@ describe('collectBakeScene', () => {
     const result = collectBakeScene(scene);
     expect(result.triangles).toHaveLength(2);
     expect(result.vertices).toHaveLength(6);
+  });
+
+  it('treats grid neighbors as occluder-only: they shadow the middle tile but never rasterize', () => {
+    const scene = createFallbackQuadScene(2, true);
+    const result = collectBakeScene(scene, 2);
+    // PlaneGeometry(1, 1, 2, 2) = 2×2 segments = 8 triangles. Only the middle
+    // tile (no occluderOnly marker) is bake surface…
+    expect(result.triangles).toHaveLength(8);
+    expect(result.vertices).toHaveLength(9); // 3×3 corners, deduplicated
+    // …but every tile contributes to occlusion: 9 tiles × 8 triangles each.
+    expect(result.occluderPositions.length / 9).toBe(72);
+    expect(result.bvh).not.toBeNull();
   });
 
   it('returns a null BVH and safe fallbacks for a scene with no geometry', () => {

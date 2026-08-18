@@ -1,6 +1,6 @@
 import { vi } from 'vitest';
 import type { RendererDeps } from '../../src/lib/render/types';
-import type { State } from '../../src/lib/state';
+import type { State, TextureChannelId, TextureSlot } from '../../src/lib/state';
 import { FakeCanvas } from './domStubs';
 
 /** A complete serializable State so render submodules read real values. */
@@ -32,8 +32,10 @@ export function createStateFixture(): State {
     normalStrength: 1,
     normalFormat: 'opengl',
     cameraDirection: { x: 0, y: 0, z: -1 },
-    showUVOverlap: false,
-    showUVWireframe: false,
+    showUVOverlapOriginal: false,
+    showUVOverlapProcessed: false,
+    showUVWireframeOriginal: false,
+    showUVWireframeProcessed: false,
     viewModeOriginal: 'flat',
     viewModeProcessed: 'flat',
   } as State;
@@ -45,22 +47,24 @@ export function emptyTextures(): RendererDeps['textures'] {
     ao: { image: null, name: '' },
     normal: { image: null, name: '' },
     lightmap: { image: null, name: '' },
+    displacement: { image: null, name: '' },
   };
 }
 
 /** A full RendererDeps with inert defaults; overrides win via spread. The
  * canvas properties keep their FakeCanvas type so tests can read the stubbed
  * pixel buffers back, while remaining assignable to RendererDeps. */
-export function createRendererDeps(overrides: Partial<RendererDeps> = {}): RendererDeps & {
+export function createRendererDeps(overrides: Omit<Partial<RendererDeps>, 'textures'> & { textures?: Partial<Record<TextureChannelId, TextureSlot>> } = {}): RendererDeps & {
   previewCanvas: FakeCanvas;
   originalCanvas: FakeCanvas;
   wireframeOverlays: { original: FakeCanvas; processed: FakeCanvas };
 } {
   const originalWireframeOverlay = new FakeCanvas();
   const processedWireframeOverlay = new FakeCanvas();
+  const { textures: texturesOverride, ...restOverrides } = overrides;
   const deps = {
     state: createStateFixture(),
-    textures: emptyTextures(),
+    textures: { ...emptyTextures(), ...texturesOverride },
     previewCanvas: new FakeCanvas(),
     originalCanvas: new FakeCanvas(),
     wireframeOverlays: {
@@ -89,7 +93,7 @@ export function createRendererDeps(overrides: Partial<RendererDeps> = {}): Rende
     renderTextureRibbon: vi.fn(),
     applySun: vi.fn(),
     onAoProgress: vi.fn(),
-    ...overrides,
+    ...restOverrides,
   } as unknown as RendererDeps & {
     previewCanvas: FakeCanvas;
     originalCanvas: FakeCanvas;

@@ -190,6 +190,59 @@ describe('dithering engine', () => {
   });
 });
 
+describe('seamless error-diffusion padding', () => {
+  const uniform = (size: number, gray: number): ImageData => {
+    const pixels: number[][] = [];
+    for (let i = 0; i < size * size; i += 1) pixels.push([gray, gray, gray, 255]);
+    return imageData(pixels, size);
+  };
+
+  const firstColumnValues = (output: ImageData): Set<number> => {
+    const values = new Set<number>();
+    for (let y = 0; y < output.height; y += 1) values.add(output.data[y * output.width * 4]);
+    return values;
+  };
+
+  it.each(['floyd', 'atkinson'] as const)('%s wraps border errors so the tile edge is a continuation', (mode) => {
+    // Uniform gray with a black/white palette: without padding every row starts
+    // fresh and the first column is one flat color. The pad→dither→crop pass
+    // feeds the previous tile's end-of-row error (7/16 for floyd, 1/8 for
+    // atkinson) into the first column, so it must vary row-to-row.
+    const result = processImageData(uniform(32, 128), options(mode));
+    expect(firstColumnValues(result).size).toBeGreaterThanOrEqual(2);
+  });
+
+  it.each(['floyd', 'atkinson'] as const)('%s keeps the cropped dimensions and alpha', (mode) => {
+    const source = imageData(
+      [
+        [32, 32, 32, 255], [96, 96, 96, 180], [160, 160, 160, 255],
+        [64, 64, 64, 255], [128, 128, 128, 255], [224, 224, 224, 255],
+      ],
+      3,
+    );
+    const result = processImageData(source, options(mode));
+    expect(result.width).toBe(3);
+    expect(result.height).toBe(2);
+    for (let index = 0; index < result.data.length; index += 4) {
+      expect([0, 255]).toContain(result.data[index]);
+      expect(result.data[index + 3]).toBe(source.data[index + 3]);
+    }
+  });
+
+  it('does not pad stateless modes — their patterns stay coordinate-locked', () => {
+    // Ordered dithering carries no error across borders, so the wrapper must
+    // delegate straight to the core. The first column of uniform gray is
+    // exactly the Bayer phase at x=0 — black/white alternating with y%4.
+    // Padding would shift the phase by the tile height mod 4 (here +1), so
+    // this assertion also catches an accidental pad of a stateless mode.
+    const source = imageData(Array.from({ length: 16 * 5 }, () => [128, 128, 128, 255]), 16);
+    const result = processImageData(source, options('ordered'));
+    const column: number[] = [];
+    for (let y = 0; y < result.height; y += 1) column.push(result.data[y * result.width * 4]);
+    expect(column).toEqual([0, 255, 0, 255, 0]);
+  });
+});
+
 describe('halftone dot rendering', () => {
   const halftone = options('halftone');
 

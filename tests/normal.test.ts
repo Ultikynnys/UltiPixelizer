@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { imageNormalMapPixels, sampleNormalMap, type NormalMapSource } from '../src/lib/normal';
+import { imageHeightmapPixels, imageNormalMapPixels, sampleHeightmap, sampleNormalMap, type HeightmapSource, type NormalMapSource } from '../src/lib/normal';
 import { asSourceImage, FakeCanvas, installDomStubs } from './helpers/domStubs';
 
 beforeAll(() => {
@@ -63,5 +63,41 @@ describe('imageNormalMapPixels', () => {
     expect(pixels.width).toBe(2);
     expect(pixels.height).toBe(1);
     expect(Array.from(pixels.data)).toEqual([128, 255, 255, 255, 128, 0, 128, 255]);
+  });
+});
+
+describe('sampleHeightmap', () => {
+  function height(value: number): HeightmapSource {
+    return { data: new Uint8ClampedArray([value, value, value, 255]), width: 1, height: 1 };
+  }
+
+  it('decodes black to 0 and white to 1', () => {
+    expect(sampleHeightmap(height(0), 0.5, 0.5)).toBe(0);
+    expect(sampleHeightmap(height(255), 0.5, 0.5)).toBe(1);
+  });
+
+  it('maps mid-gray to the neutral 0.5 height', () => {
+    expect(sampleHeightmap(height(128), 0.5, 0.5)).toBeCloseTo(128 / 255, 6);
+  });
+
+  it('flips v to image space like the normal map (v = 1 reads the top row)', () => {
+    // Row 0 (top) is white, row 1 (bottom) is black.
+    const source: HeightmapSource = { data: new Uint8ClampedArray([255, 255, 255, 255, 0, 0, 0, 255]), width: 1, height: 2 };
+    expect(sampleHeightmap(source, 0.5, 1)).toBe(1);
+    expect(sampleHeightmap(source, 0.5, 0)).toBe(0);
+  });
+
+  it('clamps UV coordinates to the source bounds', () => {
+    expect(sampleHeightmap(height(200), 99, -5)).toBeCloseTo(200 / 255, 6);
+  });
+
+  it('reads a grayscale image into a HeightmapSource', () => {
+    const canvas = new FakeCanvas();
+    canvas.width = 2;
+    canvas.height = 1;
+    canvas.context.pixels.set([0, 0, 0, 255, 255, 255, 255, 255]);
+    const source = imageHeightmapPixels(asSourceImage(canvas));
+    expect(source.width).toBe(2);
+    expect(Array.from(source.data)).toEqual([0, 0, 0, 255, 255, 255, 255, 255]);
   });
 });

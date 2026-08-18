@@ -32,6 +32,7 @@ export function createRenderer(deps: RendererDeps): RendererApi {
     scheduleImplicitLightmapBake: bake.scheduleImplicitLightmapBake,
     scheduleNormalAdjustedLighting: bake.scheduleNormalAdjustedLighting,
     invalidateBakeScene: bake.invalidateBakeScene,
+    setFallbackQuad: bake.setFallbackQuad,
     refreshUVWireframe: overlay.refreshUVWireframe,
     refreshUVOverlap: overlay.refreshUVOverlap,
     invalidateUVOverlap: overlay.invalidateUVOverlap,

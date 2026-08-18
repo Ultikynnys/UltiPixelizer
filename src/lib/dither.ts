@@ -99,7 +99,7 @@ export function adjustColor(color: RGB, brightness: number, contrast: number, sa
   return [clamp(red, 0, 255), clamp(green, 0, 255), clamp(blue, 0, 255)];
 }
 
-export function processImageData(source: ImageData, options: ProcessOptions): ImageData {
+function ditherImageData(source: ImageData, options: ProcessOptions): ImageData {
   const output = new ImageData(new Uint8ClampedArray(source.data), source.width, source.height);
   const data = output.data;
   const palette = options.palette.map(hexToRgb);
@@ -192,4 +192,59 @@ export function processImageData(source: ImageData, options: ProcessOptions): Im
     }
   }
   return output;
+}
+
+/** Error-diffusion modes carry state across pixel borders: the diffusion that
+ * would flow out of the image's right/bottom edges is dropped (spread clamps
+ * at the edges), so tiling the dithered result shows a seam at every tile
+ * boundary. The classic fix — pad the source with exact copies of itself,
+ * dither the padded canvas, then crop back to the original bounds — lets the
+ * border errors wrap into the opposite edge, so the tile dithers as if it
+ * were part of an infinite tiling. Threshold and halftone modes are stateless
+ * (per-pixel / per-cell), so they need no padding and skip the 9× cost. */
+const SEAMLESS_MODES = new Set<DitherMode>(['floyd', 'atkinson']);
+const PAD_TILES = 1;
+
+/** Copies `source` into a `(1 + 2·tiles)²` grid of exact repeats: padded row
+ * `py` shows source row `py % height` (and likewise for columns). */
+function padTiled(source: ImageData, tiles: number): ImageData {
+  const { width, height } = source;
+  const size = 1 + tiles * 2;
+  const padded = new ImageData(new Uint8ClampedArray(size * size * width * height * 4), size * width, size * height);
+  for (let py = 0; py < size * height; py += 1) {
+    const sy = py % height;
+    for (let px = 0; px < size * width; px += 1) {
+      const s = (sy * width + (px % width)) * 4;
+      const d = (py * size * width + px) * 4;
+      padded.data[d] = source.data[s];
+      padded.data[d + 1] = source.data[s + 1];
+      padded.data[d + 2] = source.data[s + 2];
+      padded.data[d + 3] = source.data[s + 3];
+    }
+  }
+  return padded;
+}
+
+/** Extracts the center tile of a padded canvas at the original dimensions. */
+function cropCenter(padded: ImageData, width: number, height: number, tiles: number): ImageData {
+  const size = 1 + tiles * 2;
+  const output = new ImageData(new Uint8ClampedArray(width * height * 4), width, height);
+  const rowStride = size * width;
+  const start = tiles * height * rowStride + tiles * width;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const s = (start + y * rowStride + x) * 4;
+      const d = (y * width + x) * 4;
+      output.data[d] = padded.data[s];
+      output.data[d + 1] = padded.data[s + 1];
+      output.data[d + 2] = padded.data[s + 2];
+      output.data[d + 3] = padded.data[s + 3];
+    }
+  }
+  return output;
+}
+
+export function processImageData(source: ImageData, options: ProcessOptions): ImageData {
+  if (!SEAMLESS_MODES.has(options.mode)) return ditherImageData(source, options);
+  return cropCenter(ditherImageData(padTiled(source, PAD_TILES), options), source.width, source.height, PAD_TILES);
 }

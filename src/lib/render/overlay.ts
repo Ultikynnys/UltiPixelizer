@@ -63,7 +63,7 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
 
   function refreshUVOverlap(): void {
     const scene = getAOScene();
-    if (!state.showUVOverlap || !scene) {
+    if ((!state.showUVOverlapOriginal && !state.showUVOverlapProcessed) || !scene) {
       uvOverlapMaskCanvas = null;
       forEachViewport((viewport) => viewport.setUVOverlap(null));
       refreshUVWireframe();
@@ -178,9 +178,9 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
    * chunky speckles. Drawing here instead — at the pane's display resolution
    * × devicePixelRatio — keeps the lines crisp at any zoom, and a dedicated
    * element keeps them clear of the dither pattern. */
-  function syncWireframeOverlay(overlay: HTMLCanvasElement, canvas: HTMLCanvasElement): void {
+  function syncWireframeOverlay(overlay: HTMLCanvasElement, canvas: HTMLCanvasElement, showWireframe: boolean): void {
     const triangles = uvWireframeTriangles;
-    if (!state.showUVWireframe || canvas.hidden || !triangles || triangles.length === 0 || canvas.width <= 0 || canvas.height <= 0) {
+    if (!showWireframe || canvas.hidden || !triangles || triangles.length === 0 || canvas.width <= 0 || canvas.height <= 0) {
       overlay.hidden = true;
       return;
     }
@@ -214,8 +214,8 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
   }
 
   function syncWireframeOverlays(): void {
-    syncWireframeOverlay(originalWireframeOverlay, originalCanvas);
-    syncWireframeOverlay(processedWireframeOverlay, previewCanvas);
+    syncWireframeOverlay(originalWireframeOverlay, originalCanvas, state.showUVWireframeOriginal);
+    syncWireframeOverlay(processedWireframeOverlay, previewCanvas, state.showUVWireframeProcessed);
   }
 
   function drawAnimatedOverlay(canvas: HTMLCanvasElement, base: HTMLCanvasElement | null, time: number): void {
@@ -241,12 +241,12 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
   }
 
   function tickUVOverlayAnimation(time: number): void {
-    if (!state.showUVOverlap || !getAOScene() || !uvOverlapMaskCanvas) {
+    if ((!state.showUVOverlapOriginal && !state.showUVOverlapProcessed) || !getAOScene() || !uvOverlapMaskCanvas) {
       uvOverlayFrame = 0;
       return;
     }
-    if (getOriginalPreviewMode() === '2d') drawAnimatedOverlay(originalCanvas, shared.originalBaseCanvas, time);
-    if (getProcessedPreviewMode() === '2d') drawAnimatedOverlay(previewCanvas, shared.renderedCanvas, time);
+    if (state.showUVOverlapOriginal && getOriginalPreviewMode() === '2d') drawAnimatedOverlay(originalCanvas, shared.originalBaseCanvas, time);
+    if (state.showUVOverlapProcessed && getProcessedPreviewMode() === '2d') drawAnimatedOverlay(previewCanvas, shared.renderedCanvas, time);
     uvOverlayFrame = requestAnimationFrame(tickUVOverlayAnimation);
   }
 

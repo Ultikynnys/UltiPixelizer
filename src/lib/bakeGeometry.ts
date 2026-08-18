@@ -34,7 +34,10 @@ export type BakeScene = {
  * normal), bake triangles, and a BVH over the occluders.
  *
  * Every mesh contributes to occlusion; only meshes that carry both a `uv` and a
- * `normal` attribute are baked. Meshes missing normals are recomputed via
+ * `normal` attribute are baked. Meshes marked `userData.occluderOnly === true`
+ * (e.g. the fallback grid's neighbor tiles) block light but never rasterize —
+ * their UVs span the same 0..1 region as the middle tile, so writing them
+ * would clobber its texture. Meshes missing normals are recomputed via
  * `computeSmoothNormals`, so pass a disposable scene (a clone) if you need to
  * keep the original untouched. Degenerate triangles (zero world area, or
  * collapsed UVs) are skipped — they have no surface to light.
@@ -57,18 +60,26 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
     if (!(child instanceof Mesh) || !child.visible) return;
     let geometry = child.geometry as BufferGeometry;
     if (!geometry.getAttribute('position')) return;
+    // Occluder-only meshes (the fallback grid's neighbor tiles) block light
+    // but are never rasterized into the bake — their UVs span the same 0..1
+    // region as the middle tile, so writing them would clobber its texture.
+    const occluderOnly = child.userData?.occluderOnly === true;
 
-    let uv = geometry.getAttribute('uv') as BufferAttribute | undefined;
-    let normal = geometry.getAttribute('normal') as BufferAttribute | undefined;
-    if (uv && !normal) {
-      const flat = computeSmoothNormals(geometry);
-      if (flat !== geometry) {
-        child.geometry = flat;
-        geometry.dispose();
-        geometry = flat;
-      }
+    let uv: BufferAttribute | undefined;
+    let normal: BufferAttribute | undefined;
+    if (!occluderOnly) {
       uv = geometry.getAttribute('uv') as BufferAttribute | undefined;
       normal = geometry.getAttribute('normal') as BufferAttribute | undefined;
+      if (uv && !normal) {
+        const flat = computeSmoothNormals(geometry);
+        if (flat !== geometry) {
+          child.geometry = flat;
+          geometry.dispose();
+          geometry = flat;
+        }
+        uv = geometry.getAttribute('uv') as BufferAttribute | undefined;
+        normal = geometry.getAttribute('normal') as BufferAttribute | undefined;
+      }
     }
 
     const position = geometry.getAttribute('position') as BufferAttribute;
@@ -87,7 +98,7 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
       worldPositions.push(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z, pc.x, pc.y, pc.z);
 
       // Bakeable surface — needs UVs, normals, and a non-degenerate UV footprint.
-      if (!uv || !normal) return;
+      if (occluderOnly || !uv || !normal) return;
       const uva: UvPair = [uv.getX(ia), uv.getY(ia)];
       const uvb: UvPair = [uv.getX(ib), uv.getY(ib)];
       const uvc: UvPair = [uv.getX(ic), uv.getY(ic)];

@@ -2,12 +2,28 @@ import { bakeMeshAOAsync } from '../aoBake';
 import { getBakeScene, invalidateBakeSceneCache } from '../bakeSceneCache';
 import { factorsToCanvas, pixelsToCanvas } from '../canvas';
 import { bakeMeshLightmap, type BakeLightmapOptions } from '../lightmapBake';
+import { createFallbackQuadScene } from '../modelScene';
 import { imageNormalMapPixels } from '../normal';
 import { lightmapIsActive, type SourceImage } from '../state';
+import { Object3D } from 'three';
 import type { Render2DApi } from './render2d';
 import type { RendererDeps, RenderShared } from './types';
 
 const AO_BAKE_SAMPLES = 128;
+
+// When no model is loaded the AO scene is null and every bake would otherwise
+// no-op. Substitute a flat quad facing up (see createFallbackQuadScene): the
+// default sun, which travels downward, lights it; a lone plane occludes
+// nothing — the AO bake comes out white, which is exactly correct for a flat
+// surface. Its UVs span 0..1, so the full texture bakes. main.ts replaces the
+// quad via setFallbackQuad when the quad view's tessellation / grid /
+// displacement settings change. In grid mode the bake scene is the full 3×3
+// grid — the neighbors are occluder-only (see collectBakeScene), so they cast
+// shadows on the middle tile's bake without rasterizing over its texture.
+let fallbackQuad: Object3D = createFallbackQuadScene();
+function fallbackQuadScene(): Object3D {
+  return fallbackQuad;
+}
 
 export interface BakeApi {
   generateAo: () => Promise<boolean>;
@@ -17,9 +33,13 @@ export interface BakeApi {
   scheduleImplicitLightmapBake: () => void;
   scheduleNormalAdjustedLighting: () => void;
   invalidateBakeScene: () => void;
+  /** Replaces the bake geometry used when no model is loaded — the quad view's
+   * tessellated tile (or the full 3×3 grid in grid mode, whose neighbors are
+   * occluder-only). Callers must invalidate the bake scene alongside
+   * (invalidateBakeScene) so the next bake recollects the new quad. */
+  setFallbackQuad: (scene: Object3D) => void;
   reset: () => void;
 }
-
 export function createBake(deps: RendererDeps, shared: RenderShared, render2d: Render2DApi): BakeApi {
   const {
     state,
@@ -32,6 +52,13 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     dimensions,
     onAoProgress,
   } = deps;
+
+  // The scene the bakes run against: the AO scene when a model is loaded,
+  // otherwise the flat quad facing up (see fallbackQuadScene) so the bakes
+  // always have geometry to light.
+  function bakeSceneSource(): Object3D {
+    return getAOScene() ?? fallbackQuadScene();
+  }
 
   // The AO scene geometry is static between UV/LOD/world-axis/model changes, so
   // the decoded normal-map pixels are memoized per image — re-baking on a sun
@@ -64,8 +91,8 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   }
 
   function bakeLightmapCanvas(): HTMLCanvasElement | null {
-    const scene = getAOScene();
-    if (!scene || !textures.base.image) return null;
+    if (!textures.base.image) return null;
+    const scene = bakeSceneSource();
     // Baked maps render at the dithered texture resolution — identical to the
     // processed output — so lighting and occlusion align 1:1 with the texture.
     const { width, height } = dimensions();
@@ -75,12 +102,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   }
 
   async function computeAO(): Promise<boolean> {
-    const scene = getAOScene();
-    if (!scene) {
-      textures.ao.image = null;
-      textures.ao.name = '';
-      return false;
-    }
+    const scene = bakeSceneSource();
     const { width, height } = dimensions();
     const factors = await bakeMeshAOAsync(
       scene,
@@ -95,12 +117,12 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     return true;
   }
 
-  // Shared async-bake runner: scene guard, deferred try/catch. Resolves true
-  // when the bake completed, false on early exit or failure (failures are
-  // logged to the console) — callers that need the result, like the
-  // texture-slot download button, can await it.
+  // Shared async-bake runner: deferred try/catch. Resolves true when the bake
+  // completed, false on early exit or failure (failures are logged to the
+  // console) — callers that need the result, like the texture-slot download
+  // button, can await it. No scene guard: bakeSceneSource guarantees the
+  // bakes always have geometry to run against.
   function runBakeTask(failureMessage: string, work: () => boolean | Promise<boolean>): Promise<boolean> {
-    if (!getAOScene()) return Promise.resolve(false);
     return new Promise((resolve) => {
       window.setTimeout(() => {
         Promise.resolve()
@@ -171,7 +193,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   }
 
   function bakeImplicitLightmap(): void {
-    if (!getAOScene() || !textures.base.image || lightmapIsActive(textures) || shared.lightmapCleared) {
+    if (!textures.base.image || lightmapIsActive(textures) || shared.lightmapCleared) {
       shared.implicitLightmapCanvas = null;
       renderTextureRibbon();
       return;
@@ -192,7 +214,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   function scheduleImplicitLightmapBake(): void {
     if (shared.implicitLightmapTimer) window.clearTimeout(shared.implicitLightmapTimer);
     shared.implicitLightmapTimer = 0;
-    if (lightmapIsActive(textures) || getAOScene() === null || shared.lightmapCleared) return;
+    if (lightmapIsActive(textures) || shared.lightmapCleared) return;
     shared.implicitLightmapTimer = window.setTimeout(() => {
       shared.implicitLightmapTimer = 0;
       bakeImplicitLightmap();
@@ -220,6 +242,9 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     scheduleImplicitLightmapBake,
     scheduleNormalAdjustedLighting,
     invalidateBakeScene: invalidateBakeSceneCache,
+    setFallbackQuad: (scene: Object3D) => {
+      fallbackQuad = scene;
+    },
     reset,
   };
 }

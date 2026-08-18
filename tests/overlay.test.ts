@@ -64,7 +64,8 @@ describe('UV wireframe', () => {
   it('draws the triangles onto the display-resolution overlay when enabled', () => {
     const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
     const overlayCanvas = sizeOriginalPane(deps);
-    deps.state.showUVWireframe = true;
+    deps.state.showUVWireframeOriginal = true;
+    deps.state.showUVWireframeProcessed = true;
 
     overlay.refreshUVWireframe(); // collects triangles + syncs the overlay
     expect(overlayCanvas.hidden).toBe(false);
@@ -89,7 +90,8 @@ describe('UV wireframe', () => {
     deps.originalCanvas.offsetHeight = 100;
     deps.originalCanvas.width = 100; // square bitmap
     deps.originalCanvas.height = 100;
-    deps.state.showUVWireframe = true;
+    deps.state.showUVWireframeOriginal = true;
+    deps.state.showUVWireframeProcessed = true;
 
     overlay.refreshUVWireframe();
     // Bitmap 100×100 contained in the 100×100 box, box centered in the
@@ -112,12 +114,34 @@ describe('UV wireframe', () => {
       canvas.width = 200;
       canvas.height = 100;
     }
-    deps.state.showUVWireframe = true;
+    deps.state.showUVWireframeOriginal = true;
+    deps.state.showUVWireframeProcessed = true;
 
     overlay.refreshUVWireframe();
     expect(originalOverlay.hidden).toBe(false);
     expect(processedOverlay.hidden).toBe(false);
     expect(processedOverlay.context.stroke).toHaveBeenCalledTimes(2);
+  });
+
+  it('drives each pane independently', () => {
+    const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
+    const originalOverlay = deps.wireframeOverlays.original as unknown as FakeCanvas;
+    const processedOverlay = deps.wireframeOverlays.processed as unknown as FakeCanvas;
+    for (const canvas of [originalOverlay, processedOverlay, deps.originalCanvas, deps.previewCanvas]) {
+      canvas.clientWidth = 200;
+      canvas.clientHeight = 100;
+      canvas.offsetWidth = 200;
+      canvas.offsetHeight = 100;
+      canvas.width = 200;
+      canvas.height = 100;
+    }
+    // Only the original pane's toggle is on — the processed overlay stays hidden.
+    deps.state.showUVWireframeOriginal = true;
+    deps.state.showUVWireframeProcessed = false;
+
+    overlay.refreshUVWireframe();
+    expect(originalOverlay.hidden).toBe(false);
+    expect(processedOverlay.hidden).toBe(true);
   });
 
   it('hides the overlay when the toggle is off', () => {
@@ -130,7 +154,8 @@ describe('UV wireframe', () => {
   it('hides the overlay when the pane is in 3D mode', () => {
     const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
     const overlayCanvas = sizeOriginalPane(deps);
-    deps.state.showUVWireframe = true;
+    deps.state.showUVWireframeOriginal = true;
+    deps.state.showUVWireframeProcessed = true;
     deps.originalCanvas.hidden = true;
     overlay.refreshUVWireframe();
     expect(overlayCanvas.hidden).toBe(true);
@@ -139,7 +164,8 @@ describe('UV wireframe', () => {
   it('hides the overlay without a scene', () => {
     const { deps, overlay } = setup();
     const overlayCanvas = sizeOriginalPane(deps);
-    deps.state.showUVWireframe = true;
+    deps.state.showUVWireframeOriginal = true;
+    deps.state.showUVWireframeProcessed = true;
     overlay.refreshUVWireframe();
     expect(overlayCanvas.hidden).toBe(true);
   });
@@ -150,7 +176,8 @@ describe('UV wireframe', () => {
     overlay.refreshUVWireframe();
     expect(overlayCanvas.hidden).toBe(true); // toggle off
 
-    deps.state.showUVWireframe = true;
+    deps.state.showUVWireframeOriginal = true;
+    deps.state.showUVWireframeProcessed = true;
     overlay.syncWireframeOverlays(); // main.ts calls this on the toggle
     expect(overlayCanvas.hidden).toBe(false);
     expect(overlayCanvas.context.stroke).toHaveBeenCalledTimes(2);
@@ -170,7 +197,8 @@ describe('UV overlap overlay', () => {
       getAOScene: () => overlappingScene(),
       forEachViewport: (callback) => callback(viewport as unknown as ModelViewport),
     });
-    deps.state.showUVOverlap = true;
+    deps.state.showUVOverlapOriginal = true;
+    deps.state.showUVOverlapProcessed = true;
     deps.textures.base.image = baseImage();
 
     overlay.refreshUVOverlap();
@@ -195,7 +223,8 @@ describe('UV overlap overlay', () => {
       getAOScene: () => scene,
       forEachViewport: (callback) => callback(viewport as unknown as ModelViewport),
     });
-    deps.state.showUVOverlap = true;
+    deps.state.showUVOverlapOriginal = true;
+    deps.state.showUVOverlapProcessed = true;
     deps.textures.base.image = baseImage();
 
     overlay.refreshUVOverlap();
@@ -226,7 +255,8 @@ describe('UV overlap overlay', () => {
       getOriginalPreviewMode: () => '3d',
       forEachViewport: (callback) => callback({ setUVOverlap: vi.fn() } as unknown as ModelViewport),
     });
-    deps.state.showUVOverlap = true;
+    deps.state.showUVOverlapOriginal = true;
+    deps.state.showUVOverlapProcessed = true;
     deps.textures.base.image = baseImage();
 
     overlay.refreshUVOverlap();
@@ -235,13 +265,31 @@ describe('UV overlap overlay', () => {
     expect(deps.previewCanvas.context.drawn.length).toBeGreaterThan(0);
   });
 
+  it('draws the animated overlap only on the pane whose toggle is on', () => {
+    const { deps, overlay } = setup({
+      getAOScene: () => overlappingScene(),
+      forEachViewport: (callback) => callback({ setUVOverlap: vi.fn() } as unknown as ModelViewport),
+    });
+    deps.state.showUVOverlapOriginal = true;
+    deps.state.showUVOverlapProcessed = false;
+    deps.textures.base.image = baseImage();
+
+    overlay.refreshUVOverlap();
+    expect(rafCount()).toBe(1); // animation runs for the original pane
+
+    flushRaf(500);
+    expect(deps.originalCanvas.context.drawn.length).toBeGreaterThan(0);
+    expect(deps.previewCanvas.context.drawn).toHaveLength(0);
+  });
+
   it('scales the overlap analysis down for very large base textures', () => {
     const viewport = { setUVOverlap: vi.fn() };
     const { deps, overlay } = setup({
       getAOScene: () => overlappingScene(),
       forEachViewport: (callback) => callback(viewport as unknown as ModelViewport),
     });
-    deps.state.showUVOverlap = true;
+    deps.state.showUVOverlapOriginal = true;
+    deps.state.showUVOverlapProcessed = true;
     deps.textures.base.image = baseImage(2000, 1000);
 
     overlay.refreshUVOverlap();
@@ -253,7 +301,8 @@ describe('UV overlap overlay', () => {
     const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
     deps.textures.base.image = baseImage();
     const overlayCanvas = sizeOriginalPane(deps);
-    deps.state.showUVWireframe = true;
+    deps.state.showUVWireframeOriginal = true;
+    deps.state.showUVWireframeProcessed = true;
     overlay.refreshUVOverlap();
     expect(rafCount()).toBe(0);
     // Wireframe triangles are still collected and drawn on the overlay even
@@ -265,7 +314,8 @@ describe('UV overlap overlay', () => {
   it('stops the animation when the scene disappears', () => {
     let scene: Scene | null = overlappingScene();
     const { deps, overlay } = setup({ getAOScene: () => scene });
-    deps.state.showUVOverlap = true;
+    deps.state.showUVOverlapOriginal = true;
+    deps.state.showUVOverlapProcessed = true;
     deps.textures.base.image = baseImage();
     overlay.refreshUVOverlap();
     expect(rafCount()).toBe(1);
@@ -280,7 +330,8 @@ describe('UV overlap overlay', () => {
       getAOScene: () => overlappingScene(),
       forEachViewport: (callback) => callback({ setUVOverlap: vi.fn() } as unknown as ModelViewport),
     });
-    deps.state.showUVOverlap = true;
+    deps.state.showUVOverlapOriginal = true;
+    deps.state.showUVOverlapProcessed = true;
     deps.textures.base.image = baseImage();
     shared.originalBaseCanvas = null;
     overlay.refreshUVOverlap();
@@ -291,7 +342,8 @@ describe('UV overlap overlay', () => {
 
   it('reset cancels the animation and clears the wireframe state', () => {
     const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
-    deps.state.showUVOverlap = true;
+    deps.state.showUVOverlapOriginal = true;
+    deps.state.showUVOverlapProcessed = true;
     deps.textures.base.image = baseImage();
     overlay.refreshUVOverlap();
     expect(rafCount()).toBe(1);

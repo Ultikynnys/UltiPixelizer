@@ -6,7 +6,7 @@ import type { DirectionVector } from './sunDirection';
 
 export type SourceImage = CanvasImageSource & { width: number; height: number };
 
-export type TextureChannelId = 'base' | 'ao' | 'normal' | 'lightmap';
+export type TextureChannelId = 'base' | 'ao' | 'normal' | 'lightmap' | 'displacement';
 
 export type PreviewMode = '2d' | '3d';
 
@@ -43,8 +43,10 @@ export type State = {
   aoDistance: number;
   normalStrength: number;
   normalFormat: NormalFormat;
-  showUVOverlap: boolean;
-  showUVWireframe: boolean;
+  showUVOverlapOriginal: boolean;
+  showUVOverlapProcessed: boolean;
+  showUVWireframeOriginal: boolean;
+  showUVWireframeProcessed: boolean;
   viewModeOriginal: PreviewViewMode;
   viewModeProcessed: PreviewViewMode;
 };

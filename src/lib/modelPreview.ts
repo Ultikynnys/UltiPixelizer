@@ -34,7 +34,7 @@ import { USDLoader } from 'three/addons/loaders/USDLoader.js';
 import { createCanvas } from './canvas';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
 import { applyLodLevel } from './modelLod';
-import { applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, forEachMeshIndexed, materialsOf, triangleIndices } from './modelScene';
+import { applyDisplacement, applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, forEachMeshIndexed, materialsOf, triangleIndices, type HeightSampler } from './modelScene';
 import { cameraForwardFromQuaternion, normalizeDirection, type DirectionVector } from './sunDirection';
 import { UV_OVERLAP_LABEL } from './uvOverlap';
 
@@ -292,6 +292,14 @@ export class ModelViewport {
 
   applyLOD(level: number): number {
     return this.model ? applyLodLevel(this.model, level) : 0;
+  }
+
+  /** Displaces the model's vertices along their original normals by the
+   * heightmap sample at each vertex's UV — see modelScene.applyDisplacement.
+   * Pass null (or zero strength) to restore the pristine geometry. */
+  applyDisplacement(height: HeightSampler | null, strength: number): void {
+    if (!this.model) return;
+    applyDisplacement(this.model, height, strength);
   }
 
   /** Swaps every mesh to the normal-map showcase material — the actual normal

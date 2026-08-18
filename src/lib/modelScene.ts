@@ -13,6 +13,7 @@ import {
   NearestFilter,
   Object3D,
   PerspectiveCamera,
+  PlaneGeometry,
   Scene,
   ShaderMaterial,
   SRGBColorSpace,
@@ -423,6 +424,101 @@ export function applyTextureToMaterial(material: Material, texture: Texture): vo
   textured.transparent = true;
   textured.side = DoubleSide;
   textured.needsUpdate = true;
+}
+
+export type HeightSampler = (u: number, v: number) => number;
+
+/** The no-model fallback: a flat quad facing up (normal +Y) with UVs spanning
+ * 0..1. The bake layer substitutes it when no model is loaded so AO/lightmap
+ * bakes still produce a result, and the viewports hold it so the 3D view has
+ * geometry without a model. Each call returns a fresh instance — the bake
+ * layer keeps one as a cache-identity singleton, the viewports need their own
+ * per-scene instance (three.js parenting forbids sharing one Object3D).
+ * PlaneGeometry lies in the XY plane facing +Z; rotateX(-π/2) turns its
+ * normal up to +Y, so the default sun (which travels downward) lights it.
+ * `tessellation` subdivides the plane (segments per side) so displacement has
+ * vertices to work with. `grid` arranges nine tiles around the origin: the
+ * middle tile is the bake surface, while the eight neighbors are marked
+ * `userData.occluderOnly` — they cast shadows on the middle tile's bake but
+ * never rasterize into it (their UVs span the same 0..1 region, so writing
+ * them would clobber the middle tile's texture). `collectBakeScene` reads the
+ * marker; every other consumer (viewports, displacement, texture application)
+ * ignores it. */
+export function createFallbackQuadScene(tessellation = 1, grid = false): Object3D {
+  const tile = (x: number, z: number): Mesh => {
+    const geometry = new PlaneGeometry(1, 1, tessellation, tessellation);
+    geometry.rotateX(-Math.PI / 2);
+    // DoubleSide: displacement raises cliffs whose far faces point away from
+    // the viewport camera — with the default FrontSide those backfaces get
+    // culled and the plane reads as having holes ("gaps") even though the
+    // geometry is watertight.
+    const mesh = new Mesh(geometry, new MeshBasicMaterial({ side: DoubleSide }));
+    mesh.position.set(x, 0, z);
+    return mesh;
+  };
+  if (!grid) return tile(0, 0);
+  const root = new Object3D();
+  for (let x = -1; x <= 1; x += 1) {
+    for (let z = -1; z <= 1; z += 1) {
+      const mesh = tile(x, z);
+      if (x !== 0 || z !== 0) mesh.userData.occluderOnly = true;
+      root.add(mesh);
+    }
+  }
+  return root;
+}
+
+// Pristine vertex data per geometry, captured on first displacement so every
+// subsequent application (and restore) is computed from the original shape —
+// never from an already-displaced snapshot. Keyed weakly: clones (viewport
+// models, AO scenes, the bake quad) each cache their own base on first use.
+const displacementBase = new WeakMap<BufferGeometry, { position: Float32Array; normal: Float32Array }>();
+
+/** Displaces every mesh's vertices along their original normals by the
+ * heightmap sample at each vertex's UV: `(height − 0.5) × 2 × strength`, so
+ * mid-gray leaves the mesh untouched, white pushes out, black pulls in.
+ * Vertex normals are recomputed after displacement so the lightmap bake (and
+ * the viewport) shade the bumps. Passing null (or zero strength) restores the
+ * pristine geometry. Applies in place — safe to call repeatedly, and safe on
+ * any clone of a displaced scene since the base is cached per geometry. */
+export function applyDisplacement(root: Object3D, height: HeightSampler | null, strength: number): void {
+  const sampler = height !== null && strength !== 0 ? height : null;
+  root.traverse((child) => {
+    if (!(child instanceof Mesh)) return;
+    const geometry = child.geometry;
+    const position = geometry.getAttribute('position');
+    const normal = geometry.getAttribute('normal');
+    const uv = geometry.getAttribute('uv');
+    if (!position || !normal || !uv) return;
+    let base = displacementBase.get(geometry);
+    if (!base) {
+      base = { position: new Float32Array(position.count * 3), normal: new Float32Array(normal.count * 3) };
+      for (let i = 0; i < position.count; i += 1) {
+        base.position[i * 3] = position.getX(i);
+        base.position[i * 3 + 1] = position.getY(i);
+        base.position[i * 3 + 2] = position.getZ(i);
+        base.normal[i * 3] = normal.getX(i);
+        base.normal[i * 3 + 1] = normal.getY(i);
+        base.normal[i * 3 + 2] = normal.getZ(i);
+      }
+      displacementBase.set(geometry, base);
+    }
+    for (let i = 0; i < position.count; i += 1) {
+      const offset = sampler ? (sampler(uv.getX(i), uv.getY(i)) - 0.5) * 2 * strength : 0;
+      const o = i * 3;
+      position.setXYZ(i, base.position[o] + base.normal[o] * offset, base.position[o + 1] + base.normal[o + 1] * offset, base.position[o + 2] + base.normal[o + 2] * offset);
+    }
+    position.needsUpdate = true;
+    if (sampler) {
+      geometry.computeVertexNormals();
+    } else {
+      for (let i = 0; i < normal.count; i += 1) {
+        normal.setXYZ(i, base.normal[i * 3], base.normal[i * 3 + 1], base.normal[i * 3 + 2]);
+      }
+      normal.needsUpdate = true;
+    }
+    geometry.computeBoundingSphere();
+  });
 }
 
 export function fitCameraToObject(camera: PerspectiveCamera, object: Object3D, aspect: number): Vector3 {

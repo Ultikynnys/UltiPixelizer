@@ -25,6 +25,10 @@ export interface RendererDeps {
   applySun: () => void;
   /** Whole-percent AO bake progress (0–100), forwarded from the worker bands. */
   onAoProgress?: (percent: number) => void;
+  /** When set and true, the pane renders the texture tiled 3×3 (image repeat)
+   * so tile-boundary seams are visible. Fallback-quad diagnostic, per pane. */
+  repeatTextureOriginal?: () => boolean;
+  repeatTextureProcessed?: () => boolean;
 }
 
 export interface RendererApi {
@@ -47,6 +51,10 @@ export interface RendererApi {
    * rotation, model import/close. Without this the next bake would reuse stale
    * UVs/visibility/rotation. */
   invalidateBakeScene: () => void;
+  /** Replaces the bake geometry used when no model is loaded — the quad view's
+   * tessellated middle tile. main.ts calls this when tessellation or
+   * displacement changes; the bake cache must be invalidated alongside. */
+  setFallbackQuad: (scene: Object3D) => void;
   refreshUVWireframe: () => void;
   refreshUVOverlap: () => void;
   /** Forces the next refreshUVOverlap to recompute — call after any in-place

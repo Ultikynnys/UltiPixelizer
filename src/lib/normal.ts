@@ -49,3 +49,33 @@ export function sampleNormalMap(
   const tz = Math.sqrt(Math.max(0, 1 - tx * tx - ty * ty));
   return [tx, ty, tz];
 }
+
+export type HeightmapSource = PixelSource;
+
+/**
+ * Extracts a heightmap's RGBA pixels at its native resolution. The red channel
+ * carries the height for a grayscale map (R = G = B); `sampleHeightmap` reads
+ * just that channel.
+ */
+export function imageHeightmapPixels(image: CanvasImageSource & { width: number; height: number }): HeightmapSource {
+  return {
+    data: imagePixels(image, image.width, image.height),
+    width: image.width,
+    height: image.height,
+  };
+}
+
+/**
+ * Samples a grayscale heightmap at normalized UV coordinates, returning the
+ * height in 0..1 (black = 0, white = 1). `v` uses the standard texture
+ * convention (0 = bottom, 1 = top) and is flipped to image space internally,
+ * matching `sampleNormalMap` and the lightmap bake.
+ */
+export function sampleHeightmap(source: HeightmapSource, u: number, v: number): number {
+  const ux = Math.min(Math.max(u, 0), 1) * source.width - 0.5;
+  const vy = (1 - Math.min(Math.max(v, 0), 1)) * source.height - 0.5;
+  const px = Math.min(source.width - 1, Math.max(0, Math.floor(ux)));
+  const py = Math.min(source.height - 1, Math.max(0, Math.floor(vy)));
+  const offset = (py * source.width + px) * 4;
+  return source.data[offset] / 255;
+}

@@ -8,6 +8,7 @@ import {
   Scene,
 } from 'three';
 import { bakeMeshAO } from '../src/lib/aoBake';
+import { createFallbackQuadScene } from '../src/lib/modelScene';
 
 /** Ceiling quad with no UVs so it occludes bake surfaces but is never baked itself. */
 function ceilingQuad(half = 2): Mesh {
@@ -52,6 +53,20 @@ describe('bakeMeshAO', () => {
     const center = factors[4 * 8 + 4];
     expect(Math.min(...Array.from(factors))).toBeLessThan(255);
     expect(center).toBeLessThan(200);
+  });
+
+  it('lets a displaced grid neighbor occlude the middle tile', () => {
+    // Flat neighbors sit at the surface's height, so the middle tile's upward
+    // hemisphere rays never touch them — the flat grid bakes pure white.
+    const flat = bakeMeshAO(createFallbackQuadScene(4, true), 16, 16, { samples: 32, distance: 1 });
+    expect(Math.min(...Array.from(flat))).toBe(255);
+    // Raising a neighbor (like displacement) puts its underside in the path of
+    // the middle tile's shallow outward rays.
+    const scene = createFallbackQuadScene(4, true);
+    const neighbor = scene.children.find((child) => child.position.x === 0 && child.position.z === 1) as Mesh;
+    neighbor.position.y = 0.6;
+    const occluded = bakeMeshAO(scene, 16, 16, { samples: 32, distance: 1 });
+    expect(Math.min(...Array.from(occluded))).toBeLessThan(255);
   });
 
   it('produces identical output across repeated bakes', () => {

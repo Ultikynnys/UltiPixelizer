@@ -1,7 +1,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Scene } from 'three';
+import { BufferAttribute, BufferGeometry, Mesh, MeshBasicMaterial, Object3D, Scene } from 'three';
 import { createBake } from '../src/lib/render/bake';
 import type { RenderShared } from '../src/lib/render/types';
+import { createFallbackQuadScene } from '../src/lib/modelScene';
 import { createRendererDeps } from './helpers/rendererDeps';
 import { asSourceImage, FakeCanvas, installDomStubs } from './helpers/domStubs';
 
@@ -48,13 +49,65 @@ function setup(overrides: Parameters<typeof createRendererDeps>[0] = {}) {
   return { deps, shared, render2d, bake };
 }
 
+describe('setFallbackQuad', () => {
+  it('replaces the bake geometry when no model is loaded', async () => {
+    mocks.bakeMeshAOAsync.mockResolvedValue(new Uint8ClampedArray(64).fill(200));
+    const { deps, bake } = setup();
+    deps.textures.base.image = base8();
+    const custom = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    try {
+      bake.setFallbackQuad(custom);
+
+      const promise = bake.generateAo();
+      vi.advanceTimersByTime(30);
+      await promise;
+
+      expect(mocks.bakeMeshAOAsync.mock.calls[0][0]).toBe(custom);
+    } finally {
+      // The fallback is a module-level singleton shared across bakes — restore
+      // the default quad so later tests see the pristine fallback.
+      bake.setFallbackQuad(createFallbackQuadScene());
+    }
+  });
+
+  it('bakes AO against the full 3×3 grid so the neighbors occlude the middle tile', async () => {
+    mocks.bakeMeshAOAsync.mockResolvedValue(new Uint8ClampedArray(64).fill(200));
+    const { deps, bake } = setup();
+    deps.textures.base.image = base8();
+    const grid = createFallbackQuadScene(2, true);
+    try {
+      bake.setFallbackQuad(grid);
+
+      const promise = bake.generateAo();
+      vi.advanceTimersByTime(30);
+      await promise;
+
+      // The AO bake receives the whole grid — collectBakeScene marks the
+      // neighbors occluder-only, so they occlude the middle tile's hemisphere
+      // rays without ever rasterizing over its texture.
+      expect(mocks.bakeMeshAOAsync.mock.calls[0][0]).toBe(grid);
+      expect((mocks.bakeMeshAOAsync.mock.calls[0][0] as Object3D).children).toHaveLength(9);
+    } finally {
+      bake.setFallbackQuad(createFallbackQuadScene());
+    }
+  });
+});
+
 describe('generateAo', () => {
-  it('does nothing without a loaded scene', () => {
-    const { render2d, bake } = setup();
-    bake.generateAo();
-    vi.advanceTimersByTime(1000);
-    expect(mocks.bakeMeshAOAsync).not.toHaveBeenCalled();
-    expect(render2d.render).not.toHaveBeenCalled();
+  it('bakes onto the fallback quad when no model is loaded', async () => {
+    mocks.bakeMeshAOAsync.mockResolvedValue(new Uint8ClampedArray(64).fill(200));
+    const { deps, render2d, bake } = setup();
+    deps.textures.base.image = base8();
+
+    const promise = bake.generateAo();
+    vi.advanceTimersByTime(30);
+    await promise;
+
+    expect(mocks.bakeMeshAOAsync).toHaveBeenCalledOnce();
+    expect(mocks.bakeMeshAOAsync.mock.calls[0][0]).toBeInstanceOf(Mesh);
+    expect(deps.textures.ao.image).not.toBeNull();
+    expect(deps.textures.ao.name).toBe('Generated AO');
+    expect(render2d.render).toHaveBeenCalledOnce();
   });
 
   it('bakes AO into the texture slot after the deferral', async () => {
@@ -127,11 +180,19 @@ describe('generateAo', () => {
 });
 
 describe('bakeLighting', () => {
-  it('does nothing without a loaded scene', () => {
-    const { bake } = setup();
-    bake.bakeLighting();
-    vi.advanceTimersByTime(1000);
-    expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
+  it('bakes onto the fallback quad when no model is loaded', async () => {
+    mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(8 * 8 * 4).fill(255));
+    const { deps, bake } = setup();
+    deps.textures.base.image = base8();
+
+    const promise = bake.bakeLighting();
+    vi.advanceTimersByTime(30);
+    await promise;
+
+    expect(mocks.bakeMeshLightmap).toHaveBeenCalledOnce();
+    expect(mocks.bakeMeshLightmap.mock.calls[0][0]).toBeInstanceOf(Mesh);
+    expect(deps.textures.lightmap.image).not.toBeNull();
+    expect(deps.textures.lightmap.name).toBe('Baked lighting');
   });
 
   it('does nothing when the base texture is missing', async () => {
@@ -276,15 +337,19 @@ describe('clearLightmap', () => {
 });
 
 describe('implicit lightmap scheduling', () => {
-  it('does nothing without a scene or with a lightmap already set', () => {
-    const { shared, bake } = setup();
-    bake.scheduleImplicitLightmapBake();
-    vi.advanceTimersByTime(1000);
-    expect(shared.implicitLightmapCanvas).toBeNull();
-    expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
+  it('bakes onto the fallback quad without a scene; skips when a lightmap is set', () => {
+    mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(8 * 8 * 4));
+    const { deps, shared, bake } = setup();
+    deps.textures.base.image = base8();
 
-    const { bake: withLightmap, deps } = setup({ getAOScene: () => new Scene() });
-    deps.textures.lightmap.image = asSourceImage(new FakeCanvas());
+    bake.scheduleImplicitLightmapBake();
+    vi.advanceTimersByTime(200);
+    expect(mocks.bakeMeshLightmap).toHaveBeenCalledOnce();
+    expect(shared.implicitLightmapCanvas).not.toBeNull();
+
+    mocks.bakeMeshLightmap.mockClear();
+    const { bake: withLightmap, deps: lightmapDeps } = setup({ getAOScene: () => new Scene() });
+    lightmapDeps.textures.lightmap.image = asSourceImage(new FakeCanvas());
     withLightmap.scheduleImplicitLightmapBake();
     vi.advanceTimersByTime(1000);
     expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
@@ -372,5 +437,42 @@ describe('implicit lightmap scheduling', () => {
     expect(shared.implicitLightmapCanvas).toBeNull();
     expect(shared.lightmapCleared).toBe(false);
     expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
+  });
+});
+
+describe('fallback bake scene', () => {
+  it('is a flat quad facing up with full-UV coverage when no model is loaded', async () => {
+    mocks.bakeMeshAOAsync.mockResolvedValue(new Uint8ClampedArray(64));
+    const { deps, bake } = setup();
+    deps.textures.base.image = base8();
+
+    const promise = bake.generateAo();
+    vi.advanceTimersByTime(30);
+    await promise;
+
+    const scene = mocks.bakeMeshAOAsync.mock.calls[0][0] as Mesh;
+    const normals = scene.geometry.getAttribute('normal') as BufferAttribute;
+    for (let i = 0; i < normals.count; i += 1) {
+      expect(normals.getX(i)).toBeCloseTo(0);
+      expect(normals.getY(i)).toBeCloseTo(1);
+      expect(normals.getZ(i)).toBeCloseTo(0);
+    }
+    // The quad's UVs span the whole 0..1 unit square, so the bake covers the
+    // full texture rather than a corner island.
+    const uv = scene.geometry.getAttribute('uv') as BufferAttribute;
+    let minU = Number.POSITIVE_INFINITY;
+    let maxU = Number.NEGATIVE_INFINITY;
+    let minV = Number.POSITIVE_INFINITY;
+    let maxV = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < uv.count; i += 1) {
+      minU = Math.min(minU, uv.getX(i));
+      maxU = Math.max(maxU, uv.getX(i));
+      minV = Math.min(minV, uv.getY(i));
+      maxV = Math.max(maxV, uv.getY(i));
+    }
+    expect(minU).toBe(0);
+    expect(maxU).toBe(1);
+    expect(minV).toBe(0);
+    expect(maxV).toBe(1);
   });
 });

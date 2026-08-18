@@ -55,6 +55,53 @@ describe('createRender2D render pipeline', () => {
     expect(deps.updatePreviewBadge).toHaveBeenCalledWith(2, 2);
   });
 
+  it('tiles both 2D panes 3×3 when image repeat is enabled, leaving the export buffers single-tile', () => {
+    const deps = createRendererDeps({
+      repeatTextureOriginal: () => true,
+      repeatTextureProcessed: () => true,
+      textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } },
+    });
+    const shared = sharedState();
+    createRender2D(deps, shared).render();
+
+    // Original pane: the 2×2 source tiles into a 6×6 buffer — the top-left
+    // quadrant and the far corner both carry the source's pixels.
+    expect(deps.originalCanvas.width).toBe(6);
+    expect(deps.originalCanvas.height).toBe(6);
+    const sourcePixels = [10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255, 40, 40, 40, 255];
+    const pixels = deps.originalCanvas.context.pixels;
+    // Top-left 2×2 block = pixels (0,0),(1,0),(0,1),(1,1) — row stride is 6.
+    const topLeft = [...pixels.slice(0, 8), ...pixels.slice(24, 32)];
+    expect(Array.from(topLeft)).toEqual(sourcePixels);
+    // Far-corner 2×2 block = pixels (4,4),(5,4),(4,5),(5,5).
+    const corner = [...pixels.slice(112, 120), ...pixels.slice(136, 144)];
+    expect(Array.from(corner)).toEqual(sourcePixels);
+
+    // Processed pane: the dithered 2×2 (all black) tiles into a 6×6 buffer.
+    expect(deps.previewCanvas.width).toBe(6);
+    expect(deps.previewCanvas.height).toBe(6);
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(Array.from({ length: 36 }, () => [0, 0, 0, 255]).flat());
+
+    // The single-tile buffers behind the display canvases stay untouched, so
+    // exports (getRenderedCanvas) and viewport textures keep the 1× image.
+    expect(shared.renderedCanvas.width).not.toBe(6);
+    expect(shared.originalBaseCanvas?.width).not.toBe(6);
+  });
+
+  it('tiles each pane independently', () => {
+    const deps = createRendererDeps({
+      repeatTextureOriginal: () => true, // processed getter absent → off
+      textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } },
+    });
+    const shared = sharedState();
+    createRender2D(deps, shared).render();
+
+    expect(deps.originalCanvas.width).toBe(6); // original tiles 3×
+    expect(deps.originalCanvas.height).toBe(6);
+    expect(deps.previewCanvas.width).toBe(2); // processed stays single-tile
+    expect(deps.previewCanvas.height).toBe(2);
+  });
+
   it('applies AO factors before dithering, darkening the original pane', () => {
     const ao = solidTexture([0, 0, 0, 255]); // fully occluded (red = 0)
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: ao, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });

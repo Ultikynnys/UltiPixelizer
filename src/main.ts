@@ -9,13 +9,13 @@ import { computePosterizeStats, posterizeColors, type PosterizeStats } from './l
 import { createRenderScheduler } from './lib/renderScheduler';
 import { createModelFileBundle, modelFormat, type ModelFileBundle, type WorldAxis } from './lib/modelFiles';
 import { collectModelTextures, type ExtractedModelTextures } from './lib/modelTextures';
-import { applyUVChannel, cloneModelScene, disposeModel, geometryUVChannels, renderModelThumbnail } from './lib/modelScene';
+import { applyDisplacement, applyUVChannel, cloneModelScene, createFallbackQuadScene, disposeModel, geometryUVChannels, renderModelThumbnail, type HeightSampler } from './lib/modelScene';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
 import { computeAverageTexelDensity } from './lib/texelDensity';
 import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
 import { lightmapMatchesBaseColor } from './lib/lightmap';
-import type { NormalFormat } from './lib/normal';
+import { imageHeightmapPixels, sampleHeightmap, type NormalFormat } from './lib/normal';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY } from './lib/defaults';
 import { createRenderer } from './lib/render';
 import { createPreview2D, type Preview2DApi } from './lib/preview2d';
@@ -32,6 +32,7 @@ const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string; bak
   { id: 'ao', label: 'AO', bake: true },
   { id: 'normal', label: 'Normal' },
   { id: 'lightmap', label: 'Lightmap' },
+  { id: 'displacement', label: 'Displacement' },
 ];
 
 // Download-arrow icon shared by the palette export card, the texture slot
@@ -68,6 +69,7 @@ const textures: Record<TextureChannelId, TextureSlot> = {
   ao: { image: null, name: '' },
   normal: { image: null, name: '' },
   lightmap: { image: null, name: '' },
+  displacement: { image: null, name: '' },
 };
 
 // Posterize ramps adapt to the BaseColor texture's own tonal distribution
@@ -131,8 +133,10 @@ function defaultState(): State {
   state.ambient = { color: defaults.ambientColor as string, intensity: defaults.ambientIntensity as number };
   state.worldAxis = 'blender';
   state.cameraDirection = { ...DEFAULT_CAMERA_DIRECTION };
-  state.showUVOverlap = false;
-  state.showUVWireframe = true;
+  state.showUVOverlapOriginal = false;
+  state.showUVOverlapProcessed = false;
+  state.showUVWireframeOriginal = true;
+  state.showUVWireframeProcessed = true;
   state.viewModeOriginal = 'flat';
   state.viewModeProcessed = 'flat';
   applyConfigValues(state, defaults);
@@ -205,10 +209,14 @@ app.innerHTML = `
                 <canvas class="wireframe-overlay" id="originalWireframeOverlay" aria-hidden="true" hidden></canvas>
                 <div class="model-host" id="originalModelHost" hidden></div>
                 ${sunOverlayMarkup()}
-                <div class="preview-mode-toggle" id="originalPreviewToggle" hidden role="group" aria-label="Preview mode">
+                <div class="preview-mode-toggle" id="originalPreviewToggle" role="group" aria-label="Preview mode">
                   <button type="button" data-preview-mode="2d" class="active">2D</button>
                   <button type="button" data-preview-mode="3d">3D</button>
                 </div>
+                <label class="uv-overlap-control" id="repeatTextureControl" hidden title="Tile the texture 3×3 in the 2D view to reveal seams at the tile boundaries">
+                  <span>Image repeat</span>
+                  ${toggleControl('repeatTexture', 'Show the texture repeated to reveal seams')}
+                </label>
                 <label class="uv-overlap-control" id="uvOverlapControl" hidden title="Highlight regions where UV shells overlap">
                   <span>UV overlap</span>
                   ${toggleControl('uvOverlap', 'Show overlapping UVs')}
@@ -217,7 +225,7 @@ app.innerHTML = `
                   <span>UV islands</span>
                   ${toggleControl('uvWireframe', 'Show UV island wireframes', true)}
                 </label>
-                <div class="preview-view-toggle" id="originalViewToggle" hidden role="group" aria-label="View mode">
+                <div class="preview-view-toggle" id="originalViewToggle" role="group" aria-label="View mode">
                   <button type="button" data-view="flat" class="active">Combined</button>
                   <button type="button" data-view="basecolor">BaseColor</button>
                   <button type="button" data-view="normals">Normals</button>
@@ -241,10 +249,22 @@ app.innerHTML = `
                   <span>Texel density</span>
                   <output id="processedTexelDensityValue">—</output>
                 </div>
-                <div class="preview-mode-toggle" id="processedPreviewToggle" hidden role="group" aria-label="Preview mode">
+                <div class="preview-mode-toggle" id="processedPreviewToggle" role="group" aria-label="Preview mode">
                   <button type="button" data-preview-mode="2d" class="active">2D</button>
                   <button type="button" data-preview-mode="3d">3D</button>
                 </div>
+                <label class="uv-overlap-control" id="processedRepeatTextureControl" hidden title="Tile the texture 3×3 in the 2D view to reveal seams at the tile boundaries">
+                  <span>Image repeat</span>
+                  ${toggleControl('processedRepeatTexture', 'Show the texture repeated to reveal seams')}
+                </label>
+                <label class="uv-overlap-control" id="processedUVOverlapControl" hidden title="Highlight regions where UV shells overlap">
+                  <span>UV overlap</span>
+                  ${toggleControl('processedUVOverlap', 'Show overlapping UVs')}
+                </label>
+                <label class="uv-overlap-control" id="processedUVWireframeControl" hidden title="Overlay UV island wireframes on the 2D view">
+                  <span>UV islands</span>
+                  ${toggleControl('processedUVWireframe', 'Show UV island wireframes', true)}
+                </label>
                 <button class="button" id="exportButton" type="button" title="Export the dithered preview as PNG">Export PNG ${DOWNLOAD_ICON_SVG}</button>
               </div>
             </figure>
@@ -337,6 +357,14 @@ app.innerHTML = `
           ${rangeControl('aoDistance', 'Distance', 0.05, 3, 0.05, 2, '2.00×', 'Ray reach for generated AO')}
         </section>
 
+        <section class="panel" id="quadPanel" hidden>
+          <div class="panel-heading compact"><div><p class="eyebrow">QUAD</p><h2>Fallback plane</h2></div></div>
+          ${rangeControl('quadTessellation', 'Tessellation', 2, 256, 1, 16, '16 × 16', 'Subdivisions for the fallback quad')}
+          <label class="control-row quad-grid-row"><span><strong>3×3 grid</strong><small>Middle tile baked — neighbors cast shadows</small></span>${toggleControl('quadGrid', 'Show the quad as a 3×3 grid')}</label>
+          ${rangeControl('displacementStrength', 'Displacement', 0, 1, 0.01, 0.15, '0.15', 'Heightmap push amount')}
+          <label class="control-row quad-grid-row"><span><strong>Flip displacement</strong><small>Invert the heightmap — 1 − height</small></span>${toggleControl('displacementFlip', 'Invert the displacement heightmap')}</label>
+        </section>
+
     </aside>
     <div class="ao-bake-overlay" id="aoBakeOverlay" hidden role="status" aria-live="polite">
       <div class="ao-bake-card">
@@ -387,8 +415,16 @@ const lodMapSelect = document.querySelector<HTMLSelectElement>('#lodMap')!;
 const worldAxisToggle = document.querySelector<HTMLElement>('#worldAxisToggle')!;
 const uvOverlapControl = document.querySelector<HTMLLabelElement>('#uvOverlapControl')!;
 const uvOverlapInput = document.querySelector<HTMLInputElement>('#uvOverlap')!;
+const repeatTextureControl = document.querySelector<HTMLLabelElement>('#repeatTextureControl')!;
+const repeatTextureInput = document.querySelector<HTMLInputElement>('#repeatTexture')!;
 const uvWireframeControl = document.querySelector<HTMLLabelElement>('#uvWireframeControl')!;
 const uvWireframeInput = document.querySelector<HTMLInputElement>('#uvWireframe')!;
+const processedRepeatTextureControl = document.querySelector<HTMLLabelElement>('#processedRepeatTextureControl')!;
+const processedRepeatTextureInput = document.querySelector<HTMLInputElement>('#processedRepeatTexture')!;
+const processedUVOverlapControl = document.querySelector<HTMLLabelElement>('#processedUVOverlapControl')!;
+const processedUVOverlapInput = document.querySelector<HTMLInputElement>('#processedUVOverlap')!;
+const processedUVWireframeControl = document.querySelector<HTMLLabelElement>('#processedUVWireframeControl')!;
+const processedUVWireframeInput = document.querySelector<HTMLInputElement>('#processedUVWireframe')!;
 const originalViewToggle = document.querySelector<HTMLDivElement>('#originalViewToggle')!;
 type SunElements = {
   control: HTMLDivElement;
@@ -471,6 +507,13 @@ const aoPowerInput = document.querySelector<HTMLInputElement>('#aoPower')!;
 const aoPowerValue = document.querySelector<HTMLOutputElement>('#aoPowerValue')!;
 const aoDistanceInput = document.querySelector<HTMLInputElement>('#aoDistance')!;
 const aoDistanceValue = document.querySelector<HTMLOutputElement>('#aoDistanceValue')!;
+const quadPanel = document.querySelector<HTMLElement>('#quadPanel')!;
+const quadTessellationInput = document.querySelector<HTMLInputElement>('#quadTessellation')!;
+const quadTessellationValue = document.querySelector<HTMLOutputElement>('#quadTessellationValue')!;
+const quadGridInput = document.querySelector<HTMLInputElement>('#quadGrid')!;
+const displacementStrengthInput = document.querySelector<HTMLInputElement>('#displacementStrength')!;
+const displacementStrengthValue = document.querySelector<HTMLOutputElement>('#displacementStrengthValue')!;
+const displacementFlipInput = document.querySelector<HTMLInputElement>('#displacementFlip')!;
 const strengthInput = document.querySelector<HTMLInputElement>('#strength')!;
 const strengthValue = document.querySelector<HTMLOutputElement>('#strengthValue')!;
 const normalFormatToggle = document.querySelector<HTMLElement>('[data-texture="normal"] .texture-slot-format')!;
@@ -493,6 +536,122 @@ let processedViewport: ModelViewport | null = null;
 function forEachViewport(callback: (viewport: ModelViewport) => void): void {
   if (originalViewport) callback(originalViewport);
   if (processedViewport) callback(processedViewport);
+}
+
+/** Creates the two 3D viewports once, at boot — they live for the app's
+ * lifetime. Without a model they hold the fallback flat quad (facing up), so
+ * the 2D/3D toggle stays live in the no-model state; setModel swaps the real
+ * model in, closeModelPreview swaps the quad back. */
+function ensureViewports(): void {
+  if (!originalViewport) {
+    originalViewport = new ModelViewport(originalModelHost);
+    originalViewport.onCameraChange = renderOrientationReadout;
+    originalViewport.setModel(createFallbackQuadScene(), []);
+  }
+  if (!processedViewport) {
+    processedViewport = new ModelViewport(processedModelHost);
+    processedViewport.setModel(createFallbackQuadScene(), []);
+  }
+}
+
+// Quad-view configuration — module-level (not persisted state): the fallback
+// quad's tessellation, the 3×3 grid toggle, and the displacement strength.
+// Changed only from the QUAD panel, which exists solely in the no-model state.
+let quadTessellation = 16;
+let quadGrid = false;
+let displacementStrength = 0.15;
+// Heightmap inversion (1 − height) — valleys become peaks and vice versa.
+// Module-level like the other quad-view settings, not persisted.
+let displacementFlip = false;
+// Image-repeat diagnostic: tiles the texture 3×3 in the 2D panes so seams at
+// tile boundaries show. Fallback-quad view only, module-level like the other
+// quad-view settings — not persisted. Each pane tiles independently.
+let repeatTextureOriginal = false;
+let repeatTextureProcessed = false;
+
+function displacementSampler(): HeightSampler | null {
+  const image = textures.displacement.image;
+  if (!image) return null;
+  const source = imageHeightmapPixels(image);
+  // The flip inverts the heightmap (1 − height). Applied at this single
+  // sampler so every consumer — both viewports and the bake quad — reads the
+  // flipped map, and no consumer needs to know about it.
+  return (u, v) => {
+    const height = sampleHeightmap(source, u, v);
+    return displacementFlip ? 1 - height : height;
+  };
+}
+
+/** Rebuilds both viewport quads (tessellation + grid) and applies displacement. */
+function installViewportQuads(): void {
+  forEachViewport((viewport) => viewport.setModel(createFallbackQuadScene(quadTessellation, quadGrid), []));
+  const sampler = displacementSampler();
+  forEachViewport((viewport) => viewport.applyDisplacement(sampler, displacementStrength));
+}
+
+// Persistent bake quad — the middle tile alone outside grid mode, the full
+// 3×3 grid in grid mode (the neighbors are occluder-only: they cast shadows
+// on the middle tile's bake but never rasterize into it). Rebuilt only when
+// tessellation or grid changes; displacement applies in place so strength
+// drags don't reallocate geometry (and its pristine-base cache) per event.
+let bakeFallbackQuad: Object3D = createFallbackQuadScene();
+
+/** Refreshes every fallback-quad consumer after a quad-view setting changed.
+ * In grid mode the bake quad is the full 3×3 grid — `collectBakeScene` marks
+ * the neighbors occluder-only, so they shadow the middle tile's bake without
+ * rasterizing over its texture. `rebuildViewport` replaces the viewport quads
+ * (tessellation / grid changes, camera refits); otherwise the displacement is
+ * applied in place so strength drags don't jump the camera. `keepCamera`
+ * snapshots and restores both viewport cameras around the swap — the grid
+ * toggle changes the scene extent but must not move the view. */
+function refreshFallbackQuads(rebuildViewport: boolean, keepCamera = false): void {
+  // Quad-view settings are a no-op while a model is loaded: tessellation,
+  // grid and displacement exist only for the fallback plane, and applying
+  // them here would displace or outright replace the model's own meshes in
+  // the viewports and the bake scene.
+  if (modelBundle) return;
+  if (rebuildViewport) bakeFallbackQuad = createFallbackQuadScene(quadTessellation, quadGrid);
+  const sampler = displacementSampler();
+  applyDisplacement(bakeFallbackQuad, sampler, displacementStrength);
+  renderer.setFallbackQuad(bakeFallbackQuad);
+  renderer.invalidateBakeScene();
+  if (rebuildViewport) {
+    // The grid toggle changes the scene extent (1 tile ↔ 9), so the rebuild's
+    // refit would zoom the camera in or out — snapshot both viewport cameras
+    // and restore them after the swap instead.
+    const snapshots = keepCamera
+      ? [originalViewport?.captureCamera() ?? null, processedViewport?.captureCamera() ?? null]
+      : null;
+    installViewportQuads();
+    if (snapshots) {
+      if (originalViewport && snapshots[0]) originalViewport.restoreCamera(snapshots[0]);
+      if (processedViewport && snapshots[1]) processedViewport.restoreCamera(snapshots[1]);
+      // The rebuild's refit fired the camera-change listener with the fit
+      // camera — re-sync the readout with the restored view.
+      renderOrientationReadout();
+    }
+  } else {
+    forEachViewport((viewport) => viewport.applyDisplacement(sampler, displacementStrength));
+  }
+  scheduleImplicitLightmapBake();
+}
+
+/** Re-applies displacement in place after the map or strength changed.
+ * Displacement is a fallback-plane-only feature — the ribbon slot is disabled
+ * while a model is loaded, and `refreshFallbackQuads` (where the no-op guard
+ * lives) skips everything while a model is loaded, so a mid-model clear or
+ * strength change only updates dormant quad state. Closing the model rebuilds
+ * the quads fresh (`refreshFallbackQuads(true)`), so nothing stale survives. */
+function applyDisplacementChange(): void {
+  refreshFallbackQuads(false);
+}
+
+function renderQuadControl(): void {
+  quadPanel.hidden = modelBundle !== null;
+  syncRangeValue(quadTessellationInput, quadTessellationValue, quadTessellation, (value) => `${value} × ${value}`);
+  quadGridInput.checked = quadGrid;
+  syncRangeValue(displacementStrengthInput, displacementStrengthValue, displacementStrength, formatFixed2);
+  displacementFlipInput.checked = displacementFlip;
 }
 let modelUVChannels: string[] = [];
 let modelLodLevels: number[] = [];
@@ -649,8 +808,11 @@ function renderViewToggle(): void {
   if (!lightmapDefined && state.viewModeProcessed === 'lightmap') state.viewModeProcessed = 'flat';
   if (!normalDefined && state.viewModeProcessed === 'normals') state.viewModeProcessed = 'flat';
   if (!lightmapAoDefined && state.viewModeProcessed === 'lightmap-ao') state.viewModeProcessed = 'flat';
-  const hidden = modelBundle === null;
-  originalViewToggle.hidden = hidden;
+  // Always visible: the view modes are texture-slot driven (base / normals /
+  // AO / lightmap / lightmap+AO), so they apply to the fallback quad's panes
+  // and viewports exactly as they do to a loaded model. The per-button
+  // `disabled` states below already handle missing sources.
+  originalViewToggle.hidden = false;
   syncViewToggle(originalViewToggle, state.viewModeOriginal, normalDefined, aoDefined, lightmapDefined, lightmapAoDefined);
   // A view-mode fallback above (e.g. the normal map was removed) must reach the
   // 3D viewports too — they render the Normals view via setNormalsView and
@@ -735,11 +897,20 @@ function renderUVControl(): void {
 }
 
 function renderUVOverlapControl(): void {
-  syncCheckboxControl(uvOverlapControl, uvOverlapInput, modelUVChannels.length > 0 && originalPreviewMode === '2d', state.showUVOverlap);
+  syncCheckboxControl(uvOverlapControl, uvOverlapInput, modelUVChannels.length > 0 && originalPreviewMode === '2d', state.showUVOverlapOriginal);
+  syncCheckboxControl(processedUVOverlapControl, processedUVOverlapInput, modelUVChannels.length > 0 && processedPreviewMode === '2d', state.showUVOverlapProcessed);
+}
+
+// Image-repeat is a fallback-quad diagnostic — hidden while a model is loaded
+// and outside the panes' 2D views. Each pane toggles independently.
+function renderRepeatControl(): void {
+  syncCheckboxControl(repeatTextureControl, repeatTextureInput, modelBundle === null && originalPreviewMode === '2d', repeatTextureOriginal);
+  syncCheckboxControl(processedRepeatTextureControl, processedRepeatTextureInput, modelBundle === null && processedPreviewMode === '2d', repeatTextureProcessed);
 }
 
 function renderUVWireframeControl(): void {
-  syncCheckboxControl(uvWireframeControl, uvWireframeInput, modelUVChannels.length > 0 && originalPreviewMode === '2d', state.showUVWireframe);
+  syncCheckboxControl(uvWireframeControl, uvWireframeInput, modelUVChannels.length > 0 && originalPreviewMode === '2d', state.showUVWireframeOriginal);
+  syncCheckboxControl(processedUVWireframeControl, processedUVWireframeInput, modelUVChannels.length > 0 && processedPreviewMode === '2d', state.showUVWireframeProcessed);
 }
 
 function renderLodControl(): void {
@@ -758,6 +929,7 @@ function renderModelControls(): void {
   renderUVControl();
   renderUVOverlapControl();
   renderUVWireframeControl();
+  renderRepeatControl();
   renderLodControl();
   renderSunControl();
   renderOrientationReadout();
@@ -802,7 +974,10 @@ function syncLightControls(
 }
 
 function renderSunControl(): void {
-  sunControlElements.control.hidden = modelBundle === null || (originalPreviewMode !== '3d' && processedPreviewMode !== '3d');
+  // Hidden only when a model is loaded and neither pane shows the 3D view.
+  // Without a model the bake scene falls back to the flat quad (see the bake
+  // layer), so the lighting controls stay live to drive that bake.
+  sunControlElements.control.hidden = modelBundle !== null && originalPreviewMode !== '3d' && processedPreviewMode !== '3d';
   sunControlElements.orientWithCamera.disabled = orientCameraPreviewMode() !== '3d' || orientCameraViewport() === null;
   syncLightControls(state.sun, sunControlElements.color, sunControlElements.intensity, sunControlElements.intensityValue);
   syncLightControls(state.ambient, sunControlElements.ambientColor, sunControlElements.ambientIntensity, sunControlElements.ambientIntensityValue);
@@ -844,7 +1019,12 @@ function renderTextureRibbon(): void {
     const preview = slotElement.querySelector<HTMLElement>('.texture-slot-preview');
     const label = slotElement.querySelector<HTMLElement>('.texture-slot-label');
     slotElement.classList.toggle('filled', !!data);
-    slotElement.classList.toggle('disabled', !modelBundle && channel.id !== 'base');
+    // Displacement is a fallback-plane-only feature — the slot is disabled
+    // while a model is loaded because models are never displaced. The other
+    // non-base channels are disabled in the opposite case (no model).
+    const noModel = modelBundle === null;
+    const disabled = channel.id === 'displacement' ? !noModel : noModel && channel.id !== 'base';
+    slotElement.classList.toggle('disabled', disabled);
     if (preview) {
       if (data) {
         const { canvas, context } = createCanvas(40, 34);
@@ -900,7 +1080,7 @@ function applyModelLod(level: number): void {
     invalidateModelCaches();
   }
   refreshUVOverlap();
-  if (state.showUVOverlap) render();
+  if (state.showUVOverlapOriginal || state.showUVOverlapProcessed) render();
   updateTexelDensity();
 }
 
@@ -926,31 +1106,41 @@ function applyWorldAxis(): void {
 
 function applyPreviewMode(): void {
   const applyPane = (mode: PreviewMode, canvas: HTMLCanvasElement, host: HTMLDivElement, toggle: HTMLDivElement, badge: HTMLButtonElement): void => {
-    const threeD = modelBundle !== null && mode === '3d';
+    const threeD = mode === '3d';
     host.hidden = !threeD;
     canvas.hidden = threeD;
-    toggle.hidden = modelBundle === null;
     // The zoom badge is a 2D-only control — pan/zoom live on the texture
     // canvas, so a stale "100%" must not sit over the 3D view.
     badge.hidden = threeD;
+    // The 2D/3D toggle is always visible — it switches between the flat
+    // texture canvas and the 3D viewport, which holds either the loaded
+    // model or the fallback quad when no model is present.
+    toggle.hidden = false;
     syncActiveButton(toggle, '[data-preview-mode]', (button) => button.dataset.previewMode === mode);
   };
   applyPane(originalPreviewMode, originalCanvas, originalModelHost, originalPreviewToggle, originalZoomBadge);
   applyPane(processedPreviewMode, previewCanvas, processedModelHost, processedPreviewToggle, processedZoomBadge);
   renderSunControl();
+  renderQuadControl();
   renderUVOverlapControl();
   renderUVWireframeControl();
+  renderRepeatControl();
   // The wireframe overlays mirror the panes' 2D/3D visibility.
   syncWireframeOverlays();
 }
 
 function closeModelPreview(): void {
-  originalViewport?.dispose();
-  processedViewport?.dispose();
   modelBundle?.revoke();
-  originalViewport = null;
-  processedViewport = null;
+  // The model is gone from this point on — the quad rebuild below must run
+  // with `modelBundle` cleared, since quad-view settings are a no-op while a
+  // model is loaded (they must never touch non-fallback meshes).
   modelBundle = null;
+  // The viewports stay alive for the app's lifetime — rebuild the configured
+  // fallback quad (tessellation / grid / displacement) so the 2D/3D toggle
+  // keeps working without a model, and rebuild the persistent bake quad so a
+  // displacement change made while the model was loaded (e.g. a slot clear)
+  // can't leave stale geometry behind.
+  refreshFallbackQuads(true);
   modelUVChannels = [];
   modelLodLevels = [];
   disposeAOScene(aoBakeScene);
@@ -967,11 +1157,19 @@ function closeModelPreview(): void {
   state.viewModeOriginal = 'flat';
   state.viewModeProcessed = 'flat';
   renderLightmapControls();
-  originalPreviewMode = '2d';
-  processedPreviewMode = '2d';
+  // The fallback quad is the no-model default — clear the panes into the 3D
+  // view so the flat quad is what remains after removing a model, instead of
+  // dropping back to the 2D canvas.
+  originalPreviewMode = '3d';
+  processedPreviewMode = '3d';
   applyPreviewMode();
   renderModelControls();
   updateTexelDensity();
+  // Re-entering the no-model state re-lights the fallback flat quad — the
+  // bake scene falls back to it, so the implicit lightmap runs on the plane
+  // exactly as it would on a loaded mesh (setModel's applySun re-schedules
+  // and wins when a new model is on its way in).
+  scheduleImplicitLightmapBake();
 }
 
 async function setModel(files: File[]): Promise<void> {
@@ -996,15 +1194,14 @@ async function setModel(files: File[]): Promise<void> {
       const fileLabel = missingReferences.length === 1 ? 'file' : 'files';
       console.warn(`${bundle.primary.name} references ${missingReferences.length} ${fileLabel} not included with it — skipped`);
     }
-    originalViewport = new ModelViewport(originalModelHost);
-    processedViewport = new ModelViewport(processedModelHost);
-    originalViewport.onCameraChange = renderOrientationReadout;
-    for (const viewport of [originalViewport, processedViewport]) {
-      viewport.setModel(cloneModelScene(loaded.scene), loaded.animations);
-    }
+    ensureViewports();
+    forEachViewport((viewport) => viewport.setModel(cloneModelScene(loaded.scene), loaded.animations));
     forEachViewport((viewport) => viewport.applyLOD(state.lodLevel));
     applyViewNormals();
     applyViewportNormalMap();
+    // Displacement is a fallback-plane-only feature — a map set before loading
+    // the model stays in state and re-applies to the quad when the model is
+    // closed, but the model itself is never displaced.
     // Keep a clone for the ribbon's mesh thumbnail — the loaded scene is
     // disposed once the viewports hold their own clones.
     modelThumbScene = cloneModelScene(loaded.scene);
@@ -1403,6 +1600,8 @@ const renderer = createRenderer({
   renderTextureRibbon,
   applySun,
   onAoProgress: setAoBakeProgress,
+  repeatTextureOriginal: () => repeatTextureOriginal,
+  repeatTextureProcessed: () => repeatTextureProcessed,
 });
 
 const {
@@ -1528,6 +1727,7 @@ function clearTexture(channel: TextureChannelId): void {
       scheduleNormalAdjustedLighting();
       applyViewportNormalMap();
     }
+    if (channel === 'displacement') applyDisplacementChange();
   }
   renderTextureRibbon();
   render();
@@ -1575,6 +1775,7 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
       scheduleNormalAdjustedLighting();
       applyViewportNormalMap();
     }
+    if (channel === 'displacement') applyDisplacementChange();
     renderTextureRibbon();
     render();
   } catch (error) {
@@ -1638,9 +1839,18 @@ async function loadExampleAssets(): Promise<void> {
 }
 
 syncControlsFromState();
+ensureViewports();
+// Install the configured fallback quad (tessellation / grid / displacement)
+// into the bake layer and the viewports before the first render.
+refreshFallbackQuads(true);
 renderTextureRibbon();
 applyPreviewMode();
 render();
+// No model is loaded yet — the bake scene falls back to the flat quad, so
+// the implicit lightmap bake lights it from the start, like a loaded mesh.
+// If the example model loads shortly after, setModel's applySun re-schedules
+// the bake against the real mesh.
+scheduleImplicitLightmapBake();
 void loadExampleAssets();
 
 document.querySelector('#resolution')!.addEventListener('input', (event) => updateResolution(Number((event.target as HTMLInputElement).value)));
@@ -1687,6 +1897,37 @@ bindRange({
   output: aoPowerValue,
   format: formatFixed2,
   apply: (value) => { state.aoPower = Math.round(value * 100) / 100; },
+});
+bindRange({
+  input: quadTessellationInput,
+  output: quadTessellationValue,
+  format: (value) => `${value} × ${value}`,
+  apply: (value) => {
+    quadTessellation = value;
+    // Tessellation changes the vertex count and — with a displacement map —
+    // the geometry bounds, so a refit would nudge the camera; keep it put.
+    refreshFallbackQuads(true, true);
+  },
+});
+quadGridInput.addEventListener('change', () => {
+  quadGrid = quadGridInput.checked;
+  // The grid changes the scene extent (1 tile ↔ 9) — keep the camera put.
+  refreshFallbackQuads(true, true);
+});
+displacementFlipInput.addEventListener('change', () => {
+  displacementFlip = displacementFlipInput.checked;
+  // In-place displacement re-apply — flipping inverts the surface but not its
+  // extent, so no camera refit (same as the strength slider).
+  applyDisplacementChange();
+});
+bindRange({
+  input: displacementStrengthInput,
+  output: displacementStrengthValue,
+  format: formatFixed2,
+  apply: (value) => {
+    displacementStrength = value;
+    applyDisplacementChange();
+  },
 });
 bindRange({
   input: aoDistanceInput,
@@ -2184,14 +2425,39 @@ worldAxisToggle.addEventListener('click', (event) => {
   syncActiveButton(worldAxisToggle, '[data-world-axis]', (candidate) => candidate.dataset.worldAxis === state.worldAxis);
   applyWorldAxis();
 });
+// The 2D-view toggles are per-pane: each pane's control writes only its own
+// state, so toggling the Original pane never touches the Dithered pane's
+// overlay (and vice versa).
 uvOverlapInput.addEventListener('change', () => {
-  state.showUVOverlap = uvOverlapInput.checked;
+  state.showUVOverlapOriginal = uvOverlapInput.checked;
   renderUVOverlapControl();
   refreshUVOverlap();
   render();
 });
+processedUVOverlapInput.addEventListener('change', () => {
+  state.showUVOverlapProcessed = processedUVOverlapInput.checked;
+  renderUVOverlapControl();
+  refreshUVOverlap();
+  render();
+});
+repeatTextureInput.addEventListener('change', () => {
+  repeatTextureOriginal = repeatTextureInput.checked;
+  renderRepeatControl();
+  render();
+});
+processedRepeatTextureInput.addEventListener('change', () => {
+  repeatTextureProcessed = processedRepeatTextureInput.checked;
+  renderRepeatControl();
+  render();
+});
 uvWireframeInput.addEventListener('change', () => {
-  state.showUVWireframe = uvWireframeInput.checked;
+  state.showUVWireframeOriginal = uvWireframeInput.checked;
+  renderUVWireframeControl();
+  render();
+  syncWireframeOverlays();
+});
+processedUVWireframeInput.addEventListener('change', () => {
+  state.showUVWireframeProcessed = processedUVWireframeInput.checked;
   renderUVWireframeControl();
   render();
   syncWireframeOverlays();
