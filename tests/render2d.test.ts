@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRender2D } from '../src/lib/render/render2d';
 import type { RenderShared } from '../src/lib/render/types';
 import type { ModelViewport } from '../src/lib/modelPreview';
@@ -15,15 +15,29 @@ vi.mock('../src/lib/dither', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/dither')>();
   return { ...actual, processImageData: vi.fn(actual.processImageData) };
 });
-import { pixelateCanvas } from '../src/lib/canvas';
-import { processImageData } from '../src/lib/dither';
-
-beforeAll(() => {
-  installDomStubs();
+// The async GPU dither is replaced by a spy that answers with the exact CPU
+// bytes, so a stubbed navigator.gpu exercises render2d's async branch without
+// touching real WebGPU. gpuDitherCovers stays real — it gates the branch.
+vi.mock('../src/lib/gpuDither', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/gpuDither')>();
+  return {
+    ...actual,
+    processImageDataAsync: vi.fn(async (source: ImageData, options: ProcessOptions) => processImageData(source, options)),
+  };
 });
+import { pixelateCanvas } from '../src/lib/canvas';
+import { processImageData, type ProcessOptions } from '../src/lib/dither';
+import { processImageDataAsync } from '../src/lib/gpuDither';
 
 beforeEach(() => {
+  // Re-install per test: the afterEach teardown (vi.unstubAllGlobals) removes
+  // the DOM stubs too, and each test wants a fresh document/canvas/ImageData.
+  installDomStubs();
   vi.clearAllMocks();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 function baseTexture() {
@@ -468,5 +482,22 @@ describe('createRender2D render pipeline', () => {
     createRender2D(deps, shared).render();
     expect(shared.renderedCanvas).toBeDefined();
     expect(deps.updatePreviewBadge).not.toHaveBeenCalled();
+  });
+
+  it('routes seamless modes through the async GPU dither and caches the result', async () => {
+    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.mode = 'floyd';
+    const shared = sharedState();
+    const render2d = createRender2D(deps, shared);
+    const gpuDither = vi.mocked(processImageDataAsync);
+    vi.stubGlobal('navigator', { gpu: {} });
+
+    await render2d.render();
+    expect(gpuDither).toHaveBeenCalledTimes(1);
+    // Identical input and options on the second render: the cache serves the
+    // stored GPU result without re-running the dither.
+    await render2d.render();
+    expect(gpuDither).toHaveBeenCalledTimes(1);
+    expect(deps.updatePreviewBadge).toHaveBeenCalled();
   });
 });
