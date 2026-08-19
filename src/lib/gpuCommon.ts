@@ -173,4 +173,102 @@ export function getGpuDevice(): Promise<GPUDevice> {
   }
   return sharedDevicePromise;
 }
+
+/** One binding slot for `runComputePass`, listed in WGSL binding order
+ * (0, 1, 2, ...). `data` uploads a fresh buffer (read-only-storage by
+ * default); `buffer` binds an existing buffer; exactly one `{ output: true }`
+ * entry creates the read-write storage buffer the shader writes. */
+export type ComputePassBinding =
+  | { data: ArrayBufferView | ArrayBuffer; usage?: number; type?: 'read-only-storage' | 'uniform' }
+  | { buffer: GPUBuffer; type?: 'read-only-storage' | 'storage' | 'uniform' }
+  | { output: true };
+
+/** Spec for `runComputePass`. */
+export type ComputePassSpec = {
+  device: GPUDevice;
+  shader: string;
+  /** Prefix for the error messages thrown on shader compile / validation
+   * failure: `${label} WGSL compile error` / `${label} WebGPU validation error`. */
+  label: string;
+  /** Bindings in WGSL slot order. `data` entries are uploaded into fresh
+   * buffers; `buffer` entries bind an existing buffer; exactly one
+   * `{ output: true }` entry creates the read-write storage output. */
+  bindings: ComputePassBinding[];
+  /** Number of invocations: workgroups = ceil(count / workgroupSize) and the
+   * output buffer holds `count` f32s. */
+  count: number;
+  /** Workgroup size — MUST match the shader's `@workgroup_size` (a mismatch
+   * silently under-dispatches and leaves trailing elements unwritten). */
+  workgroupSize?: number;
+};
+
+/** Runs one full WebGPU compute pass and returns the output as a fresh
+ * `Float32Array` of `count` f32s: uploads the data bindings, creates the
+ * bind-group layout + group, compiles the shader (throwing `${label} WGSL
+ * compile error` on failure), dispatches under a validation error scope
+ * (throwing `${label} WebGPU validation error` on failure), and maps the
+ * output back. Every failure throws so callers fall back to their CPU/worker
+ * path unchanged. */
+export async function runComputePass(spec: ComputePassSpec): Promise<Float32Array> {
+  const { device, shader, label, bindings, count, workgroupSize = 256 } = spec;
+
+  const layoutEntries: GPUBindGroupLayoutEntry[] = [];
+  const groupEntries: GPUBindGroupEntry[] = [];
+  let outputBuffer: GPUBuffer | null = null;
+
+  bindings.forEach((binding, slot) => {
+    let buffer: GPUBuffer;
+    let type: 'read-only-storage' | 'storage' | 'uniform';
+    if ('output' in binding) {
+      buffer = device.createBuffer({ size: count * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+      type = 'storage';
+      outputBuffer = buffer;
+    } else if ('buffer' in binding) {
+      buffer = binding.buffer;
+      type = binding.type ?? 'read-only-storage';
+    } else {
+      buffer = uploadGpuBuffer(device, binding.data, binding.usage ?? GPUBufferUsage.STORAGE);
+      type = binding.type ?? 'read-only-storage';
+    }
+    layoutEntries.push({ binding: slot, visibility: GPUShaderStage.COMPUTE, buffer: { type } });
+    groupEntries.push({ binding: slot, resource: { buffer } });
+  });
+  if (!outputBuffer) throw new Error(`${label} compute pass has no output binding.`);
+
+  const readbackBuffer = device.createBuffer({ size: count * 4, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  const bindGroupLayout = device.createBindGroupLayout({ entries: layoutEntries });
+  const bindGroup = device.createBindGroup({ layout: bindGroupLayout, entries: groupEntries });
+
+  const shaderModule = device.createShaderModule({ code: shader });
+  const compilationInfo = await shaderModule.getCompilationInfo();
+  const compileErrors = compilationInfo.messages.filter((message) => message.type === 'error');
+  if (compileErrors.length > 0) {
+    const first = compileErrors[0];
+    const at = first.lineNum !== 0 ? ` (line ${first.lineNum}, column ${first.linePos})` : '';
+    throw new Error(`${label} WGSL compile error: ${first.message}${at}`);
+  }
+
+  device.pushErrorScope('validation');
+  const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
+  const pipeline = device.createComputePipeline({ layout: pipelineLayout, compute: { module: shaderModule, entryPoint: 'main' } });
+
+  const encoder = device.createCommandEncoder();
+  const pass = encoder.beginComputePass();
+  pass.setPipeline(pipeline);
+  pass.setBindGroup(0, bindGroup);
+  pass.dispatchWorkgroups(Math.ceil(count / workgroupSize));
+  pass.end();
+  encoder.copyBufferToBuffer(outputBuffer, 0, readbackBuffer, 0, count * 4);
+  device.queue.submit([encoder.finish()]);
+  const validationError = await device.popErrorScope();
+  if (validationError) {
+    throw new Error(`${label} WebGPU validation error: ${validationError.message}`);
+  }
+
+  await readbackBuffer.mapAsync(GPUMapMode.READ);
+  // Copy out before unmapping: the mapped view detaches on unmap.
+  const result = new Float32Array(new Float32Array(readbackBuffer.getMappedRange()));
+  readbackBuffer.unmap();
+  return result;
+}
 /* v8 ignore stop */

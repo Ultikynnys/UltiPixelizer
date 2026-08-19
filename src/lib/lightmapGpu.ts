@@ -1,5 +1,5 @@
 import { buildLinearBVH } from './aoBvh';
-import { assertAsciiWgsl, getGpuDevice, uploadGpuBuffer, WGSL_BVH_TRAVERSAL } from './gpuCommon';
+import { assertAsciiWgsl, getGpuDevice, runComputePass, WGSL_BVH_TRAVERSAL } from './gpuCommon';
 import type { SerializedBakeScene } from './aoRaster';
 
 /**
@@ -86,77 +86,29 @@ export async function computeSunVisibilityGpu(
 
   // One device per session, shared with the AO bake (see getGpuDevice in
   // gpuCommon.ts) — the ~100ms device request is paid once, so the GPU runs
-  // unconditionally with no vertex-count threshold.
-  const device = await getGpuDevice();
-
-  try {
-    const bvhBoundsBuffer = uploadGpuBuffer(device, bvh.bounds, GPUBufferUsage.STORAGE);
-    const bvhLinksBuffer = uploadGpuBuffer(device, bvh.links, GPUBufferUsage.STORAGE);
-    const trianglesBuffer = uploadGpuBuffer(device, bvh.triangles, GPUBufferUsage.STORAGE);
-    const verticesBuffer = uploadGpuBuffer(device, input.vertices, GPUBufferUsage.STORAGE);
-    const uniformBuffer = uploadGpuBuffer(device, new Float32Array([
-      input.epsilon, SUN_FAR, sunScale, 0,
-      sunDirection[0], sunDirection[1], sunDirection[2], 0,
-    ]), GPUBufferUsage.UNIFORM);
-    const outputBuffer = device.createBuffer({ size: vertexCount * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-    const readbackBuffer = device.createBuffer({ size: vertexCount * 4, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-
-    const bindGroupLayout = device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
-      ],
-    });
-    const bindGroup = device.createBindGroup({
-      layout: bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: bvhBoundsBuffer } },
-        { binding: 1, resource: { buffer: bvhLinksBuffer } },
-        { binding: 2, resource: { buffer: trianglesBuffer } },
-        { binding: 3, resource: { buffer: verticesBuffer } },
-        { binding: 4, resource: { buffer: outputBuffer } },
-        { binding: 5, resource: { buffer: uniformBuffer } },
-      ],
-    });
-
-    const shaderModule = device.createShaderModule({ code: LIGHTMAP_WGSL });
-    const compilationInfo = await shaderModule.getCompilationInfo();
-    const compileErrors = compilationInfo.messages.filter((message) => message.type === 'error');
-    if (compileErrors.length > 0) {
-      const first = compileErrors[0];
-      const at = first.lineNum !== 0 ? ` (line ${first.lineNum}, column ${first.linePos})` : '';
-      throw new Error(`Lightmap WGSL compile error: ${first.message}${at}`);
-    }
-
-    device.pushErrorScope('validation');
-    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
-    const pipeline = device.createComputePipeline({ layout: pipelineLayout, compute: { module: shaderModule, entryPoint: 'main' } });
-
-    const encoder = device.createCommandEncoder();
-    const pass = encoder.beginComputePass();
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, bindGroup);
-    pass.dispatchWorkgroups(Math.ceil(vertexCount / WORKGROUP_SIZE));
-    pass.end();
-    encoder.copyBufferToBuffer(outputBuffer, 0, readbackBuffer, 0, vertexCount * 4);
-    device.queue.submit([encoder.finish()]);
-    const validationError = await device.popErrorScope();
-    if (validationError) {
-      throw new Error(`Lightmap WebGPU validation error: ${validationError.message}`);
-    }
-
-    await readbackBuffer.mapAsync(GPUMapMode.READ);
-    const visibility = new Float32Array(vertexCount);
-    visibility.set(new Float32Array(readbackBuffer.getMappedRange()));
-    readbackBuffer.unmap();
-    return visibility;
-  } finally {
-    // The device is cached and shared across bakes (getGpuDevice) — destroying
-    // it here would force every subsequent bake to re-request one.
-  }
+  // unconditionally with no vertex-count threshold. The device is never
+  // destroyed here: it stays cached for every subsequent bake.
+  return runComputePass({
+    device: await getGpuDevice(),
+    shader: LIGHTMAP_WGSL,
+    label: 'Lightmap',
+    bindings: [
+      { data: bvh.bounds },
+      { data: bvh.links },
+      { data: bvh.triangles },
+      { data: input.vertices },
+      { output: true },
+      {
+        data: new Float32Array([
+          input.epsilon, SUN_FAR, sunScale, 0,
+          sunDirection[0], sunDirection[1], sunDirection[2], 0,
+        ]),
+        usage: GPUBufferUsage.UNIFORM,
+        type: 'uniform',
+      },
+    ],
+    count: vertexCount,
+    workgroupSize: WORKGROUP_SIZE,
+  });
   /* v8 ignore stop */
 }

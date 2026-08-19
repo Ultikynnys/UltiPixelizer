@@ -22,6 +22,26 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/lib/**/*.ts'],
       reporter: ['text', 'json-summary'],
+      // Worker entry points are served through Vite's worker pipeline
+      // (`?worker&inline`), so v8 coverage can't attribute their execution
+      // even when tests import and drive them directly (0% on CI). Their
+      // logic lives in the instrumented modules they call (aoRaster,
+      // lightmapRaster, bakeGeometry), so exclude the thin adapters here
+      // instead of fighting the pipeline. The defaults are repeated because
+      // setting `exclude` replaces vitest's list.
+      exclude: [
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/cypress/**',
+        '**/.{nyc_output,c8,istanbul}/**',
+        '**/*.d.ts',
+        '**/test?(s)/**',
+        '**/{test,tests,__tests__}/**',
+        '**/{vitest,vite}.config.*',
+        '**/{karma,rollup,webpack}.config.*',
+        '**/.{eslint,mocha,prettier}rc.{js,cjs,ts}',
+        'src/lib/**/*.worker.ts',
+      ],
       thresholds: {
         lines: 95,
         functions: 100,

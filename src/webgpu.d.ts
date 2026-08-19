@@ -3,8 +3,9 @@
  *
  * TypeScript 5.9's `lib.dom.d.ts` does not yet ship the WebGPU API, and the
  * project avoids a `@webgpu/types` dependency. This file declares only the
- * subset of the API `src/lib/aoGpu.ts` touches, so the GPU bake is fully typed
- * without pulling in a package. Browsers expose these globals at runtime;
+ * subset of the API the GPU bake modules touch (`src/lib/gpuCommon.ts`,
+ * `src/lib/aoGpu.ts`, `src/lib/lightmapGpu.ts`), so the GPU bakes are fully
+ * typed without pulling in a package. Browsers expose these globals at runtime;
  * non-WebGPU environments (Node tests, older WebViews) simply have
  * `navigator.gpu === undefined`, which the bake's feature detection handles.
  */

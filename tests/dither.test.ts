@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { adjustColor, ditherImageData, nearestColor, patternThreshold, processImageData, type DitherMode } from '../src/lib/dither';
+import { adjustColor, ditherImageData, isPatternMode, nearestColor, patternThreshold, processImageData, type DitherMode } from '../src/lib/dither';
 import { hexToRgb, hslToRgb, hsvToRgb, palettes, paletteCategories, rgbToHex, rgbToHsl, rgbToHsv } from '../src/lib/palettes';
 import { FakeImageData, installDomStubs } from './helpers/domStubs';
 
@@ -128,6 +128,17 @@ describe('dithering engine', () => {
     }
     expect(new Set(signatures.map((signature) => signature.join(','))).size).toBe(modes.length);
     expect(patternThreshold('none', 0, 0)).toBe(0.5);
+  });
+
+  it('classifies pattern modes for the dither-scale control', () => {
+    expect(isPatternMode('ordered')).toBe(true);
+    expect(isPatternMode('cross')).toBe(true);
+    expect(isPatternMode('stripes')).toBe(true);
+    expect(isPatternMode('noise')).toBe(true);
+    expect(isPatternMode('checker')).toBe(true);
+    expect(isPatternMode('floyd')).toBe(false);
+    expect(isPatternMode('atkinson')).toBe(false);
+    expect(isPatternMode('none')).toBe(false);
   });
 
   it('varies the stripe threshold with angle', () => {

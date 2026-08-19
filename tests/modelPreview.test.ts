@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AnimationClip, BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Object3D, ShaderMaterial, Texture } from 'three';
+import { AnimationClip, BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, MOUSE, Object3D, ShaderMaterial, Texture } from 'three';
 import { loadModel, ModelViewport, upAxisRotation } from '../src/lib/modelPreview';
 import { renderModelThumbnail } from '../src/lib/modelScene';
 import type { ModelFileBundle } from '../src/lib/modelFiles';
@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     dispose: ReturnType<typeof vi.fn>;
     addEventListener: ReturnType<typeof vi.fn>;
     fire: (type: string) => void;
+    mouseButtons: Record<string, number>;
   }>,
 }));
 
@@ -79,6 +80,7 @@ vi.mock('three/addons/controls/OrbitControls.js', () => {
       clone: vi.fn(() => ({ x: this.target.x, y: this.target.y, z: this.target.z })),
     };
     enableDamping = true;
+    mouseButtons: Record<string, number> = {};
     constructor(public camera: unknown, public domElement: unknown) {
       mocks.controls.push(this as never);
     }
@@ -365,6 +367,42 @@ describe('ModelViewport', () => {
     expect(after.position.equals(before.position)).toBe(true);
     expect(after.quaternion.equals(before.quaternion)).toBe(true);
     expect(after.target).toEqual(before.target);
+    viewport.dispose();
+  });
+
+  it('setNavigationDragMode swaps the primary drag button between orbit and pan', () => {
+    const viewport = new ModelViewport(host());
+    // Default matches the app's navigation toggle default: orbit-left, pan-right.
+    expect(mocks.controls[0].mouseButtons.LEFT).toBe(MOUSE.ROTATE);
+    expect(mocks.controls[0].mouseButtons.RIGHT).toBe(MOUSE.PAN);
+    viewport.setNavigationDragMode(true);
+    expect(mocks.controls[0].mouseButtons.LEFT).toBe(MOUSE.PAN);
+    expect(mocks.controls[0].mouseButtons.RIGHT).toBe(MOUSE.ROTATE);
+    viewport.setNavigationDragMode(false);
+    expect(mocks.controls[0].mouseButtons.LEFT).toBe(MOUSE.ROTATE);
+    expect(mocks.controls[0].mouseButtons.RIGHT).toBe(MOUSE.PAN);
+    viewport.dispose();
+  });
+
+  it('restoreCameraView re-aims the camera from a saved position and orbit target', () => {
+    const viewport = new ModelViewport(host());
+    viewport.setModel(meshScene(), []); // refits the camera away from the default pose
+    viewport.onCameraChange = vi.fn();
+    viewport.restoreCameraView({ x: 3, y: 4, z: 5 }, { x: 0, y: 0, z: 0 });
+
+    const state = viewport.captureCamera();
+    expect(state.position.x).toBeCloseTo(3);
+    expect(state.position.y).toBeCloseTo(4);
+    expect(state.position.z).toBeCloseTo(5);
+    expect(state.target).toEqual({ x: 0, y: 0, z: 0 });
+    // The camera looks from the saved position toward the saved target.
+    const magnitude = Math.hypot(3, 4, 5);
+    const forward = viewport.getCameraForward();
+    expect(forward.x).toBeCloseTo(-3 / magnitude);
+    expect(forward.y).toBeCloseTo(-4 / magnitude);
+    expect(forward.z).toBeCloseTo(-5 / magnitude);
+    expect(mocks.controls[0].update).toHaveBeenCalled();
+    expect(viewport.onCameraChange).toHaveBeenCalled();
     viewport.dispose();
   });
 
