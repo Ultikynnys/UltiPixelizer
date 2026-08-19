@@ -129,7 +129,7 @@ pub extern "C" fn linear_match(
                 ),
                 f64x2_mul(f64x2_mul(db, db), f64x2_splat(wb)),
             );
-            (f64x2_extract_lane(dist, 0), f64x2_extract_lane(dist, 1))
+            (f64x2_extract_lane::<0>(dist), f64x2_extract_lane::<1>(dist))
         };
 
         // Pair winner with first-wins (equivalent to processing i then i+1).
