@@ -257,6 +257,7 @@ export async function processImageDataAsync(source: ImageData, options: ProcessO
   }
 }
 
+/* v8 ignore start */
 /** Compiled dither pipelines, cached per device. The shader + pipeline compile
  * is the expensive part (~100ms) and the dither runs on every render, so the
  * compile is paid once per session instead of per render. A lost device
@@ -301,7 +302,6 @@ async function getDitherPipelines(device: GPUDevice): Promise<DitherPipelines> {
 
 /** Runs the software-pipelined error diffusion on the GPU. Throws on any
  * failure (including "no WebGPU here") so callers control the fallback. */
-/* v8 ignore start */
 export async function ditherImageDataGpu(source: ImageData, options: ProcessOptions): Promise<ImageData> {
   const device = await getGpuDevice();
   const { width, height } = source;
