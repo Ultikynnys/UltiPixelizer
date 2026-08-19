@@ -133,12 +133,38 @@ export class FakeCanvasRenderingContext2D {
   measureText = vi.fn(() => ({ width: 0 }));
 }
 
+/** Minimal DOM classList backing the repeat-tiled display class the renderer
+ * toggles; tests assert on `contains` after a render. */
+class FakeClassList {
+  private readonly names = new Set<string>();
+
+  toggle(name: string, force?: boolean): boolean {
+    const shouldAdd = force ?? !this.names.has(name);
+    if (shouldAdd) this.names.add(name);
+    else this.names.delete(name);
+    return shouldAdd;
+  }
+
+  add(...names: string[]): void {
+    names.forEach((name) => this.names.add(name));
+  }
+
+  remove(...names: string[]): void {
+    names.forEach((name) => this.names.delete(name));
+  }
+
+  contains(name: string): boolean {
+    return this.names.has(name);
+  }
+}
+
 export class FakeCanvas {
   private _width = 0;
   private _height = 0;
   readonly context: FakeCanvasRenderingContext2D;
   readonly addEventListener = vi.fn();
   readonly removeEventListener = vi.fn();
+  readonly classList = new FakeClassList();
   /** Layout metrics the wireframe-overlay sync reads (overlay.client*,
    * canvas.offset*). Default 0 so sync skips drawing until a test sizes them. */
   hidden = false;

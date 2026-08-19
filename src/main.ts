@@ -3,7 +3,7 @@ import { createCanvas, createSampleTexture, downloadCanvas, downloadText, drawIm
 import { CONFIG_FOLDER, disableWebviewContextMenu, initTauriFileStore, openExternalLink, type TauriFileStore } from './lib/tauri';
 import { CUSTOM_PALETTE_STORAGE_KEY, createCustomPalette, deleteCustomPalette, deleteCustomPaletteFile, duplicatePalette, filePaletteFor, isCustomPalette, loadCustomPalettes, loadCustomPalettesFromFiles, matchingPaletteKey, paletteFileName, paletteFromImport, saveCustomPaletteFile, selectOrCreatePalette, serializePaletteHex, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
 import type { StorageLike } from './lib/storage';
-import { isPatternMode, type DitherMode } from './lib/dither';
+import type { DitherMode } from './lib/dither';
 import { sampleColorAt } from './lib/eyedropper';
 import { hexToRgb, hsvToRgb, palettes, rgbToHex, rgbToHsv, type Palette, type PaletteCategory } from './lib/palettes';
 import { computePosterizeStats, posterizeColors, type PosterizeStats } from './lib/posterize';
@@ -127,7 +127,6 @@ function defaultState(): State {
   const state = {} as State;
   state.paletteKey = 'desert';
   state.customColors = [];
-  state.paletteFilter = 'compact';
   state.uvMap = 'uv';
   state.lodLevel = 0;
   state.sun = { direction: { ...DEFAULT_SUN_DIRECTION }, color: defaults.sunColor as string, intensity: defaults.sunIntensity as number };
@@ -152,10 +151,10 @@ app.innerHTML = `
     <div class="main-column">
     <header class="topbar">
       <div class="brand-group">
-        <a class="brand" href="#" aria-label="UltiPixelizer home">
+        <span class="brand" aria-label="UltiPixelizer">
           <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
           <span>ULTI<span>PIXELIZER</span></span>
-        </a>
+        </span>
         <span class="build-version" title="Build version and commit">${buildLabel}</span>
         <a class="circle-link circle-github" href="https://github.com/Ultikynnys/UltiPixelizer" target="_blank" rel="noopener noreferrer" aria-label="GitHub repository">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
@@ -282,7 +281,7 @@ app.innerHTML = `
 
     <aside class="control-column">
         <section class="panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">COLOR SYSTEM</p><h2>Palette library</h2></div><span class="catalog-count" id="paletteCount">${Object.keys(palettes).length} PRESETS</span></div>
+          <div class="panel-heading compact"><div><h2>Palette library</h2></div><span class="catalog-count" id="paletteCount">${Object.keys(palettes).length} PRESETS</span></div>
           <div class="palette-filters" id="paletteFilters" role="group" aria-label="Filter palette library">
             <button class="active" type="button" data-filter="compact">Compact</button>
             <button type="button" data-filter="pixel-art">Pixel art</button>
@@ -291,10 +290,15 @@ app.innerHTML = `
             <button type="button" data-filter="extended">Extended</button>
             <button type="button" data-filter="posterize">Posterize</button>
             <button type="button" data-filter="custom">Custom</button>
+            <button type="button" data-filter="search">Search</button>
+          </div>
+          <div class="palette-search" id="paletteSearchControl" hidden>
+            <input class="palette-search-input" id="paletteSearchInput" type="search" placeholder="Search palettes by name" aria-label="Search palettes by name" />
+            <button type="button" class="palette-sort-toggle" id="paletteSortToggle" title="Sort order: name A-Z, fewest colors first, most colors first. Click to cycle.">A–Z</button>
           </div>
           <div class="palette-grid" id="paletteGrid"></div>
-          <div class="custom-palette">
-            <button type="button" class="custom-palette-toggle" id="paletteEditorToggle" aria-expanded="true" aria-controls="paletteEditor">
+          <div class="custom-palette collapsed">
+            <button type="button" class="custom-palette-toggle" id="paletteEditorToggle" aria-expanded="false" aria-controls="paletteEditor">
               <span>Palette Editor</span><span class="custom-palette-chevron" aria-hidden="true"></span>
             </button>
             <fieldset class="palette-editor" id="paletteEditor">
@@ -314,7 +318,7 @@ app.innerHTML = `
         </section>
 
         <section class="panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">DITHER MATRIX</p><h2>Pattern</h2></div></div>
+          <div class="panel-heading compact"><div><h2>Pattern</h2></div></div>
           <div class="mode-grid" role="group" aria-label="Dithering algorithm">
             <button class="mode-button active" data-mode="floyd" type="button"><span class="pattern pattern-noise"></span><strong>Floyd–Steinberg</strong></button>
             <button class="mode-button" data-mode="atkinson" type="button"><span class="pattern pattern-atkinson"></span><strong>Atkinson</strong></button>
@@ -334,9 +338,6 @@ app.innerHTML = `
             ${rangeControl('noiseScale', 'Noise scale', 1, 32, 1, 1, '1 px', 'Grain size')}
             ${rangeControl('seed', 'Seed', 0, 9999, 1, 1, '1', 'Noise pattern')}
           </div>
-          <div class="dither-scale-control" id="ditherScaleControl" hidden>
-            ${rangeControl('ditherScale', 'Dither scale', 0.08, 1, 0.01, 1, '1.00', 'Pattern coarseness — 1 = one sample per pixel, lower magnifies')}
-          </div>
           <div class="halftone-scale-control" id="halftoneScaleControl" hidden>
             ${rangeControl('halftoneScale', 'Dot scale', 0.5, 4, 0.1, 1, '1.00×', 'Halftone dot size')}
           </div>
@@ -344,7 +345,7 @@ app.innerHTML = `
 
         <section class="panel adjustments">
           <div class="panel-heading compact">
-            <div><p class="eyebrow">RESOLUTION + TONE</p><h2>Adjustments</h2></div>
+            <div><h2>Adjustments</h2></div>
           </div>
           <div id="pixelationControl"></div>
           <div class="resolution-block">
@@ -362,14 +363,14 @@ app.innerHTML = `
         </section>
 
         <section class="panel">
-          <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING</p><h2>Ambient occlusion</h2></div></div>
+          <div class="panel-heading compact"><div><h2>Ambient occlusion</h2></div></div>
           ${rangeControl('aoBias', 'Bias', -1, 1, 0.01, 0, '+0.00')}
           ${rangeControl('aoPower', 'Power', 0, 16, 0.01, 1, '1.00')}
           ${rangeControl('aoDistance', 'Distance', 0.05, 3, 0.05, 2, '2.00×')}
         </section>
 
         <section class="panel" id="quadPanel" hidden>
-          <div class="panel-heading compact"><div><p class="eyebrow">QUAD</p><h2>Fallback plane</h2></div></div>
+          <div class="panel-heading compact"><div><h2>Fallback plane</h2></div></div>
           ${rangeControl('quadTessellation', 'Tessellation', 2, 128, 1, 16, '16 × 16', 'Subdivisions for the fallback quad')}
           <label class="control-row quad-grid-row"><span><strong>3×3 grid</strong><small>Middle tile baked — neighbors cast shadows</small></span>${toggleControl('quadGrid', 'Show the quad as a 3×3 grid')}</label>
           ${rangeControl('displacementStrength', 'Displacement', 0, 1, 0.01, 0.15, '0.15', 'Heightmap push amount')}
@@ -405,6 +406,9 @@ const aoBakeFill = document.querySelector<HTMLDivElement>('#aoBakeFill')!;
 const aoBakePercent = document.querySelector<HTMLParagraphElement>('#aoBakePercent')!;
 const paletteGrid = document.querySelector<HTMLDivElement>('#paletteGrid')!;
 const paletteFilters = document.querySelector<HTMLDivElement>('#paletteFilters')!;
+const paletteSearchControl = document.querySelector<HTMLDivElement>('#paletteSearchControl')!;
+const paletteSearchInput = document.querySelector<HTMLInputElement>('#paletteSearchInput')!;
+const paletteSortToggle = document.querySelector<HTMLButtonElement>('#paletteSortToggle')!;
 const customPaletteSection = document.querySelector<HTMLDivElement>('.custom-palette')!;
 const paletteEditorToggle = document.querySelector<HTMLButtonElement>('#paletteEditorToggle')!;
 const customColors = document.querySelector<HTMLDivElement>('#customColors')!;
@@ -427,7 +431,7 @@ const lodMapSelect = document.querySelector<HTMLSelectElement>('#lodMap')!;
 const worldAxisToggle = document.querySelector<HTMLElement>('#worldAxisToggle')!;
 const worldAxisYUpInput = document.querySelector<HTMLInputElement>('#worldAxisYUp')!;
 // Camera-controls pill — pinned to the Original pane's 3D view. The choice is
-// global across both viewports (see navigationPanLeft).
+// global across both viewports (see state.navigationPan).
 const navigationToggle = document.querySelector<HTMLElement>('#navigationToggle')!;
 const uvOverlapControl = document.querySelector<HTMLLabelElement>('#uvOverlapControl')!;
 const uvOverlapInput = document.querySelector<HTMLInputElement>('#uvOverlap')!;
@@ -497,9 +501,6 @@ const noiseScaleValue = document.querySelector<HTMLOutputElement>('#noiseScaleVa
 const halftoneScaleControl = document.querySelector<HTMLDivElement>('#halftoneScaleControl')!;
 const halftoneScaleInput = document.querySelector<HTMLInputElement>('#halftoneScale')!;
 const halftoneScaleValue = document.querySelector<HTMLOutputElement>('#halftoneScaleValue')!;
-const ditherScaleControl = document.querySelector<HTMLDivElement>('#ditherScaleControl')!;
-const ditherScaleInput = document.querySelector<HTMLInputElement>('#ditherScale')!;
-const ditherScaleValue = document.querySelector<HTMLOutputElement>('#ditherScaleValue')!;
 const seedInput = document.querySelector<HTMLInputElement>('#seed')!;
 const seedValue = document.querySelector<HTMLOutputElement>('#seedValue')!;
 const loadConfigInput = document.querySelector<HTMLInputElement>('#loadConfigInput')!;
@@ -571,24 +572,19 @@ function ensureViewports(): void {
     processedViewport = new ModelViewport(processedModelHost);
     processedViewport.setModel(createFallbackQuadScene(), []);
   }
-  forEachViewport((viewport) => viewport.setNavigationDragMode(navigationPanLeft));
+  forEachViewport((viewport) => viewport.setNavigationDragMode(state.navigationPan));
 }
 
 // Fallback-quad configuration — persisted with the other settings: the quad
 // is the implicit model when none is loaded, so its tessellation, grid and
 // displacement parameters are saved (and restored) like any other setting.
-// The repeat-texture and navigation preferences below are view diagnostics
-// (not conversion parameters) and stay module-level.
+// The repeat-texture diagnostic below is view state (not a conversion
+// parameter) and stays module-level.
 // Image-repeat diagnostic: tiles the texture 3×3 in the 2D panes so seams at
-// tile boundaries show. Fallback-quad view only, module-level like the other
-// quad-view settings — not persisted. Each pane tiles independently.
+// tile boundaries show. Fallback-quad view only, module-level — not
+// persisted. Each pane tiles independently.
 let repeatTextureOriginal = false;
 let repeatTextureProcessed = false;
-// Left-drag camera action for the 3D viewports: orbit (default) or pan —
-// pan-left swaps the primary drag button over to the right. Applies with or
-// without a model, so it lives outside the QUAD panel (module-level, not
-// persisted, like the other view settings).
-let navigationPanLeft = false;
 
 function displacementSampler(): HeightSampler | null {
   const image = textures.displacement.image;
@@ -1071,18 +1067,21 @@ function renderSunControl(): void {
 
 function renderNavigationControl(): void {
   const toggle = document.querySelector<HTMLInputElement>('#navigationPan')!;
-  toggle.checked = navigationPanLeft;
+  toggle.checked = state.navigationPan;
+  // Preset loads and resets re-sync the checkbox; the viewports follow the
+  // same value so the drag mode always matches the saved setting.
+  forEachViewport((viewport) => viewport.setNavigationDragMode(state.navigationPan));
 }
 document.querySelector<HTMLInputElement>('#navigationPan')!.addEventListener('change', (event) => {
-  navigationPanLeft = (event.target as HTMLInputElement).checked;
-  forEachViewport((viewport) => viewport.setNavigationDragMode(navigationPanLeft));
+  state.navigationPan = (event.target as HTMLInputElement).checked;
+  forEachViewport((viewport) => viewport.setNavigationDragMode(state.navigationPan));
+  scheduleSettingsSave();
 });
 
 function updatePatternControls(): void {
   stripeAngleControl.hidden = state.mode !== 'stripes';
   noiseScaleControl.hidden = state.mode !== 'noise';
   halftoneScaleControl.hidden = state.mode !== 'halftone';
-  ditherScaleControl.hidden = !isPatternMode(state.mode);
 }
 
 function updateAOControls(): void {
@@ -1363,11 +1362,31 @@ function activePaletteIsCustom(): boolean {
   return state.customColors.length > 0 || savedCustomPalettes.some((palette) => palette.key === state.paletteKey);
 }
 
+// Search-category view state — persisted with the settings (CONFIG_FIELDS) so
+// the last filter, query, and sort survive app and browser restarts. The sort
+// toggle cycles name A–Z → fewest colors first → most colors first.
+
 function renderPalettes(): void {
   const catalog = paletteCatalog();
+  const searching = state.paletteFilter === 'search';
+  // The active chip always mirrors state.paletteFilter — restored settings,
+  // revealPalette, and clicks all land here.
+  syncActiveButton(paletteFilters, '[data-filter]', (button) => button.dataset.filter === state.paletteFilter);
   customPaletteSection.hidden = state.paletteFilter !== 'custom';
+  paletteSearchControl.hidden = !searching;
   document.querySelector('#paletteCount')!.textContent = `${Object.keys(catalog).length} PRESETS`;
-  const visiblePalettes = Object.entries(catalog).filter(([, palette]) => palette.category === state.paletteFilter);
+  let visiblePalettes = Object.entries(catalog).filter(([, palette]) => searching || palette.category === state.paletteFilter);
+  if (searching) {
+    paletteSortToggle.textContent = state.paletteSearchSort === 'name' ? 'A–Z' : state.paletteSearchSort === 'fewest' ? 'Fewest first' : 'Most first';
+    const query = state.paletteSearchQuery.trim().toLowerCase();
+    if (query) visiblePalettes = visiblePalettes.filter(([, palette]) => palette.name.toLowerCase().includes(query));
+    visiblePalettes.sort(([aKey, a], [bKey, b]) => {
+      const byName = a.name.localeCompare(b.name) || aKey.localeCompare(bKey);
+      if (state.paletteSearchSort === 'fewest') return a.colors.length - b.colors.length || byName;
+      if (state.paletteSearchSort === 'most') return b.colors.length - a.colors.length || byName;
+      return byName;
+    });
+  }
   const customKeys = new Set(savedCustomPalettes.map((palette) => palette.key));
   paletteGrid.innerHTML = visiblePalettes.map(([key, palette]) => `
     <div class="palette-card ${key === state.paletteKey && state.customColors.length === 0 ? 'active' : ''}" data-palette="${escapeHtml(key)}" role="button" tabindex="0" aria-label="${escapeHtml(palette.name)}, ${palette.colors.length} colors">
@@ -1739,7 +1758,6 @@ function syncControlsFromState(): void {
   syncRangeValue(stripeAngleInput, stripeAngleValue, state.stripeAngle, formatDegrees);
   syncRangeValue(noiseScaleInput, noiseScaleValue, state.noiseScale, formatPixels);
   syncRangeValue(halftoneScaleInput, halftoneScaleValue, state.halftoneScale, formatTimes2);
-  syncRangeValue(ditherScaleInput, ditherScaleValue, state.ditherScale, formatFixed2);
   syncRangeValue(seedInput, seedValue, state.seed, formatPlain);
   setActiveMode(state.mode);
   updatePatternControls();
@@ -1749,6 +1767,7 @@ function syncControlsFromState(): void {
   renderAdjustments();
   bindAdjustmentEvents();
   renderPalettes();
+  paletteSearchInput.value = state.paletteSearchQuery;
 }
 
 const CONFIG_FILE_NAME = 'ultipixelizer-settings.json';
@@ -1914,8 +1933,8 @@ const {
 
 // Every state change funnels through `render` (sync) or the render scheduler
 // (debounced, wrapping the same function), so this single wrapper catches all
-// of them. The desktop build piggybacks a debounced settings auto-save on it;
-// the web build saves nothing (manual Save/Load only).
+// of them. A debounced settings auto-save piggybacks on it — the config file
+// on desktop, localStorage in the web build (Save/Load stays for sharing).
 function render(): void {
   renderPipeline();
   scheduleSettingsSave();
@@ -2161,6 +2180,9 @@ async function loadExampleAssets(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const SETTINGS_FILE = `${CONFIG_FOLDER}/settings.json`;
+/** Web build: settings auto-save lives in localStorage (the settings payload
+ * embeds the full palette and camera views, so it can exceed cookie limits). */
+const SETTINGS_STORAGE_KEY = 'ultipixelizer-settings';
 const SETTINGS_SAVE_DELAY = 800;
 let settingsSaveTimer = 0;
 
@@ -2186,9 +2208,9 @@ function persistCustomPaletteWeb(palette: CustomPalette): void {
   }
 }
 
-/** Trailing debounce: settings save ~800ms after the last change. */
+/** Trailing debounce: settings save ~800ms after the last change. Runs on
+ * desktop (config file) and in the web build (localStorage). */
 function scheduleSettingsSave(): void {
-  if (!tauriStore) return; // web build: manual Save/Load only
   window.clearTimeout(settingsSaveTimer);
   settingsSaveTimer = window.setTimeout(() => {
     settingsSaveTimer = 0;
@@ -2197,11 +2219,22 @@ function scheduleSettingsSave(): void {
 }
 
 async function persistSettings(): Promise<void> {
-  if (!tauriStore) return;
+  const content = serializeConfig();
+  if (tauriStore) {
+    try {
+      await tauriStore.write(SETTINGS_FILE, content);
+    } catch (error) {
+      console.error('Could not save settings.', error);
+    }
+    return;
+  }
   try {
-    await tauriStore.write(SETTINGS_FILE, serializeConfig());
+    appStorage.setItem(SETTINGS_STORAGE_KEY, content);
   } catch (error) {
+    // The settings stay live for the session; the notice says they won't
+    // survive a reload instead of the save failing silently.
     console.error('Could not save settings.', error);
+    showStorageNotice('Settings could not be saved: browser storage is full or blocked.');
   }
 }
 
@@ -2241,9 +2274,8 @@ async function migrateLegacyDataFiles(store: TauriFileStore): Promise<void> {
 }
 
 async function restoreSettings(): Promise<void> {
-  if (!tauriStore) return;
   try {
-    const raw = await tauriStore.preload(SETTINGS_FILE);
+    const raw = tauriStore ? await tauriStore.preload(SETTINGS_FILE) : appStorage.getItem(SETTINGS_STORAGE_KEY);
     if (raw) await applyPreset(parsePreset(raw));
   } catch (error) {
     console.error('Could not restore settings.', error);
@@ -2257,7 +2289,11 @@ async function restoreSettings(): Promise<void> {
  * MSI installs, macOS bundles, AppImage. */
 async function bootDesktopStorage(): Promise<void> {
   const store = await initTauriFileStore();
-  if (!store) return; // web build keeps localStorage
+  if (!store) {
+    // Web build keeps localStorage: restore the last-saved settings.
+    await restoreSettings();
+    return;
+  }
   tauriStore = store;
   if (store.location !== 'install') {
     showStorageNotice(
@@ -2338,12 +2374,6 @@ bindRange({
   output: halftoneScaleValue,
   format: formatTimes2,
   apply: (value) => { state.halftoneScale = value; },
-});
-bindRange({
-  input: ditherScaleInput,
-  output: ditherScaleValue,
-  format: formatFixed2,
-  apply: (value) => { state.ditherScale = value; },
 });
 bindRange({
   input: seedInput,
@@ -2431,8 +2461,18 @@ paletteFilters.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-filter]');
   if (!button?.dataset.filter) return;
   state.paletteFilter = button.dataset.filter as PaletteCategory;
-  syncActiveButton(paletteFilters, 'button', (item) => item === button);
   renderPalettes();
+  scheduleSettingsSave();
+});
+paletteSearchInput.addEventListener('input', () => {
+  state.paletteSearchQuery = paletteSearchInput.value;
+  renderPalettes();
+  scheduleSettingsSave();
+});
+paletteSortToggle.addEventListener('click', () => {
+  state.paletteSearchSort = state.paletteSearchSort === 'name' ? 'fewest' : state.paletteSearchSort === 'fewest' ? 'most' : 'name';
+  renderPalettes();
+  scheduleSettingsSave();
 });
 paletteGrid.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;

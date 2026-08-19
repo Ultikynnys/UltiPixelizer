@@ -131,7 +131,6 @@ button { border: 0; color: inherit; }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; overflow: hidden; }
 .preview-column { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; overflow: hidden; }
 .preview-toolbar { align-items: center; display: flex; gap: 24px; min-height: 86px; min-width: 0; overflow: hidden; padding: 18px clamp(16px, 2.4vw, 28px); }
-.eyebrow { color: var(--accent); font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500; letter-spacing: .15em; margin: 0 0 7px; }
 .toolbar-actions { align-items: flex-end; display: flex; flex-direction: column; gap: 6px; margin-left: auto; }
 .uv-control { align-items: center; display: flex; gap: 6px; }
 .uv-control span { color: var(--muted); font: 500 8px 'DM Mono', monospace; text-transform: uppercase; }
@@ -231,6 +230,11 @@ select option { background: var(--card); color: var(--paper); }
 .fig-zoom:hover, .fig-zoom:focus-visible { color: var(--paper); }
 .canvas-frame { align-items: center; background: var(--backdrop); cursor: grab; display: flex; justify-content: center; min-width: 0; overflow: hidden; position: relative; }
 .preview-pane canvas { cursor: grab; display: block; image-rendering: pixelated; max-height: clamp(240px, 52vh, 560px); max-width: 100%; min-width: 0; object-fit: contain; touch-action: none; width: 100%; }
+/* Image-repeat diagnostic: the renderer tiles the backing buffer 3×3 and
+   marks the canvas `repeat-tiled`; preview2d displays it at 3× scale via a
+   pure transform (see preview2d.ts), so the window layout never changes and
+   the grid overflows the frame until the user scrolls out. `.repeat-tiled`
+   has no layout rules of its own. */
 .preview-pane canvas:active { cursor: grabbing; }
 .canvas-frame:active { cursor: grabbing; }
 .preview-pane canvas[hidden], .model-host[hidden], .uv-control[hidden], .uv-overlap-control[hidden] { display: none; }
@@ -395,6 +399,16 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .palette-filters button:hover, .palette-filters button.active,
 .preview-view-toggle button:not(:disabled):hover, .preview-view-toggle button.active,
 .preview-mode-toggle button:not(:disabled):hover, .preview-mode-toggle button.active { background: var(--paper); color: var(--ink); }
+/* Search category: a name filter box plus a sort toggle above the grid. The
+   bar only exists in the Search view, so it gets the same card surface as the
+   filter chips it sits under. */
+.palette-search { display: flex; gap: 6px; margin: 8px 0 0; }
+.palette-search[hidden] { display: none; }
+.palette-search-input { background: var(--card); border: 1px solid var(--line); color: var(--paper); flex: 1 1 auto; font: 500 9px 'DM Mono', monospace; min-width: 0; padding: 7px 9px; }
+.palette-search-input:focus { border-color: var(--accent); outline: none; }
+.palette-search-input::placeholder { color: var(--muted); }
+.palette-sort-toggle { background: var(--card); border: 1px solid var(--line); color: var(--muted); cursor: pointer; flex: 0 0 auto; font: 500 8px 'DM Mono', monospace; padding: 7px 9px; text-transform: uppercase; white-space: nowrap; }
+.palette-sort-toggle:hover, .palette-sort-toggle:focus-visible { border-color: var(--accent); color: var(--paper); }
 /* Card grids flex with the panel instead of hardcoded viewport breakpoints:
    repeat(auto-fit, minmax(200px, 1fr)) makes each grid compute its own column
    count from the width actually available — one column in the 410px sidebar
@@ -491,7 +505,6 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
 .range:focus-visible { background: transparent; }
 .range:focus-visible::-webkit-slider-thumb { background: var(--accent); }
 .range:focus-visible::-moz-range-thumb { background: var(--accent); }
-.brand:hover, .brand:focus-visible { color: var(--accent); }
 .button-quiet:focus-visible { color: var(--paper); }
 .preview-mode-toggle button:focus-visible { color: var(--paper); }
 .palette-card-new:focus-visible, .custom-color-add:focus-visible { color: var(--paper); }

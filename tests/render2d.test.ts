@@ -70,6 +70,9 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255, 40, 40, 40, 255]);
     expect(shared.renderedCanvas).toBeDefined();
     expect(deps.updatePreviewBadge).toHaveBeenCalledWith(2, 2);
+    // Single-tile display: neither canvas is marked repeat-tiled.
+    expect(deps.previewCanvas.classList.contains('repeat-tiled')).toBe(false);
+    expect(deps.originalCanvas.classList.contains('repeat-tiled')).toBe(false);
   });
 
   it('applies pixelization to the source before the dither pass', () => {
@@ -142,6 +145,12 @@ describe('createRender2D render pipeline', () => {
     // exports (getRenderedCanvas) and viewport textures keep the 1× image.
     expect(shared.renderedCanvas.width).not.toBe(6);
     expect(shared.originalBaseCanvas?.width).not.toBe(6);
+
+    // Both display canvases are marked repeat-tiled — the signal preview2d
+    // reads to display the 3× buffer at 3× scale (each tile keeps the
+    // single-tile size; the grid overflows the frame until scrolled out).
+    expect(deps.previewCanvas.classList.contains('repeat-tiled')).toBe(true);
+    expect(deps.originalCanvas.classList.contains('repeat-tiled')).toBe(true);
   });
 
   it('tiles each pane independently', () => {
@@ -156,6 +165,9 @@ describe('createRender2D render pipeline', () => {
     expect(deps.originalCanvas.height).toBe(6);
     expect(deps.previewCanvas.width).toBe(2); // processed stays single-tile
     expect(deps.previewCanvas.height).toBe(2);
+
+    expect(deps.originalCanvas.classList.contains('repeat-tiled')).toBe(true);
+    expect(deps.previewCanvas.classList.contains('repeat-tiled')).toBe(false);
   });
 
   it('applies AO factors before dithering, darkening the original pane', () => {

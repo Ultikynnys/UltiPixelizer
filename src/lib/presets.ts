@@ -1,4 +1,4 @@
-import { isHexColor, isPalette, type Palette } from './palettes';
+import { isHexColor, isPalette, paletteCategories, type Palette, type PaletteCategory } from './palettes';
 import type { DitherMode } from './dither';
 import { clamp01 } from './math';
 import { parseJsonFile, serializeJsonFile } from './storage';
@@ -6,7 +6,7 @@ import { slugify } from './strings';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { NormalFormat } from './normal';
 import { DEFAULT_SUN_DIRECTION, type DirectionVector } from './sunDirection';
-import type { State } from './state';
+import type { PaletteSearchSort, State } from './state';
 
 export const PRESET_VERSION = 7;
 
@@ -24,7 +24,6 @@ export type ConversionConfig = {
   palette: Palette;
   stripeAngle: number;
   noiseScale: number;
-  ditherScale: number;
   halftoneScale: number;
   seed: number;
   aoBias: number;
@@ -41,6 +40,14 @@ export type ConversionConfig = {
   quadGrid: boolean;
   displacementStrength: number;
   displacementFlip: boolean;
+  /** Left-drag camera action for the 3D viewports: pan (on) or orbit (off). */
+  navigationPan: boolean;
+  /** Active palette-library filter — UI state, persisted like the settings. */
+  paletteFilter: PaletteCategory;
+  /** Palette-library search query (Search category), remembered across restarts. */
+  paletteSearchQuery: string;
+  /** Search-category sort order. */
+  paletteSearchSort: PaletteSearchSort;
   /** Saved orbit-camera views for the two viewports — viewport state, not
    * State fields, so they're handled by dedicated code like paletteKey. */
   originalCamera?: SavedCamera;
@@ -77,6 +84,7 @@ const isEnum = (options: readonly string[]) => (value: unknown): value is string
   typeof value === 'string' && options.includes(value);
 const isHex = (value: unknown): value is string => typeof value === 'string' && isHexColor(value);
 const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
+const isShortString = (value: unknown): value is string => typeof value === 'string' && value.length <= 200;
 const isDirectionVector = (value: unknown): value is DirectionVector => {
   if (typeof value !== 'object' || value === null) return false;
   const vector = value as DirectionVector;
@@ -129,7 +137,6 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'pixelation', path: ['pixelation'], default: 0, migrateDefault: 0, validate: inRange(0, 99) },
   { key: 'stripeAngle', path: ['stripeAngle'], default: 45, migrateDefault: 45, validate: inRange(0, 135) },
   { key: 'noiseScale', path: ['noiseScale'], default: 1, migrateDefault: 1, validate: inRange(1, 32) },
-  { key: 'ditherScale', path: ['ditherScale'], default: 1, migrateDefault: 1, validate: inRange(0.08, 1) },
   { key: 'halftoneScale', path: ['halftoneScale'], default: 1, migrateDefault: 1, validate: inRange(0.5, 4) },
   { key: 'seed', path: ['seed'], default: 1, migrateDefault: 1, validate: inRange(0, 9999) },
   { key: 'aoBias', path: ['aoBias'], default: 0, migrateDefault: 0, validate: inRange(-1, 1) },
@@ -148,6 +155,15 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'quadGrid', path: ['quadGrid'], default: false, migrateDefault: false, validate: isBoolean },
   { key: 'displacementStrength', path: ['displacementStrength'], default: 0.15, migrateDefault: 0.15, validate: inRange(0, 1) },
   { key: 'displacementFlip', path: ['displacementFlip'], default: false, migrateDefault: false, validate: isBoolean },
+  // Camera interaction preference — the "Alt controls" pill. Not a conversion
+  // parameter, but it is saved like the other settings (and restored from old
+  // files via migrateDefault).
+  { key: 'navigationPan', path: ['navigationPan'], default: false, migrateDefault: false, validate: isBoolean },
+  // Palette-library UI state — like navigationPan, not a conversion parameter,
+  // but saved with the settings so the last filter/query/sort survive restarts.
+  { key: 'paletteFilter', path: ['paletteFilter'], default: 'compact', migrateDefault: 'compact', validate: isEnum(paletteCategories) },
+  { key: 'paletteSearchQuery', path: ['paletteSearchQuery'], default: '', migrateDefault: '', validate: isShortString },
+  { key: 'paletteSearchSort', path: ['paletteSearchSort'], default: 'name', migrateDefault: 'name', validate: isEnum(['name', 'fewest', 'most']) },
 ];
 
 function readPath(state: State, path: readonly string[]): unknown {

@@ -21,23 +21,33 @@ export function isTauriApp(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
+/** Elements where the native edit menu (Cut/Copy/Paste) is useful: text
+ * entry only. Slider handles (range), toggle switches (checkbox), color
+ * swatches, radio groups and file pickers are UI controls — right-clicking
+ * them must never surface the browser's Back/Refresh/Save-as/Print menu. */
+const EDITABLE_CONTEXT_SELECTOR = [
+  'input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"])',
+  ':not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="hidden"]),',
+  'textarea, select, [contenteditable="true"], [contenteditable=""]',
+].join('');
+
 /**
- * Suppresses the webview's native browser context menu (Back / Refresh / Save
- * As / Print) on desktop — browser chrome that has no place in an app window.
+ * Suppresses the native browser context menu (Back / Refresh / Save As /
+ * Print) — browser chrome that has no place in an app window or tool UI.
  * The DOM `contextmenu` event fires before the native menu on all three
  * webview backends (WebView2, WebKitGTK, WKWebView), so canceling it hides
- * the menu. Right-click inside editable fields (text inputs, textareas,
- * selects, contenteditable) still shows the edit menu, so Cut/Copy/Paste
- * keeps working where it's useful. The web build keeps the browser's own
- * right-click menu.
+ * the menu; it also fires before the browser's own menu in the web build,
+ * where the tool suppresses it for the same reason. Right-click inside
+ * editable fields (text inputs, number entry, textareas, selects,
+ * contenteditable) still shows the edit menu, so Cut/Copy/Paste keeps
+ * working where it's useful.
  */
 export function disableWebviewContextMenu(): void {
-  if (!isTauriApp()) return;
   window.addEventListener(
     'contextmenu',
     (event) => {
       const target = event.target as HTMLElement | null;
-      const editable = target?.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""]');
+      const editable = target?.closest(EDITABLE_CONTEXT_SELECTOR);
       if (!editable) event.preventDefault();
     },
     // Capture: run before any element handler could stop propagation, so a

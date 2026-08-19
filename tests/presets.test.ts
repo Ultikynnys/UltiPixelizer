@@ -25,13 +25,16 @@ const config: ConversionConfig = {
   quadGrid: true,
   displacementStrength: 0.4,
   displacementFlip: true,
+  navigationPan: false,
+  paletteFilter: 'search',
+  paletteSearchQuery: 'pico',
+  paletteSearchSort: 'fewest',
   originalCamera: { position: { x: 2, y: 3, z: 4 }, target: { x: 0, y: 0.5, z: 0 } },
   processedCamera: { position: { x: -2, y: 1.5, z: -3 }, target: { x: 0, y: 0, z: 0 } },
   paletteKey: 'pico8',
   palette: palettes.pico8,
   stripeAngle: 45,
   noiseScale: 1,
-  ditherScale: 1,
   halftoneScale: 1,
   seed: 1,
   aoBias: 0,
@@ -71,6 +74,15 @@ describe('conversion presets', () => {
     const oldPreset = createPreset('Legacy', '', config);
     const { seed: _removed, ...legacy } = oldPreset;
     expect(parsePreset(JSON.stringify(legacy)).seed).toBe(1);
+  });
+
+  it('backfills the palette-library filter/query/sort into presets saved before they existed', () => {
+    const current = createPreset('Legacy palette UI', '', config);
+    const { paletteFilter: _filter, paletteSearchQuery: _query, paletteSearchSort: _sort, ...legacy } = current;
+    const parsed = parsePreset(JSON.stringify(legacy));
+    expect(parsed.paletteFilter).toBe('compact');
+    expect(parsed.paletteSearchQuery).toBe('');
+    expect(parsed.paletteSearchSort).toBe('name');
   });
 
   it('migrates presets saved before AO bias/power existed', () => {
@@ -245,6 +257,10 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       quadGrid: false,
       displacementStrength: 0.15,
       displacementFlip: false,
+      navigationPan: false,
+      paletteFilter: 'search',
+      paletteSearchQuery: 'pico',
+      paletteSearchSort: 'fewest',
       stripeAngle: 45,
       noiseScale: 1,
       halftoneScale: 1,
@@ -262,7 +278,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(26);
+    expect(Object.keys(defaults)).toHaveLength(29);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -273,7 +289,6 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       pixelation: 0,
       stripeAngle: 45,
       noiseScale: 1,
-      ditherScale: 1,
       halftoneScale: 1,
       seed: 1,
       aoBias: 0,
@@ -290,6 +305,10 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       quadGrid: false,
       displacementStrength: 0.15,
       displacementFlip: false,
+      navigationPan: false,
+      paletteFilter: 'compact',
+      paletteSearchQuery: '',
+      paletteSearchSort: 'name',
     });
     // Catalog/structural fields are deliberately not part of the table.
     expect('paletteKey' in defaults).toBe(false);
@@ -326,6 +345,10 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       quadGrid: false,
       displacementStrength: 0.15,
       displacementFlip: false,
+      navigationPan: false,
+      paletteFilter: 'search',
+      paletteSearchQuery: 'pico',
+      paletteSearchSort: 'fewest',
     });
   });
 

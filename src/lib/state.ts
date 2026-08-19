@@ -12,6 +12,9 @@ export type PreviewMode = '2d' | '3d';
 
 export type PreviewViewMode = 'flat' | 'basecolor' | 'normals' | 'ao' | 'lightmap' | 'lightmap-ao';
 
+/** Palette-library search sort: name A–Z (default), fewest colors, most colors. */
+export type PaletteSearchSort = 'name' | 'fewest' | 'most';
+
 export type TextureSlot = { image: SourceImage | null; name: string };
 
 export type LightState = { color: string; intensity: number };
@@ -33,6 +36,10 @@ export type State = {
   displacementStrength: number;
   displacementFlip: boolean;
   paletteFilter: PaletteCategory;
+  /** Palette-library search query (Search category) — remembered across restarts. */
+  paletteSearchQuery: string;
+  /** Search-category sort order — remembered across restarts. */
+  paletteSearchSort: PaletteSearchSort;
   uvMap: string;
   lodLevel: number;
   sun: SunState;
@@ -41,7 +48,6 @@ export type State = {
   cameraDirection: DirectionVector;
   stripeAngle: number;
   noiseScale: number;
-  ditherScale: number;
   halftoneScale: number;
   seed: number;
   aoBias: number;
@@ -55,6 +61,9 @@ export type State = {
   showUVWireframeProcessed: boolean;
   viewModeOriginal: PreviewViewMode;
   viewModeProcessed: PreviewViewMode;
+  /** Left-drag camera action for the 3D viewports: pan (on) or orbit (off) —
+   * the "Alt controls" pill. Persisted like the other settings. */
+  navigationPan: boolean;
 };
 
 /** True when a lightmap is loaded (the lightmap slot holds an image). Shared by

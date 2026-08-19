@@ -12,11 +12,6 @@ export type ProcessOptions = {
   saturation: number;
   stripeAngle: number;
   noiseScale: number;
-  /** Pattern coarseness for the threshold modes: 1 = one pattern sample per
-   * output pixel (the classic 1:1), lower magnifies the pattern — e.g. 0.08
-   * samples the 4×4 ordered grid every 50 px. Composes with noiseScale for
-   * the noise mode. Error diffusion and halftone are unaffected. */
-  ditherScale?: number;
   seed: number;
   /** Multiplier on the halftone dot-cell size (1 = 4 px cells). Larger values
    * make coarser dots; the dots scale with their cells. */
@@ -39,8 +34,7 @@ const thresholdModes = new Set<DitherMode>(['ordered', 'cross', 'stripes', 'nois
 const LUMA = { red: 0.299, green: 0.587, blue: 0.114 };
 
 /** True for the coordinate-pattern modes (ordered / cross / stripes / noise /
- * checker) — the modes the dither-scale control applies to. Error diffusion,
- * halftone and 'none' have no pattern coordinates. */
+ * checker). Error diffusion, halftone and 'none' have no pattern coordinates. */
 export function isPatternMode(mode: DitherMode): boolean {
   return thresholdModes.has(mode);
 }
@@ -275,10 +269,8 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
       let b = work[workIndex + 2];
 
       if (isThreshold) {
-        // ditherScale < 1 magnifies the pattern: the threshold grid is sampled
-        // at scaled coordinates, so every pattern cell grows by 1 / scale.
-        const ditherScale = options.ditherScale ?? 1;
-        const offset = (patternThreshold(options.mode, x / ditherScale, y / ditherScale, options.stripeAngle, options.noiseScale, options.seed) - 0.5) * 96 * strength;
+        // Pattern modes are sampled 1:1 — one threshold cell per output pixel.
+        const offset = (patternThreshold(options.mode, x, y, options.stripeAngle, options.noiseScale, options.seed) - 0.5) * 96 * strength;
         r = clamp(r + offset, 0, 255);
         g = clamp(g + offset, 0, 255);
         b = clamp(b + offset, 0, 255);

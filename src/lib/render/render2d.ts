@@ -182,7 +182,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
         palette: currentColors(), mode: state.mode, strength: state.strength,
         brightness: state.brightness, contrast: state.contrast, saturation: state.saturation,
         stripeAngle: state.stripeAngle, noiseScale: state.noiseScale, seed: state.seed,
-        ditherScale: state.ditherScale, halftoneScale: state.halftoneScale,
+        halftoneScale: state.halftoneScale,
       };
       let processedData: ImageData;
       if (state.mode === 'halftone') {
@@ -206,6 +206,10 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
 
     previewCanvas.width = width * repeatProcessed;
     previewCanvas.height = height * repeatProcessed;
+    // Mark the display canvas so preview2d shows the 3× buffer at 3× scale —
+    // a pure transform: each tile keeps the single-tile size, the window
+    // layout never moves, and the grid overflows until the user scrolls out.
+    previewCanvas.classList.toggle('repeat-tiled', repeatProcessed === 3);
     const previewContext = previewCanvas.getContext('2d');
     if (previewContext) {
       for (let ty = 0; ty < repeatProcessed; ty += 1) {
@@ -224,6 +228,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     shared.originalBaseCanvas = litSourceNative;
     originalCanvas.width = originalSource.width * repeatOriginal;
     originalCanvas.height = originalSource.height * repeatOriginal;
+    originalCanvas.classList.toggle('repeat-tiled', repeatOriginal === 3);
     const originalContext = originalCanvas.getContext('2d');
     if (originalContext) {
       for (let ty = 0; ty < repeatOriginal; ty += 1) {

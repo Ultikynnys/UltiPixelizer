@@ -47,13 +47,25 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
   let panX = 0;
   let panY = 0;
 
-  // The fitted image rect in frame coordinates, plus the image's offset inside
-  // the canvas element box (the object-fit letterbox). The latter is the
-  // canvas's transform-origin so zoom anchors at the image's top-left, not the
-  // letterboxed box's.
+  // Image-repeat diagnostic: the renderer tiles the backing buffer 3×3 and
+  // marks the canvas `repeat-tiled`; display it at 3× so each tile keeps the
+  // single-tile size. A pure transform — layout never moves, and the grid
+  // overflows the frame until the user scrolls out.
+  const tileFactor = (): number => (canvas.classList.contains('repeat-tiled') ? 3 : 1);
+
+  // The fitted image rect in frame coordinates. The transform origin anchors
+  // zoom/pan: the image's top-left (the letterbox offset) for single-tile
+  // canvases, or the box CENTER for the tiled grid — scaling then keeps the
+  // center tile pinned to the window center at the default zoom. origin* is
+  // element-relative; originFrame* is its frame-space position (what the
+  // overlay, which fills the frame, must use for its own origin).
   let rect = { left: 0, top: 0, width: 0, height: 0 };
+  let innerLeft = 0;
+  let innerTop = 0;
   let originX = 0;
   let originY = 0;
+  let originFrameX = 0;
+  let originFrameY = 0;
 
   const pointers = new Map<number, { x: number; y: number }>();
   let pinchDistance = 0;
@@ -68,8 +80,12 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
     const boxHeight = canvas.offsetHeight;
     if (frameWidth <= 0 || frameHeight <= 0 || boxWidth <= 0 || boxHeight <= 0 || canvas.width <= 0 || canvas.height <= 0) {
       rect = { left: 0, top: 0, width: 0, height: 0 };
+      innerLeft = 0;
+      innerTop = 0;
       originX = 0;
       originY = 0;
+      originFrameX = 0;
+      originFrameY = 0;
       return;
     }
     // The canvas is flex-centered in the frame; object-fit: contain letterboxes
@@ -79,22 +95,45 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
     const boxTop = (frameHeight - boxHeight) / 2;
     const inner = computeContainRect(boxWidth, boxHeight, canvas.width, canvas.height);
     rect = { left: boxLeft + inner.left, top: boxTop + inner.top, width: inner.width, height: inner.height };
-    originX = inner.left;
-    originY = inner.top;
+    innerLeft = inner.left;
+    innerTop = inner.top;
+    if (tileFactor() === 3) {
+      // The tiled grid scales around the box center: at the default zoom the
+      // CENTER tile fills the window (neighbor seams peek in at the margins).
+      originX = boxWidth / 2;
+      originY = boxHeight / 2;
+    } else {
+      originX = inner.left;
+      originY = inner.top;
+    }
+    originFrameX = boxLeft + originX;
+    originFrameY = boxTop + originY;
   }
 
   function apply(): void {
-    const transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    const scale = zoom * tileFactor();
+    const transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
     canvas.style.transformOrigin = `${originX}px ${originY}px`;
     canvas.style.transform = transform;
     if (overlay) {
       // The overlay fills the frame and strokes the wireframe in frame space,
-      // so its transform-origin is the fitted rect's top-left — the same visual
-      // point as the canvas's origin — keeping the two aligned under zoom.
-      overlay.style.transformOrigin = `${rect.left}px ${rect.top}px`;
+      // so its transform-origin is the origin's frame-space position — the
+      // same visual point as the canvas's origin — keeping the two aligned.
+      overlay.style.transformOrigin = `${originFrameX}px ${originFrameY}px`;
       overlay.style.transform = transform;
     }
     if (badge) badge.textContent = `${Math.round(zoom * 100)}%`;
+  }
+
+  /** The image's top-left frame position at pan (0,0) for a given scale. The
+   * origin fixes one point of the image; the corner hangs from it by the
+   * image's element-space offset (the letterbox for single tiles, the box
+   * center for the tiled grid). */
+  function imageCorner(scale: number): { left: number; top: number } {
+    return {
+      left: originFrameX + (innerLeft - originX) * scale,
+      top: originFrameY + (innerTop - originY) * scale,
+    };
   }
 
   /** Keep a sliver of the image in view: it may slide past the frame edges
@@ -103,15 +142,17 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
   function clampPan(): void {
     const frameWidth = frame.clientWidth;
     const frameHeight = frame.clientHeight;
-    const imageWidth = rect.width * zoom;
-    const imageHeight = rect.height * zoom;
+    const scale = zoom * tileFactor();
+    const corner = imageCorner(scale);
+    const imageWidth = rect.width * scale;
+    const imageHeight = rect.height * scale;
     const margin = Math.min(PAN_MARGIN, frameWidth, frameHeight);
-    const minX = margin - rect.left - imageWidth; // image right edge ≥ margin
-    const maxX = frameWidth - margin - rect.left; // image left edge ≤ frameWidth − margin
-    const minY = margin - rect.top - imageHeight;
-    const maxY = frameHeight - margin - rect.top;
-    panX = minX > maxX ? (frameWidth - imageWidth) / 2 - rect.left : clamp(panX, minX, maxX);
-    panY = minY > maxY ? (frameHeight - imageHeight) / 2 - rect.top : clamp(panY, minY, maxY);
+    const minX = margin - corner.left - imageWidth; // image right edge ≥ margin
+    const maxX = frameWidth - margin - corner.left; // image left edge ≤ frameWidth − margin
+    const minY = margin - corner.top - imageHeight;
+    const maxY = frameHeight - margin - corner.top;
+    panX = minX > maxX ? (frameWidth - imageWidth) / 2 - corner.left : clamp(panX, minX, maxX);
+    panY = minY > maxY ? (frameHeight - imageHeight) / 2 - corner.top : clamp(panY, minY, maxY);
   }
 
   /** Zooms so the frame-space point (cursorX, cursorY) stays under the cursor. */
@@ -119,8 +160,8 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
     const factor = nextZoom / zoom;
     // Anchored against the image's top-left (rect.left/top): the cursor's
     // offset from that origin is preserved across the zoom.
-    const anchorX = cursorX - rect.left;
-    const anchorY = cursorY - rect.top;
+    const anchorX = cursorX - originFrameX;
+    const anchorY = cursorY - originFrameY;
     panX = anchorX - (anchorX - panX) * factor;
     panY = anchorY - (anchorY - panY) * factor;
     zoom = nextZoom;
@@ -131,6 +172,49 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
   function refit(): void {
     computeFit();
     clampPan();
+    apply();
+  }
+
+  /** Image-repeat toggle: the renderer flips `repeat-tiled` and retiles the
+   * backing buffer 3×3 in the same render pass. Re-anchor pan so the CENTER
+   * tile occupies exactly the screen region the single image occupied — and
+   * vice versa — keeping the center image visually pinned across the toggle.
+   * The anchor rect is the whole image when single, the middle tile when
+   * tiled; the new pan solves screen_new(anchor_new) == screen_old(anchor_old).
+   * Both directions are exact inverses, so toggling back restores the view.
+   * Pan is NOT re-clamped here: exactness wins over the pan margin (reset is
+   * the escape hatch). */
+  function remapPanOnTileToggle(previousClass: string): void {
+    if (rect.width <= 0 || rect.height <= 0 || canvas.offsetWidth <= 0 || canvas.offsetHeight <= 0) {
+      computeFit();
+      apply();
+      return;
+    }
+    const newFactor = tileFactor() === 3 ? 3 : 1;
+    const oldFactor = previousClass.includes('repeat-tiled') ? 3 : 1;
+    const boxLeft = (frame.clientWidth - canvas.offsetWidth) / 2;
+    const boxTop = (frame.clientHeight - canvas.offsetHeight) / 2;
+    // Old side: the stored fit is the geometry the user was looking at; the
+    // anchor is the whole-image rect (single) or the middle third (tiled).
+    const oldOriginX = oldFactor === 3 ? boxLeft + canvas.offsetWidth / 2 : rect.left;
+    const oldOriginY = oldFactor === 3 ? boxTop + canvas.offsetHeight / 2 : rect.top;
+    const oldAnchorX = oldFactor === 3 ? rect.left + rect.width / 3 : rect.left;
+    const oldAnchorY = oldFactor === 3 ? rect.top + rect.height / 3 : rect.top;
+    const anchorScreenX = oldOriginX + (oldAnchorX - oldOriginX) * zoom * oldFactor + panX;
+    const anchorScreenY = oldOriginY + (oldAnchorY - oldOriginY) * zoom * oldFactor + panY;
+    // New side: recompute the fit under the flipped class. The retiled buffer
+    // keeps the same aspect, so the rect is unchanged and only the origin
+    // (image top-left vs box center) and the display scale (1 vs 3) move.
+    computeFit();
+    const newAnchorX = newFactor === 3 ? rect.left + rect.width / 3 : rect.left;
+    const newAnchorY = newFactor === 3 ? rect.top + rect.height / 3 : rect.top;
+    panX = anchorScreenX - originFrameX - (newAnchorX - originFrameX) * zoom * newFactor;
+    panY = anchorScreenY - originFrameY - (newAnchorY - originFrameY) * zoom * newFactor;
+    // The remap is an exact inverse, so a pan that should be zero arrives as
+    // float noise (e.g. 3.55e-15) — snap it, or the transform string ends up
+    // with scientific-notation px values.
+    if (Math.abs(panX) < 1e-9) panX = 0;
+    if (Math.abs(panY) < 1e-9) panY = 0;
     apply();
   }
 
@@ -145,8 +229,10 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
   function toCanvasPixel(clientX: number, clientY: number): { x: number; y: number } | null {
     if (canvas.hidden || rect.width <= 0 || rect.height <= 0) return null;
     const frameRect = frame.getBoundingClientRect();
-    const u = (clientX - frameRect.left - rect.left - panX) / (zoom * rect.width);
-    const v = (clientY - frameRect.top - rect.top - panY) / (zoom * rect.height);
+    const scale = zoom * tileFactor();
+    const corner = imageCorner(scale);
+    const u = (clientX - frameRect.left - corner.left - panX) / (scale * rect.width);
+    const v = (clientY - frameRect.top - corner.top - panY) / (scale * rect.height);
     if (u < 0 || u >= 1 || v < 0 || v >= 1) return null;
     const x = Math.min(canvas.width - 1, Math.max(0, Math.floor(u * canvas.width)));
     const y = Math.min(canvas.height - 1, Math.max(0, Math.floor(v * canvas.height)));
@@ -242,8 +328,18 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
   // resize, pane visibility toggles) or its backing buffer changes (render).
   const resizeObserver = new ResizeObserver(() => refit());
   resizeObserver.observe(canvas);
-  const bufferObserver = new MutationObserver(() => refit());
-  bufferObserver.observe(canvas, { attributes: true, attributeFilter: ['width', 'height'] });
+  const bufferObserver = new MutationObserver((records) => {
+    // The image-repeat toggle retiles the backing buffer 3×3 and flips
+    // `repeat-tiled` in the same render pass. That flip re-anchors pan so the
+    // center tile lands exactly where the single image was — the toggle must
+    // not move the center image. Any other buffer change refits as before.
+    const classRecord = records.find((record) => record.attributeName === 'class');
+    if (classRecord) remapPanOnTileToggle(classRecord.oldValue ?? '');
+    else refit();
+  });
+  // attributeOldValue captures the pre-flip class list, which is what tells
+  // the remap which view (single vs tiled) the user is coming from.
+  bufferObserver.observe(canvas, { attributes: true, attributeFilter: ['width', 'height', 'class'], attributeOldValue: true });
 
   refit();
 

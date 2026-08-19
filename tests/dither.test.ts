@@ -130,7 +130,7 @@ describe('dithering engine', () => {
     expect(patternThreshold('none', 0, 0)).toBe(0.5);
   });
 
-  it('classifies pattern modes for the dither-scale control', () => {
+  it('classifies coordinate-pattern modes', () => {
     expect(isPatternMode('ordered')).toBe(true);
     expect(isPatternMode('cross')).toBe(true);
     expect(isPatternMode('stripes')).toBe(true);
@@ -496,35 +496,5 @@ describe('halftone dot rendering', () => {
     expect(inkCount(large)).toBeGreaterThan(inkCount(small));
     expect(inkCount(small)).toBe(4);
     expect(inkCount(large)).toBe(6);
-  });
-});
-
-describe('dither scale', () => {
-  const gray = Array.from({ length: 16 }, () => [128, 128, 128, 255]);
-
-  it('is the identity at scale 1 — output matches the unscaled default', () => {
-    const source = imageData(gray, 4);
-    const baseline = processImageData(source, { ...options('ordered'), strength: 0.75 });
-    const scaled = processImageData(source, { ...options('ordered'), strength: 0.75, ditherScale: 1 });
-    expect([...scaled.data]).toEqual([...baseline.data]);
-  });
-
-  it('magnifies the pattern below 1 — the 4×4 ordered grid repeats every 8 px at 0.5', () => {
-    const source = imageData(gray, 4);
-    const atOne = processImageData(source, { ...options('ordered'), strength: 1 });
-    const atHalf = processImageData(source, { ...options('ordered'), strength: 1, ditherScale: 0.5 });
-    // (3, 0): at 1:1 the phase is BAYER[0][3] = 10/15 → offset +16 → white; at
-    // 0.5 the phase is BAYER[0][6 % 4 = 2] = 2/15 → offset −35 → black.
-    const rgbAt = (result: ImageData, px: number, py: number): number =>
-      result.data[(py * 4 + px) * 4];
-    expect(rgbAt(atOne, 3, 0)).toBe(255);
-    expect(rgbAt(atHalf, 3, 0)).toBe(0);
-  });
-
-  it('leaves error diffusion untouched — no pattern coordinates to scale', () => {
-    const source = imageData(gray, 4);
-    const baseline = processImageData(source, { ...options('floyd') });
-    const scaled = processImageData(source, { ...options('floyd'), ditherScale: 0.2 });
-    expect([...scaled.data]).toEqual([...baseline.data]);
   });
 });

@@ -61,31 +61,52 @@ describe('disableWebviewContextMenu', () => {
     return handlers;
   }
 
-  it('suppresses the context menu outside editable fields under Tauri', () => {
+  it('registers in the plain browser and under Tauri — the tool UI never shows the native menu', () => {
+    // The suppression is not desktop-only: the web build's own right-click
+    // menu (Back/Refresh/Save As/Print) is equally unwanted on UI controls.
+    expect(withWindowListener(() => {
+      disableWebviewContextMenu();
+    })).toHaveLength(1);
     (globalThis as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
     try {
-      const handlers = withWindowListener(() => {
+      expect(withWindowListener(() => {
         disableWebviewContextMenu();
-      });
-      const handler = handlers[0];
-      expect(handler).toBeDefined();
-      const prevented: unknown[] = [];
-      const fire = (target: unknown) => handler({ target, preventDefault: () => prevented.push(target) });
-      // Non-editable elements cancel the event so the native menu never shows.
-      fire({ closest: () => null });
-      // Editable fields keep the edit menu (Cut/Copy/Paste).
-      fire({ closest: () => ({ tagName: 'INPUT' }) });
-      expect(prevented).toHaveLength(1);
+      })).toHaveLength(1);
     } finally {
       delete (globalThis as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
     }
   });
 
-  it('is a no-op in the plain browser so the browser menu stays', () => {
+  it('suppresses the context menu outside editable fields', () => {
     const handlers = withWindowListener(() => {
       disableWebviewContextMenu();
     });
-    expect(handlers).toHaveLength(0);
+    const handler = handlers[0];
+    expect(handler).toBeDefined();
+    const prevented: unknown[] = [];
+    const fire = (target: unknown) => handler({ target, preventDefault: () => prevented.push(target) });
+    // Non-editable elements cancel the event so the native menu never shows.
+    fire({ closest: () => null });
+    // Editable fields keep the edit menu (Cut/Copy/Paste).
+    fire({ closest: () => ({ tagName: 'INPUT' }) });
+    expect(prevented).toHaveLength(1);
+  });
+
+  it('treats slider handles and toggle switches as UI controls, not editable fields', () => {
+    const handlers = withWindowListener(() => {
+      disableWebviewContextMenu();
+    });
+    const handler = handlers[0];
+    const prevented: unknown[] = [];
+    const fire = (target: unknown) => handler({ target, preventDefault: () => prevented.push(target) });
+    // The editable exemption excludes range (slider) and checkbox (toggle)
+    // inputs: closest() must not match them, so right-clicking cancels.
+    const uiControl = (type: string) => ({
+      closest: (selector: string) => (selector.includes(`[type="${type}"]`) ? null : { tagName: 'INPUT' }),
+    });
+    fire(uiControl('range'));
+    fire(uiControl('checkbox'));
+    expect(prevented).toHaveLength(2);
   });
 });
 

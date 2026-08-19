@@ -29,6 +29,12 @@ class FakeSurface {
   width = 0;
   height = 0;
   textContent = '';
+  /** The renderer marks the tiled image-repeat canvas `repeat-tiled`;
+   * preview2d reads it to apply the 3× display scale. */
+  repeatTiled = false;
+  readonly classList = {
+    contains: (name: string): boolean => (name === 'repeat-tiled' ? this.repeatTiled : false),
+  };
   private listeners = new Map<string, Array<(event: FakeEventInit) => void>>();
 
   constructor(overrides: Partial<FakeSurface> = {}) {
@@ -126,6 +132,20 @@ function makePreview(options: { overlay?: boolean; badge?: boolean; canvas?: Par
     resizeCallback: () => domStubs.resizeObservers.at(-1)!.callback([], null as unknown as ResizeObserver),
     mutationCallback: () => mutationObservers.at(-1)!.callback([], null as unknown as MutationObserver),
   };
+}
+
+/** Fires the canvas MutationObserver with a `repeat-tiled` class flip, as the
+ * renderer does when toggling image-repeat: the backing buffer retiles 3×3
+ * and the class flips in the same pass. `oldClass` is the pre-flip class list
+ * (the observer captures it via attributeOldValue). */
+function fireTileToggle(canvas: FakeSurface, oldClass: string): void {
+  canvas.repeatTiled = !canvas.repeatTiled;
+  canvas.width = canvas.repeatTiled ? canvas.width * 3 : canvas.width / 3;
+  canvas.height = canvas.repeatTiled ? canvas.height * 3 : canvas.height / 3;
+  mutationObservers.at(-1)!.callback(
+    [{ attributeName: 'class', oldValue: oldClass }] as unknown as MutationRecord[],
+    null as unknown as MutationObserver,
+  );
 }
 
 /** Parses the `translate(Xpx, Ypx) scale(S)` transform preview2d writes. */
@@ -380,5 +400,91 @@ describe('toCanvasPixel', () => {
     frame.clientWidth = 0;
     api.refit();
     expect(api.toCanvasPixel(250, 150)).toBeNull();
+  });
+});
+
+describe('image-repeat tiled canvas', () => {
+  it('shows the CENTER tile of the 3× grid at the single-tile scale', () => {
+    const { canvas, overlay, badge } = makePreview({ overlay: true, badge: true, canvas: { repeatTiled: true } });
+
+    // The grid scales around the box center (transform-origin 200×100, whose
+    // frame position is the window center 250×150), so at zoom 1 the center
+    // tile fills the window at the single-tile size; the whole grid overflows
+    // the frame until the user scrolls out.
+    expect(readTransform(canvas)).toEqual({ x: 0, y: 0, scale: 3 });
+    expect(canvas.style.transformOrigin).toBe('200px 100px');
+    expect(overlay!.style.transform).toBe(canvas.style.transform);
+    expect(overlay!.style.transformOrigin).toBe('250px 150px');
+    expect(badge!.textContent).toBe('100%');
+  });
+
+  it('maps frame points into the 3× backing buffer', () => {
+    const { api } = makePreview({ canvas: { repeatTiled: true } });
+    // Box-center origin: at scale 3 the image hangs from (−350, −150), so the
+    // window center (250, 150) hits the buffer center (100, 50) — the center
+    // of the middle tile.
+    expect(api.toCanvasPixel(250, 150)).toEqual({ x: 100, y: 50 });
+  });
+
+  it('clamps pan against the 3× image footprint', () => {
+    const { canvas, frame } = makePreview({ canvas: { repeatTiled: true } });
+    frame.dispatch('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, button: 0 });
+    windowEvent('pointermove', { pointerId: 1, clientX: -2000, clientY: 100, pointerType: 'mouse', buttons: 1 });
+    // Image spans [−350, 850] at scale 3 → minX = 48 − (−350) − 1200 = −802;
+    // a single-tile canvas would clamp at −402.
+    expect(readTransform(canvas)!.x).toBe(-802);
+  });
+
+  it('watches the class attribute with old values so the toggle can re-anchor pan', () => {
+    const { canvas } = makePreview();
+    expect(mutationObservers.at(-1)!.observe).toHaveBeenCalledWith(canvas, {
+      attributes: true,
+      attributeFilter: ['width', 'height', 'class'],
+      attributeOldValue: true,
+    });
+  });
+
+  it('toggling tile on at the default view keeps the center tile exactly where the single image was', () => {
+    const { canvas } = makePreview();
+    expect(readTransform(canvas)).toEqual({ x: 0, y: 0, scale: 1 });
+    fireTileToggle(canvas, '');
+    expect(readTransform(canvas)).toEqual({ x: 0, y: 0, scale: 3 });
+    expect(canvas.style.transformOrigin).toBe('200px 100px');
+  });
+
+  it('keeps the center of the image on the same screen point when tiling a zoomed/panned view', () => {
+    const { api, canvas, frame } = makePreview();
+    frameWheel(frame, { deltaMode: 0, deltaY: -200, clientX: 250, clientY: 150 });
+    frame.dispatch('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, button: 0 });
+    windowEvent('pointermove', { pointerId: 1, clientX: 130, clientY: 120, pointerType: 'mouse', buttons: 1 });
+    windowEvent('pointerup', { pointerId: 1, pointerType: 'mouse', buttons: 0 });
+    // Screen position of the image center in single mode: origin (50, 50),
+    // fitted-rect center (250, 150), so 50 + 200·scale + pan.
+    const before = readTransform(canvas)!;
+    const centerX = 50 + 200 * before.scale + before.x;
+    const centerY = 50 + 100 * before.scale + before.y;
+    fireTileToggle(canvas, '');
+    // The 3× buffer's center (300, 150) is the middle tile's center; the same
+    // screen point must keep showing the image center after the toggle.
+    const mapped = api.toCanvasPixel(centerX, centerY)!;
+    expect(Math.abs(mapped.x - 300)).toBeLessThanOrEqual(1);
+    expect(Math.abs(mapped.y - 150)).toBeLessThanOrEqual(1);
+  });
+
+  it('round-trips: untiling restores the exact same view', () => {
+    const { canvas, frame } = makePreview();
+    frameWheel(frame, { deltaMode: 0, deltaY: -200, clientX: 250, clientY: 150 });
+    frame.dispatch('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, button: 0 });
+    windowEvent('pointermove', { pointerId: 1, clientX: 130, clientY: 120, pointerType: 'mouse', buttons: 1 });
+    windowEvent('pointerup', { pointerId: 1, pointerType: 'mouse', buttons: 0 });
+    const single = readTransform(canvas)!;
+    fireTileToggle(canvas, '');
+    const tiled = readTransform(canvas)!;
+    expect(tiled.scale).toBeCloseTo(single.scale * 3, 5);
+    fireTileToggle(canvas, 'repeat-tiled');
+    const restored = readTransform(canvas)!;
+    expect(restored.scale).toBeCloseTo(single.scale, 5);
+    expect(restored.x).toBeCloseTo(single.x, 5);
+    expect(restored.y).toBeCloseTo(single.y, 5);
   });
 });
