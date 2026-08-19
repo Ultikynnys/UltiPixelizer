@@ -60,7 +60,7 @@ struct Uniforms {
   wr: f32,
   wg: f32,
   wb: f32,
-  pad0: f32,
+  waveBase: u32,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -139,7 +139,7 @@ fn prepass(@builtin(global_invocation_id) gid: vec3<u32>) {
 // flag block.
 @compute @workgroup_size(1, ${ROWS_PER_WAVE})
 fn diffuse(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let py = gid.x * ${ROWS_PER_WAVE}u + gid.y;
+  let py = u.waveBase + gid.y;
   if (py >= u.gridHeight) {
     return;
   }
@@ -346,18 +346,37 @@ export async function ditherImageDataGpu(source: ImageData, options: ProcessOpti
   const brightnessOffset = options.brightness * 2.55;
   const contrastFactor = (259 * (options.contrast + 255)) / (255 * (259 - options.contrast));
   const saturationFactor = 1 + options.saturation / 100;
-  const uniforms = new Float32Array([
-    gridWidth, gridHeight, width, height, paletteCount, atkinson ? 1 : 0, BLOCK_LOG2, blocksPerRow,
-    options.strength, brightnessOffset, contrastFactor, saturationFactor,
-    LUMA.red, LUMA.green, LUMA.blue, 0,
-  ]);
+  // The uniform struct mixes u32 (grid dims, counts, waveBase) and f32 (tone)
+  // fields, so pack them into one ArrayBuffer with a u32 view for the integer
+  // slots and an f32 view for the float slots. A plain Float32Array would store
+  // the integers' f32 bit patterns, which the shader reads as wildly wrong u32
+  // values (e.g. gridWidth 6144 -> 1170210816), silently corrupting the scan.
+  const uniformBytes = new ArrayBuffer(64);
+  const uniformU32 = new Uint32Array(uniformBytes);
+  const uniformF32 = new Float32Array(uniformBytes);
+  uniformU32[0] = gridWidth;
+  uniformU32[1] = gridHeight;
+  uniformU32[2] = width;
+  uniformU32[3] = height;
+  uniformU32[4] = paletteCount;
+  uniformU32[5] = atkinson ? 1 : 0;
+  uniformU32[6] = BLOCK_LOG2;
+  uniformU32[7] = blocksPerRow;
+  uniformF32[8] = options.strength;
+  uniformF32[9] = brightnessOffset;
+  uniformF32[10] = contrastFactor;
+  uniformF32[11] = saturationFactor;
+  uniformF32[12] = LUMA.red;
+  uniformF32[13] = LUMA.green;
+  uniformF32[14] = LUMA.blue;
+  uniformU32[15] = 0; // waveBase, overwritten per wave below
 
   const sourceBuffer = device.createBuffer({ size: packed.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(sourceBuffer, 0, packed);
   const paletteBuffer = device.createBuffer({ size: flat.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(paletteBuffer, 0, flat);
-  const uniformBuffer = device.createBuffer({ size: uniforms.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-  device.queue.writeBuffer(uniformBuffer, 0, uniforms);
+  const uniformBuffer = device.createBuffer({ size: uniformBytes.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  device.queue.writeBuffer(uniformBuffer, 0, uniformBytes);
   // Work cells are fully written by the prepass before diffusion reads them,
   // so no zero-init needed; flags must start cleared.
   const workBuffer = device.createBuffer({ size: cellCount * 3 * 4, usage: GPUBufferUsage.STORAGE });
@@ -380,22 +399,41 @@ export async function ditherImageDataGpu(source: ImageData, options: ProcessOpti
 
   device.pushErrorScope('validation');
 
-  const encoder = device.createCommandEncoder();
-  const prepass = encoder.beginComputePass();
-  prepass.setPipeline(prepassPipeline);
-  prepass.setBindGroup(0, bindGroup);
-  prepass.dispatchWorkgroups(Math.ceil(cellCount / PREPASS_WORKGROUP));
-  prepass.end();
+  // Prepass: tone-adjust the source into the work buffer (parallel, no deps).
+  {
+    const prepassEncoder = device.createCommandEncoder();
+    const prepass = prepassEncoder.beginComputePass();
+    prepass.setPipeline(prepassPipeline);
+    prepass.setBindGroup(0, bindGroup);
+    prepass.dispatchWorkgroups(Math.ceil(cellCount / PREPASS_WORKGROUP));
+    prepass.end();
+    device.queue.submit([prepassEncoder.finish()]);
+  }
+
+  // Diffusion: ONE workgroup per wave (128 co-resident threads), each wave
+  // submitted sequentially so a wave reads the previous wave's flags as
+  // already set — the spin-wait never crosses a workgroup boundary. Each
+  // wave's base row rides in the uniform's waveBase field, re-written before
+  // that wave's dispatch. Dispatching `waves` workgroups in one call would
+  // deadlock: rows in separate workgroups are not guaranteed co-resident, so
+  // a thread can spin forever on a flag the scheduler hasn't produced — the
+  // DXGI_ERROR_DEVICE_REMOVED hang this fixes.
   for (let wave = 0; wave < waves; wave += 1) {
-    const pass = encoder.beginComputePass();
+    uniformU32[15] = wave * ROWS_PER_WAVE; // waveBase (u32)
+    device.queue.writeBuffer(uniformBuffer, 0, uniformBytes);
+    const waveEncoder = device.createCommandEncoder();
+    const pass = waveEncoder.beginComputePass();
     pass.setPipeline(diffusePipeline);
     pass.setBindGroup(0, bindGroup);
-    pass.dispatchWorkgroups(wave, 1);
+    pass.dispatchWorkgroups(1, 1);
     pass.end();
+    device.queue.submit([waveEncoder.finish()]);
   }
+
   const readback = device.createBuffer({ size: width * height * 4, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-  encoder.copyBufferToBuffer(outputBuffer, 0, readback, 0, width * height * 4);
-  device.queue.submit([encoder.finish()]);
+  const readbackEncoder = device.createCommandEncoder();
+  readbackEncoder.copyBufferToBuffer(outputBuffer, 0, readback, 0, width * height * 4);
+  device.queue.submit([readbackEncoder.finish()]);
   const validationError = await device.popErrorScope();
   if (validationError) {
     throw new Error(`dither WebGPU validation error: ${validationError.message}`);
