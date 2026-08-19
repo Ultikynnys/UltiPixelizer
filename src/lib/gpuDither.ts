@@ -247,13 +247,25 @@ export function gpuDitherCovers(mode: string): boolean {
 let warnedFallback = false;
 
 /**
+ * Whether the GPU dither is enabled. The software-pipelined diffusion relies on
+ * a spin-wait wavefront (one thread per row, each row lagging the row above by
+ * one flag block). WebGPU does not guarantee forward progress for spin-waiting
+ * invocations, so on lockstep-wavefront GPUs (AMD/Intel) a thread can spin
+ * forever on its producer's flag and the driver removes the device
+ * (DXGI_ERROR_DEVICE_REMOVED), freezing the machine for ~20s. The CPU linear
+ * scan is byte-identical, so the GPU path is disabled until it is re-architected
+ * on workgroupBarrier() synchronization instead of spin-wait.
+ */
+const GPU_DITHER_ENABLED = false;
+
+/**
  * Dithered with the GPU when WebGPU is available; falls back to the exact CPU
  * path otherwise. Never rejects: the fallback swallows every GPU failure
  * (missing WebGPU, device reject, shader compile/validation error) and
  * returns the same bytes the synchronous pipeline produces today.
  */
 export async function processImageDataAsync(source: ImageData, options: ProcessOptions): Promise<ImageData> {
-  if (!gpuDitherCovers(options.mode)) {
+  if (!GPU_DITHER_ENABLED || !gpuDitherCovers(options.mode)) {
     return processImageData(source, options);
   }
   try {
