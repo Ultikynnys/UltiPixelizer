@@ -135,15 +135,31 @@ type PaletteMatcher = {
   count: number;
   flat: Float32Array;
   weights: Float32Array;
-  tree: KDNode | null;
+  tree: KDTree | null;
 };
 
-type KDNode = {
-  axis: number;
-  value: number;
-  index: number;
-  left: KDNode | null;
-  right: KDNode | null;
+/** Flat median-split k-d tree over the palette's raw RGB coordinates. The
+ * LUMA weights enter only the distance/prune arithmetic, so the split planes
+ * are the same as in scaled space.
+ *
+ * Typed arrays instead of node objects: the matcher answers one query per
+ * pixel, and the recursive object version measured ~3× slower than the tight
+ * linear scan on the seamless path (object derefs + a per-pixel BestMatch
+ * allocation), so the tree is built once per dither call and queried
+ * iteratively with zero per-query allocation. */
+type KDTree = {
+  /** Split axis (0/1/2 = r/g/b) per node. */
+  axes: Int8Array;
+  /** Split coordinate per node. */
+  values: Float32Array;
+  /** Palette index each node holds. */
+  indexes: Int32Array;
+  /** Left/right child node ids; -1 = absent. */
+  left: Int32Array;
+  right: Int32Array;
+  /** Query scratch. Median split keeps the tree balanced (depth ≈ ⌈log2 P⌉),
+   * so 64 slots cover any palette the app allows (≤ 256 colors). */
+  stack: Int32Array;
 };
 
 function buildPaletteMatcher(palette: string[]): PaletteMatcher {
@@ -156,56 +172,91 @@ function buildPaletteMatcher(palette: string[]): PaletteMatcher {
     flat[i * 3 + 2] = colors[i][2];
   }
   const weights = new Float32Array([LUMA.red, LUMA.green, LUMA.blue]);
-  let tree: KDNode | null = null;
+  let tree: KDTree | null = null;
   if (count > KD_THRESHOLD) {
     const indices = new Int32Array(count);
     for (let i = 0; i < count; i += 1) indices[i] = i;
-    tree = buildKDNode(indices, flat, 0, count, 0);
+    tree = buildKDTree(indices, flat, count);
   }
   return { count, flat, weights, tree };
 }
 
-/** Median-split k-d tree over the palette's raw RGB coordinates — the LUMA
- * weights enter only the distance/prune arithmetic, so the split planes are
- * the same as in scaled space. */
-function buildKDNode(indices: Int32Array, flat: Float32Array, start: number, end: number, axis: number): KDNode | null {
-  if (start >= end) return null;
-  const slice = indices.subarray(start, end);
-  slice.sort((a, b) => flat[a * 3 + axis] - flat[b * 3 + axis]);
-  const mid = start + ((end - start) >> 1);
-  const index = indices[mid];
-  return {
-    axis,
-    value: flat[index * 3 + axis],
-    index,
-    left: buildKDNode(indices, flat, start, mid, (axis + 1) % 3),
-    right: buildKDNode(indices, flat, mid + 1, end, (axis + 1) % 3),
+function buildKDTree(indices: Int32Array, flat: Float32Array, count: number): KDTree {
+  const axes = new Int8Array(count);
+  const values = new Float32Array(count);
+  const indexes = new Int32Array(count);
+  const left = new Int32Array(count);
+  const right = new Int32Array(count);
+  left.fill(-1);
+  right.fill(-1);
+  // Preorder ids: the node for a span is created before its children, so the
+  // arrays fill left-to-right and every child id points at a created slot.
+  // Same median-split construction as the original recursive build.
+  let next = 0;
+  const build = (start: number, end: number, axis: number): number => {
+    const slice = indices.subarray(start, end);
+    slice.sort((a, b) => flat[a * 3 + axis] - flat[b * 3 + axis]);
+    const mid = start + ((end - start) >> 1);
+    const node = next;
+    next += 1;
+    const index = indices[mid];
+    axes[node] = axis;
+    values[node] = flat[index * 3 + axis];
+    indexes[node] = index;
+    if (start < mid) left[node] = build(start, mid, (axis + 1) % 3);
+    if (mid + 1 < end) right[node] = build(mid + 1, end, (axis + 1) % 3);
+    return node;
   };
+  build(0, count, 0);
+  return { axes, values, indexes, left, right, stack: new Int32Array(64) };
 }
 
-type BestMatch = { index: number; distance: number };
-
-/** Exact nearest-color query. The node's own point is evaluated with the
- * linear-scan distance expression; the far subtree is pruned only when the
- * slab lower bound clears the best distance with a margin, so float rounding
- * can never skip a true winner. Exact distance ties resolve to the lowest
- * palette index, matching the linear scan's first-minimum behavior. */
-function queryKD(node: KDNode, flat: Float32Array, weights: Float32Array, r: number, g: number, b: number, best: BestMatch): void {
-  const index = node.index;
-  const distance = lumaDistanceSquared(r, g, b, flat[index * 3], flat[index * 3 + 1], flat[index * 3 + 2], weights[0], weights[1], weights[2]);
-  if (distance < best.distance || (distance === best.distance && index < best.index)) {
-    best.distance = distance;
-    best.index = index;
+/** Exact nearest-color query over the flat tree. The node's own point is
+ * evaluated with the linear-scan distance expression; a subtree is entered
+ * only when the slab lower bound clears the best distance with a margin, so
+ * float rounding can never skip a true winner. Exact distance ties resolve to
+ * the lowest palette index, matching the linear scan's first-minimum
+ * behavior.
+ *
+ * Iterative with a per-matcher stack — no recursion and no per-query
+ * allocation. The far subtree is pruned against the best distance known at
+ * push time; that distance can only shrink afterwards, so pushing early is
+ * conservative (a superset of the recursive order's visits) and the result
+ * is the same argmin. */
+function queryKD(tree: KDTree, flat: Float32Array, weights: Float32Array, r: number, g: number, b: number): number {
+  const { axes, values, indexes, left, right, stack } = tree;
+  let sp = 0;
+  let node = 0;
+  let bestIndex = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (;;) {
+    const index = indexes[node];
+    const distance = lumaDistanceSquared(r, g, b, flat[index * 3], flat[index * 3 + 1], flat[index * 3 + 2], weights[0], weights[1], weights[2]);
+    if (distance < bestDistance || (distance === bestDistance && index < bestIndex)) {
+      bestDistance = distance;
+      bestIndex = index;
+    }
+    const axis = axes[node];
+    const split = values[node];
+    const v = axis === 0 ? r : axis === 1 ? g : b;
+    const near = v < split ? left[node] : right[node];
+    const far = near === left[node] ? right[node] : left[node];
+    if (far !== -1) {
+      const diff = v - split;
+      if (weights[axis] * diff * diff < bestDistance * 1.000001) {
+        stack[sp] = far;
+        sp += 1;
+      }
+    }
+    if (near !== -1) {
+      node = near;
+      continue;
+    }
+    if (sp === 0) break;
+    sp -= 1;
+    node = stack[sp];
   }
-  const axis = node.axis;
-  const v = axis === 0 ? r : axis === 1 ? g : b;
-  const near = v < node.value ? node.left : node.right;
-  const far = near === node.left ? node.right : node.left;
-  if (near) queryKD(near, flat, weights, r, g, b, best);
-  if (far) {
-    const diff = v - node.value;
-    if (weights[axis] * diff * diff < best.distance * 1.000001) queryKD(far, flat, weights, r, g, b, best);
-  }
+  return bestIndex;
 }
 
 function linearMatch(flat: Float32Array, weights: Float32Array, count: number, r: number, g: number, b: number): number {
@@ -222,11 +273,7 @@ function linearMatch(flat: Float32Array, weights: Float32Array, count: number, r
 }
 
 function matchPalette(m: PaletteMatcher, r: number, g: number, b: number): number {
-  if (m.tree) {
-    const best: BestMatch = { index: -1, distance: Number.POSITIVE_INFINITY };
-    queryKD(m.tree, m.flat, m.weights, r, g, b, best);
-    return best.index;
-  }
+  if (m.tree) return queryKD(m.tree, m.flat, m.weights, r, g, b);
   return linearMatch(m.flat, m.weights, m.count, r, g, b);
 }
 
