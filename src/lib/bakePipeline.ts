@@ -1,3 +1,12 @@
+import { webgpuUsable } from './gpuCommon';
+
+/** Latched once the GPU bake has failed this session. The GPU path is retried
+ * each bake while `webgpuUsable()` stays true (a non-adapter failure like a
+ * shader compile error does not latch `adapterUnavailable`), but the fallback
+ * message is logged once so a deterministic failure doesn't spam the console
+ * on every re-bake. Mirrors the dither path's `warnedFallback` latch. */
+let warnedGpuBakeFallback = false;
+
 /**
  * Shared bake fallback ladder: try the GPU path when WebGPU is present, else
  * the worker path, else the synchronous CPU path. Every failure of a faster
@@ -13,15 +22,19 @@ export async function runBakeWithFallbacks<T>(
   /** Invoked instead of `sync` when the worker path failed (defaults to `sync`). */
   syncFallback: () => T = sync,
 ): Promise<T> {
-  // Only await the GPU path when WebGPU is actually present: the synchronous
-  // check keeps the worker dispatch below synchronous for non-WebGPU callers.
-  if (typeof navigator !== 'undefined' && navigator.gpu) {
+  // Only await the GPU path when WebGPU is actually usable: the synchronous
+  // probe keeps the worker dispatch below synchronous for non-WebGPU callers,
+  // and skips the doomed request once the environment has proven adapterless.
+  if (webgpuUsable()) {
     try {
       return await gpu();
     } catch (error) {
-      // The GPU bake failed: log why, then continue to the worker /
+      // The GPU bake failed: log why once, then continue to the worker /
       // single-threaded path below. The CPU rasterizer is unaffected.
-      console.error(`${label} GPU bake failed, falling back to the CPU path.`, error);
+      if (!warnedGpuBakeFallback) {
+        warnedGpuBakeFallback = true;
+        console.error(`${label} GPU bake failed, falling back to the CPU path.`, error);
+      }
     }
   }
   if (typeof Worker === 'undefined') {

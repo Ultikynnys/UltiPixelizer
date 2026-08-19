@@ -214,6 +214,19 @@ export function getGpuDevice(): Promise<GPUDevice> {
   return sharedDevicePromise;
 }
 
+/** Synchronous capability gate for callers that want to skip the doomed async
+ * request once the environment has proven adapterless. True only while
+ * `navigator.gpu` is present AND no earlier request has failed: the first GPU
+ * attempt still goes through and latches `adapterUnavailable` on failure, so a
+ * WebGPU-less machine probes exactly once and every later caller (dither,
+ * AO/lightmap bake) skips the GPU path without re-requesting or re-warning. A
+ * lost device is *not* a failure of this probe (it only clears the device
+ * cache), so a device reset still re-requests. */
+export function webgpuUsable(): boolean {
+  const gpu = typeof navigator !== 'undefined' ? navigator.gpu : undefined;
+  return Boolean(gpu) && !adapterUnavailable;
+}
+
 /** One binding slot for `runComputePass`, listed in WGSL binding order
  * (0, 1, 2, ...). `data` uploads a fresh buffer (read-only-storage by
  * default); `buffer` binds an existing buffer; exactly one `{ output: true }`

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   animations: [] as AnimationClip[],
   failWith: null as string | null,
   deferTextureItem: false,
+  emitZupWarning: false,
   releaseTextureItem: null as (() => void) | null,
   rendererCalls: [] as string[],
   renderer: null as unknown,
@@ -118,6 +119,10 @@ vi.mock('three/addons/loaders/FBXLoader.js', async () => {
       loadAsync = vi.fn(async () => {
         this.manager?.resolveURL?.('relative.bin');
         if (mocks.failWith) throw new Error(mocks.failWith);
+        if (mocks.emitZupWarning) {
+          console.warn('THREE.FBXLoader: You are loading an asset with a Z-UP coordinate system. The loader just rotates the asset to transform it into Y-UP. The vertex data are not converted.');
+          console.warn('an unrelated warning');
+        }
         if (mocks.deferTextureItem) {
           const manager = this.manager as { itemStart?: (url: string) => void; itemEnd?: (url: string) => void };
           manager.itemStart?.('embedded.png');
@@ -194,6 +199,7 @@ beforeEach(() => {
   mocks.animations = [];
   mocks.failWith = null;
   mocks.deferTextureItem = false;
+  mocks.emitZupWarning = false;
   mocks.releaseTextureItem = null;
   mocks.rendererCalls.length = 0;
   mocks.mixers.length = 0;
@@ -248,6 +254,16 @@ describe('loadModel', () => {
     expect(blender.scene.rotation.x).toBe(-Math.PI / 2);
     const maya = await loadModel(bundle('fbx'), [], 'maya');
     expect(maya.scene.rotation.x).toBe(0);
+  });
+
+  it('suppresses the FBXLoader Z-up notice while passing other warnings through', async () => {
+    mocks.scene = meshScene();
+    mocks.emitZupWarning = true;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await loadModel(bundle('fbx'), [], 'maya');
+    const messages = warn.mock.calls.map((call) => String(call[0]));
+    expect(messages.some((message) => message.includes('Z-UP coordinate system'))).toBe(false);
+    expect(messages).toContain('an unrelated warning');
   });
 
   it('waits for FBX texture loads to finish before resolving', async () => {

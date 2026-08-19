@@ -73,6 +73,28 @@ function orientToWorldAxis(object: Object3D, worldAxis: WorldAxis): void {
   object.rotation.set(upAxisRotation(worldAxis), 0, 0);
 }
 
+/** Loads with the three.js FBXLoader's Z-up notice suppressed. The FBXLoader
+ * warns (and rotates the root to Y-up) whenever an FBX declares a Z-up axis;
+ * loadModel immediately overwrites that rotation via orientToWorldAxis, so the
+ * notice describes conversion work that is undone. Filter only that one
+ * message and restore console.warn when the load settles. */
+function withoutFbxUpAxisWarning<T>(load: () => Promise<T>): Promise<T> {
+  const original = console.warn;
+  console.warn = ((...args: unknown[]) => {
+    const first = args[0];
+    if (typeof first === 'string' && first.includes('Z-UP coordinate system')) return;
+    original(...args);
+  }) as typeof console.warn;
+  try {
+    return load().finally(() => {
+      console.warn = original;
+    });
+  } catch (error) {
+    console.warn = original;
+    throw error;
+  }
+}
+
 export async function loadModel(
   bundle: ModelFileBundle,
   files: File[],
@@ -107,7 +129,7 @@ export async function loadModel(
       textureLoadsStarted = true;
     };
     manager.onLoad = () => resolveIdle?.();
-    const loaded = await new FBXLoader(manager).loadAsync(bundle.primaryUrl);
+    const loaded = await withoutFbxUpAxisWarning(() => new FBXLoader(manager).loadAsync(bundle.primaryUrl));
     orientToWorldAxis(loaded, worldAxis);
     if (textureLoadsStarted) await idle;
     scene = loaded;

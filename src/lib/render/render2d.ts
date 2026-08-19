@@ -1,6 +1,7 @@
 import { applyAO, aoMultiplier, imageAOFactors, redChannelFactors } from '../ao';
 import { cloneImageData, drawImageToCanvas, imagePixels, pixelateCanvas, pixelsToCanvas, resampleAndPixelate, resizeImage } from '../canvas';
 import { processImageData, type ProcessOptions } from '../dither';
+import { webgpuUsable } from '../gpuCommon';
 import { gpuDitherCovers, processImageDataAsync } from '../gpuDither';
 import { applyLightmap } from '../lightmap';
 import { LUMA } from '../math';
@@ -284,8 +285,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
           // free, so there is nothing worth caching.
           processedData = processImageData(lit, processedOptions);
         } else {
-          const gpuAvailable = typeof navigator !== 'undefined' && Boolean((navigator as { gpu?: unknown }).gpu);
-          if (gpuAvailable && gpuDitherCovers(state.mode)) {
+          if (webgpuUsable() && gpuDitherCovers(state.mode)) {
             // The GPU dither is async: a newer render supersedes this frame, so
             // a stale result is dropped instead of overwriting the freshest one.
             const token = ++ditherToken;
