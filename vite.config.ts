@@ -41,6 +41,19 @@ export default defineConfig({
         '**/{karma,rollup,webpack}.config.*',
         '**/.{eslint,mocha,prettier}rc.{js,cjs,ts}',
         'src/lib/**/*.worker.ts',
+        // Same adapter class as the workers: wasmLinearMatch is a thin loader
+        // over the Rust f64 SIMD palette scan (src-wasm/), and its artifact
+        // (src/wasm/dither.wasm) only exists after `npm run build:wasm`. On
+        // fresh checkouts/CI the parity test skips and the loader's functions
+        // report uncovered (0% on CI); its real logic lives in the Rust crate,
+        // which v8 cannot measure either way. The parity test still pins it
+        // byte-for-byte when the module is built — this only stops the loader
+        // glue from failing the gate.
+        'src/lib/wasmLinearMatch.ts',
+        // Pure type declarations (interfaces + type-only imports) erase to
+        // zero runtime code, so v8 can never attribute coverage to them — no
+        // test can execute them, and the report shows a permanent 0% row.
+        'src/lib/**/types.ts',
       ],
       thresholds: {
         lines: 95,
