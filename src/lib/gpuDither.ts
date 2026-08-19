@@ -239,6 +239,13 @@ export function gpuDitherCovers(mode: string): boolean {
   return mode === 'floyd' || mode === 'atkinson';
 }
 
+/** Whether the "WebGPU dither failed" warning has been logged this session.
+ * The dither runs on every render, so without this latch an adapterless
+ * machine (gpuCommon latches the miss after the first request) would re-warn
+ * on every frame. The warning's job is to announce the environment fact once;
+ * the CPU output is byte-identical either way. */
+let warnedFallback = false;
+
 /**
  * Dithered with the GPU when WebGPU is available; falls back to the exact CPU
  * path otherwise. Never rejects: the fallback swallows every GPU failure
@@ -252,7 +259,10 @@ export async function processImageDataAsync(source: ImageData, options: ProcessO
   try {
     return await ditherImageDataGpu(source, options);
   } catch (error) {
-    console.warn('WebGPU dither failed; falling back to the CPU path.', error);
+    if (!warnedFallback) {
+      warnedFallback = true;
+      console.warn('WebGPU dither failed; falling back to the CPU path.', error);
+    }
     return processImageData(source, options);
   }
 }

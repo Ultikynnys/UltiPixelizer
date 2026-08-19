@@ -157,22 +157,48 @@ export function uniformBinding(...values: number[]): { data: Float32Array; usage
   return { data: Float32Array.from(values), usage: GPUBufferUsage.UNIFORM, type: 'uniform' };
 }
 
-/** One WebGPU device per session, shared by the AO and lightmap GPU bakes.
+/** One WebGPU device per session, shared by the AO and lightmap GPU bakes and
+ * the GPU dither.
+ *
  * requestAdapter/requestDevice is the expensive part (~100ms), so reuse the
  * device instead of re-requesting per bake. That makes the GPU path cheap even
  * for tiny scenes, which is what lets the bakes run on the GPU unconditionally
- * (no mesh/map-size threshold). A lost device (driver reset / GPU hang) drops
- * the cache so the next bake re-requests; a failed request also resets it so a
- * transient failure can recover. */
+ * (no mesh/map-size threshold).
+ *
+ * A lost device (driver reset / GPU hang) drops the device cache so the next
+ * bake re-requests. A *failed* adapter/device request is different: on a
+ * machine with no WebGPU adapter, every render would otherwise re-pay the
+ * ~100ms request and re-trigger the browser's "No available adapters."
+ * warning, so the miss is latched for the session and later calls fail fast. */
 let sharedDevicePromise: Promise<GPUDevice> | null = null;
+/** Latched once requestAdapter/requestDevice has failed this session. Lets
+ * per-frame callers (the GPU dither) skip the doomed ~100ms request and its
+ * console noise after the environment has proven adapterless. */
+let adapterUnavailable = false;
+
+/** crbug.com/369219127: Chromium ignores `powerPreference` on Windows and logs
+ * a warning for it on every requestAdapter call, so the hint is skipped there
+ * (it would be a no-op anyway). Other platforms keep it so dual-GPU machines
+ * still pick the discrete adapter. */
+function requestGpuAdapter(gpu: GPU): Promise<GPUAdapter | null> {
+  const agent = `${String(navigator.platform)} ${String(navigator.userAgent)}`;
+  return /win/i.test(agent)
+    ? gpu.requestAdapter()
+    : gpu.requestAdapter({ powerPreference: 'high-performance' });
+}
+
 export function getGpuDevice(): Promise<GPUDevice> {
   const gpu = typeof navigator !== 'undefined' ? navigator.gpu : undefined;
   if (!gpu) throw new Error('WebGPU is unavailable in this context.');
+  if (adapterUnavailable) throw new Error('WebGPU adapter unavailable.');
   if (!sharedDevicePromise) {
     sharedDevicePromise = (async () => {
       try {
-        const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
-        if (!adapter) throw new Error('WebGPU adapter unavailable.');
+        const adapter = await requestGpuAdapter(gpu);
+        if (!adapter) {
+          adapterUnavailable = true;
+          throw new Error('WebGPU adapter unavailable.');
+        }
         const device = await adapter.requestDevice();
         device.lost.then((info) => {
           if (info.reason !== 'destroyed') sharedDevicePromise = null;
@@ -180,6 +206,7 @@ export function getGpuDevice(): Promise<GPUDevice> {
         return device;
       } catch (error) {
         sharedDevicePromise = null;
+        adapterUnavailable = true;
         throw error;
       }
     })();
