@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import {
   cloneImageData,
   computeContainRect,
+  computeOutputDimensions,
   createSampleTexture,
   downloadCanvas,
   downloadText,
@@ -184,6 +185,17 @@ describe('computeContainRect', () => {
   it('returns a zero rect when either dimension is empty', () => {
     expect(computeContainRect(200, 100, 0, 100)).toEqual({ left: 0, top: 0, width: 0, height: 0, scale: 0 });
     expect(computeContainRect(0, 100, 200, 100)).toEqual({ left: 0, top: 0, width: 0, height: 0, scale: 0 });
+  });
+});
+
+describe('computeOutputDimensions', () => {
+  it('scales the height to preserve the source aspect ratio at the requested width', () => {
+    expect(computeOutputDimensions(512, { width: 4, height: 3 })).toEqual({ width: 512, height: 384 });
+    expect(computeOutputDimensions(64, { width: 3, height: 4 })).toEqual({ width: 64, height: 85 });
+  });
+
+  it('keeps a 1px height floor for extreme aspect ratios', () => {
+    expect(computeOutputDimensions(64, { width: 1000, height: 1 })).toEqual({ width: 64, height: 1 });
   });
 });
 

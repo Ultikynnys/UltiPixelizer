@@ -116,8 +116,8 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
   }
 
   function overlayCompositeCanvas(width: number, height: number): HTMLCanvasElement {
-    if (!uvOverlayComposite) uvOverlayComposite = document.createElement('canvas');
-    if (uvOverlayComposite.width !== width || uvOverlayComposite.height !== height) {
+    if (!uvOverlayComposite) uvOverlayComposite = createCanvas(width, height).canvas;
+    else if (uvOverlayComposite.width !== width || uvOverlayComposite.height !== height) {
       uvOverlayComposite.width = width;
       uvOverlayComposite.height = height;
     }

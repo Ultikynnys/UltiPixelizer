@@ -1,7 +1,7 @@
 import { buildLinearBVH } from './aoBvh';
-import { dilateUVBake } from './bakeGeometry';
+import { blankBakeBuffers, dilateUVBake } from './bakeGeometry';
 import { rasterizeAOShading, type SerializedBakeScene } from './aoRaster';
-import { assertAsciiWgsl, getGpuDevice, runComputePass, WGSL_BVH_TRAVERSAL } from './gpuCommon';
+import { assertAsciiWgsl, COMPUTE_WORKGROUP_SIZE, getGpuDevice, runComputePass, uniformBinding, WGSL_BVH_TRAVERSAL } from './gpuCommon';
 
 /**
  * WebGPU ambient-occlusion occlusion pass.
@@ -18,8 +18,8 @@ import { assertAsciiWgsl, getGpuDevice, runComputePass, WGSL_BVH_TRAVERSAL } fro
  * error) throws so the caller falls back to the worker/CPU bake unchanged.
  */
 
-/** Workgroup size; one invocation per texel. */
-const WORKGROUP_SIZE = 256;
+// The workgroup size is shared with the lightmap shader (COMPUTE_WORKGROUP_SIZE
+// in gpuCommon.ts) so the dispatch and both shaders stay in lockstep.
 
 /* v8 ignore start */
 const AO_WGSL = WGSL_BVH_TRAVERSAL + /* wgsl */ `
@@ -35,7 +35,7 @@ struct Uniforms {
 @group(0) @binding(5) var<storage, read_write> output: array<f32>;
 @group(0) @binding(6) var<uniform> u: Uniforms;
 
-@compute @workgroup_size(256)
+@compute @workgroup_size(${COMPUTE_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let texel = gid.x;
   if (texel >= arrayLength(&output)) { return; }
@@ -97,8 +97,7 @@ export async function bakeAOWithGpu(
   /* v8 ignore start */
   // Rasterize the UV islands and record per-texel shading on the main thread
   // (fast); the GPU only runs the expensive hemisphere ray casting.
-  const factors = new Uint8ClampedArray(texelCount).fill(255);
-  const written = new Uint8Array(texelCount);
+  const { pixels: factors, written } = blankBakeBuffers(width, height, 1);
   const texelData = new Float32Array(texelCount * 6);
   rasterizeAOShading(written, texelData, input, {
     width,
@@ -126,10 +125,10 @@ export async function bakeAOWithGpu(
       { data: texelData },
       { data: kernel },
       { output: true },
-      { data: new Float32Array([0, input.maxDistance, 0, 0]), usage: GPUBufferUsage.UNIFORM, type: 'uniform' },
+      uniformBinding(0, input.maxDistance, 0, 0),
     ],
     count: texelCount,
-    workgroupSize: WORKGROUP_SIZE,
+    workgroupSize: COMPUTE_WORKGROUP_SIZE,
   });
 
   for (let i = 0; i < texelCount; i += 1) {

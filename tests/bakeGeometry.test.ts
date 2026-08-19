@@ -11,6 +11,7 @@ import {
   type BakeTriangle,
 } from '../src/lib/bakeGeometry';
 import { createFallbackQuadScene } from '../src/lib/modelScene';
+import { uvTriangle } from './helpers/bakeFixtures';
 
 function meshWith(attributes: { position?: number[]; uv?: number[]; normal?: number[] }, visible = true): Mesh {
   const geometry = new BufferGeometry();
@@ -20,15 +21,6 @@ function meshWith(attributes: { position?: number[]; uv?: number[]; normal?: num
   const mesh = new Mesh(geometry, new MeshBasicMaterial());
   mesh.visible = visible;
   return mesh;
-}
-
-/** A unit triangle with UVs matching its local XY (uv (0,0),(1,0),(0,1)). */
-function uvTriangle(): Mesh {
-  return meshWith({
-    position: [0, 0, 0, 1, 0, 0, 0, 1, 0],
-    uv: [0, 0, 1, 0, 0, 1],
-    normal: [0, 0, 1, 0, 0, 1, 0, 0, 1],
-  });
 }
 
 describe('collectBakeScene', () => {

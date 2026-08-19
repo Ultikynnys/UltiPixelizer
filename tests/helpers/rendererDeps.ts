@@ -1,7 +1,23 @@
 import { vi } from 'vitest';
-import type { RendererDeps } from '../../src/lib/render/types';
+import type { RendererDeps, RenderShared } from '../../src/lib/render/types';
 import type { State, TextureChannelId, TextureSlot } from '../../src/lib/state';
 import { FakeCanvas } from './domStubs';
+import { computeOutputDimensions } from '../../src/lib/canvas';
+
+/** A RenderShared with the usual defaults — a fresh FakeCanvas for the
+ * rendered canvas and nulls for the lazy lightmap slots. Tests that need a
+ * non-null slot (e.g. the overlay suite's originalBaseCanvas) pass overrides.
+ * Shared by the bake / overlay / render2d suites. */
+export function createRenderShared(overrides: Partial<RenderShared> = {}): RenderShared {
+  return {
+    renderedCanvas: new FakeCanvas() as unknown as HTMLCanvasElement,
+    originalBaseCanvas: null,
+    implicitLightmapCanvas: null,
+    implicitLightmapTimer: 0,
+    lightmapCleared: false,
+    ...overrides,
+  };
+}
 
 /** A complete serializable State so render submodules read real values. */
 export function createStateFixture(): State {
@@ -94,8 +110,7 @@ export function createRendererDeps(overrides: Omit<Partial<RendererDeps>, 'textu
     dimensions: () => {
       const source = deps.textures.base.image;
       if (!source) return { width: 2, height: 2 };
-      const width = deps.state.resolution;
-      return { width, height: Math.max(1, Math.round(width * source.height / source.width)) };
+      return computeOutputDimensions(deps.state.resolution, source);
     },
     currentColors: () => ['#000000', '#ffffff'],
     updatePreviewBadge: vi.fn(),

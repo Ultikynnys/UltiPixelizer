@@ -1,44 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Mesh, MeshBasicMaterial, PlaneGeometry, Scene } from 'three';
 import { bakeMeshAO, bakeMeshAOAsync } from '../src/lib/aoBake';
-
-/** A fake `Worker` that captures its handler props so tests can drive the
- * message/error callbacks the production code assigns. */
-class MockWorker {
-  static instances: MockWorker[] = [];
-
-  onmessage: ((event: { data: unknown }) => void) | null = null;
-  onerror: ((event: { message?: string }) => void) | null = null;
-  postMessage = vi.fn();
-  terminate = vi.fn();
-
-  constructor(_url: URL | string, _options?: unknown) {
-    MockWorker.instances.push(this);
-  }
-}
-
-function planeScene(): Scene {
-  const scene = new Scene();
-  scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
-  return scene;
-}
+import { planeScene } from './helpers/bakeFixtures';
+import { installWorkerGlobal, MockWorker } from './helpers/workerScope';
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  MockWorker.instances = [];
 });
 
 describe('bakeMeshAOAsync', () => {
   it('falls back to a single-threaded bake when workers are unavailable', async () => {
-    vi.stubGlobal('Worker', undefined);
+    installWorkerGlobal(false);
     const scene = planeScene();
     const expected = bakeMeshAO(scene, 8, 8, { samples: 4 });
     expect(await bakeMeshAOAsync(scene, 8, 8, { samples: 4 })).toEqual(expected);
   });
 
   it('rasterizes row bands across workers and assembles the result', async () => {
-    vi.stubGlobal('Worker', MockWorker);
+    installWorkerGlobal();
     vi.stubGlobal('navigator', { hardwareConcurrency: 2 });
     const progress = vi.fn();
     const scene = planeScene();
@@ -66,7 +45,7 @@ describe('bakeMeshAOAsync', () => {
   });
 
   it('falls back to the main thread when a worker errors', async () => {
-    vi.stubGlobal('Worker', MockWorker);
+    installWorkerGlobal();
     vi.stubGlobal('navigator', { hardwareConcurrency: 1 });
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const scene = planeScene();

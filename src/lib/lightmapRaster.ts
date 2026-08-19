@@ -3,6 +3,7 @@ import type { MeshBVH } from 'three-mesh-bvh';
 import { texelShadingNormal, type SerializedBakeScene } from './aoRaster';
 import { castBakeRay, rasterizeBakeBand } from './bakeGeometry';
 import { clamp01, combineLight } from './math';
+import type { BakeWorkerError } from './workerCommon';
 
 /**
  * Lightmap bake options flattened for the worker — colors are pre-parsed to
@@ -36,12 +37,9 @@ export type LightmapBakeResult = {
   pixels: Uint8ClampedArray;
 };
 
-/** Worker message: the bake failed. */
-export type LightmapBakeError = {
-  type: 'error';
-  jobId: number;
-  message: string;
-};
+/** Worker message: the bake failed — the shared bake-worker error wire shape
+ * (see `BakeWorkerError` in workerCommon). */
+export type LightmapBakeError = BakeWorkerError;
 
 const _sun = new Vector3();
 const _mapped = new Vector3();

@@ -1,8 +1,35 @@
 import { imagePixels, type PixelSource } from './canvas';
+import { clamp01 } from './math';
 
 export type NormalFormat = 'opengl' | 'directx';
 
 export type NormalMapSource = PixelSource;
+
+/** Normal-map payload for the serialized bake scene: the decoded pixels plus
+ * the strength / flipY decode flags. Shared by the AO and lightmap bakes so
+ * both pipelines perturb shading normals through one payload shape. */
+export type SerializedNormalMap = {
+  map: NormalMapSource;
+  strength: number;
+  flipY: boolean;
+};
+
+/** Bundles an optional normal map into the serialized payload. The strength is
+ * clamped to [0, 1]: values above 1 over-perturb the tangent plane and push
+ * the reconstructed normal off the unit sphere (the decode zeroes the Z
+ * component), so every pipeline agrees on the bounded range. */
+export function normalMapPayload(options: {
+  normalMap?: NormalMapSource;
+  normalStrength?: number;
+  normalFlipY?: boolean;
+}): SerializedNormalMap | undefined {
+  if (!options.normalMap) return undefined;
+  return {
+    map: options.normalMap,
+    strength: clamp01(options.normalStrength ?? 1),
+    flipY: options.normalFlipY ?? false,
+  };
+}
 
 /**
  * Extracts a normal map's RGBA pixels at its native resolution. The blue channel

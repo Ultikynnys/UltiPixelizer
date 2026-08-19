@@ -1,5 +1,5 @@
 import { buildLinearBVH } from './aoBvh';
-import { assertAsciiWgsl, getGpuDevice, runComputePass, WGSL_BVH_TRAVERSAL } from './gpuCommon';
+import { assertAsciiWgsl, COMPUTE_WORKGROUP_SIZE, getGpuDevice, runComputePass, uniformBinding, WGSL_BVH_TRAVERSAL } from './gpuCommon';
 import type { SerializedBakeScene } from './aoRaster';
 
 /**
@@ -17,8 +17,8 @@ import type { SerializedBakeScene } from './aoRaster';
  * error) throws so the caller falls back to the CPU/worker visibility test.
  */
 
-/** Workgroup size; one invocation per vertex. */
-const WORKGROUP_SIZE = 256;
+// The workgroup size is shared with the AO shader (COMPUTE_WORKGROUP_SIZE in
+// gpuCommon.ts) so the dispatch and both shaders stay in lockstep.
 /** The CPU uses `far = Infinity`; a finite f32 far beyond any real scene scale
  * is equivalent for the slab + triangle bounds checks. */
 const SUN_FAR = 1e30;
@@ -40,7 +40,7 @@ struct LightmapUniforms {
 @group(0) @binding(4) var<storage, read_write> output: array<f32>;
 @group(0) @binding(5) var<uniform> u: LightmapUniforms;
 
-@compute @workgroup_size(256)
+@compute @workgroup_size(${COMPUTE_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let vi = gid.x;
   if (vi >= arrayLength(&output)) { return; }
@@ -98,17 +98,13 @@ export async function computeSunVisibilityGpu(
       { data: bvh.triangles },
       { data: input.vertices },
       { output: true },
-      {
-        data: new Float32Array([
-          input.epsilon, SUN_FAR, sunScale, 0,
-          sunDirection[0], sunDirection[1], sunDirection[2], 0,
-        ]),
-        usage: GPUBufferUsage.UNIFORM,
-        type: 'uniform',
-      },
+      uniformBinding(
+        input.epsilon, SUN_FAR, sunScale, 0,
+        sunDirection[0], sunDirection[1], sunDirection[2], 0,
+      ),
     ],
     count: vertexCount,
-    workgroupSize: WORKGROUP_SIZE,
+    workgroupSize: COMPUTE_WORKGROUP_SIZE,
   });
   /* v8 ignore stop */
 }

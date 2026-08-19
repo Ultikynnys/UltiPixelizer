@@ -1,5 +1,4 @@
-import { BufferAttribute, BufferGeometry } from 'three';
-import { MeshBVH } from 'three-mesh-bvh';
+import { blankBakeBuffers } from './bakeGeometry';
 import {
   rasterizeAOBand,
   type AOBandError,
@@ -8,6 +7,7 @@ import {
   type AOBandResult,
   type AOBandTimings,
 } from './aoRaster';
+import { createWorkerScope, deserializeBakeBvh, postWorkerError } from './workerCommon';
 
 /**
  * AO bake worker: builds an occluder BVH from the transferred world positions,
@@ -16,12 +16,9 @@ import {
  * the main thread informed as bands complete.
  *
  * The DOM lib is used project-wide, so the dedicated-worker globals are
- * reached through a narrow cast instead of the webworker lib.
+ * reached through the shared worker-scope cast in workerCommon.ts.
  */
-const workerScope = self as unknown as {
-  postMessage: (message: AOBandProgress | AOBandResult | AOBandError, transfer?: Transferable[]) => void;
-  addEventListener: (type: 'message', listener: (event: MessageEvent<AOBandRequest>) => void) => void;
-};
+const workerScope = createWorkerScope<AOBandProgress | AOBandResult | AOBandError, AOBandRequest>();
 
 workerScope.addEventListener('message', (event) => {
   const request = event.data;
@@ -29,17 +26,14 @@ workerScope.addEventListener('message', (event) => {
   const { jobId, width, height, yStart, yEnd } = request;
   try {
     const timings: AOBandTimings = { deserializeMs: 0, rayMs: 0, shadeMs: 0, rasterMs: 0 };
-    const occluder = new BufferGeometry();
-    occluder.setAttribute('position', new BufferAttribute(request.occluderPositions, 3));
     // The occluder BVH was already built once at scene collection and rides in
     // the request serialized — deserialize instead of rebuilding the same tree
     // per worker (the serialized roots are byte-identical to a fresh build).
     const deserializeStart = performance.now();
-    const bvh = request.bvh ? MeshBVH.deserialize(request.bvh, occluder) : new MeshBVH(occluder);
+    const bvh = deserializeBakeBvh(request);
     timings.deserializeMs = performance.now() - deserializeStart;
     const bandHeight = yEnd - yStart;
-    const factors = new Uint8ClampedArray(bandHeight * width).fill(255);
-    const written = new Uint8Array(bandHeight * width);
+    const { pixels: factors, written } = blankBakeBuffers(bandHeight, width, 1);
     rasterizeAOBand(factors, written, bvh, request, {
       width,
       height,
@@ -55,6 +49,6 @@ workerScope.addEventListener('message', (event) => {
       [factors.buffer as ArrayBuffer, written.buffer as ArrayBuffer],
     );
   } catch (error) {
-    workerScope.postMessage({ type: 'error', jobId, message: error instanceof Error ? error.message : String(error) });
+    postWorkerError(workerScope, jobId, error);
   }
 });

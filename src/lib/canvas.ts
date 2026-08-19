@@ -53,6 +53,14 @@ export function computeContainRect(containerWidth: number, containerHeight: numb
   return { left: (containerWidth - width) / 2, top: (containerHeight - height) / 2, width, height, scale };
 }
 
+/** Resamples the source to the requested pixel-grid width, scaling the height
+ * to preserve the aspect ratio (1px floor). Shared by the renderer's output
+ * dimensions and the bake sizes, so the dithered texture and the AO/lightmap
+ * bakes always agree on the target size. */
+export function computeOutputDimensions(resolution: number, source: { width: number; height: number }): { width: number; height: number } {
+  return { width: resolution, height: Math.max(1, Math.round(resolution * source.height / source.width)) };
+}
+
 /** Upscale method for the pixelized pipeline: nearest keeps source pixels
  * crisp (hard blocks, the default), bilinear smooths the scale with the
  * browser's filtered resample (soft blocks). */

@@ -1,9 +1,9 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BufferAttribute, BufferGeometry, Mesh, MeshBasicMaterial, Object3D, Scene } from 'three';
+import { BufferGeometry, Mesh, MeshBasicMaterial, Object3D, Scene } from 'three';
 import { createBake } from '../src/lib/render/bake';
-import type { RenderShared } from '../src/lib/render/types';
 import { createFallbackQuadScene } from '../src/lib/modelScene';
-import { createRendererDeps } from './helpers/rendererDeps';
+import { createRendererDeps, createRenderShared } from './helpers/rendererDeps';
+import { expectFallbackQuad } from './helpers/bakeFixtures';
 import { asSourceImage, FakeCanvas, installDomStubs } from './helpers/domStubs';
 
 const mocks = vi.hoisted(() => ({ bakeMeshAOAsync: vi.fn(), bakeMeshLightmap: vi.fn() }));
@@ -45,13 +45,7 @@ function setup(overrides: Parameters<typeof createRendererDeps>[0] = {}) {
   // Bake at 8×8 by default so base8 fixtures match their 8×8 mock buffers;
   // downscale-dimension tests override to 64 explicitly.
   deps.state.resolution = 8;
-  const shared: RenderShared = {
-    renderedCanvas: new FakeCanvas() as unknown as HTMLCanvasElement,
-    originalBaseCanvas: null,
-    implicitLightmapCanvas: null,
-    implicitLightmapTimer: 0,
-    lightmapCleared: false,
-  };
+  const shared = createRenderShared();
   const render2d = { render: vi.fn(), applyViewportImages: vi.fn() };
   const bake = createBake(deps, shared, render2d);
   return { deps, shared, render2d, bake };
@@ -500,28 +494,8 @@ describe('fallback bake scene', () => {
     await promise;
 
     const scene = mocks.bakeMeshAOAsync.mock.calls[0][0] as Mesh;
-    const normals = scene.geometry.getAttribute('normal') as BufferAttribute;
-    for (let i = 0; i < normals.count; i += 1) {
-      expect(normals.getX(i)).toBeCloseTo(0);
-      expect(normals.getY(i)).toBeCloseTo(1);
-      expect(normals.getZ(i)).toBeCloseTo(0);
-    }
-    // The quad's UVs span the whole 0..1 unit square, so the bake covers the
-    // full texture rather than a corner island.
-    const uv = scene.geometry.getAttribute('uv') as BufferAttribute;
-    let minU = Number.POSITIVE_INFINITY;
-    let maxU = Number.NEGATIVE_INFINITY;
-    let minV = Number.POSITIVE_INFINITY;
-    let maxV = Number.NEGATIVE_INFINITY;
-    for (let i = 0; i < uv.count; i += 1) {
-      minU = Math.min(minU, uv.getX(i));
-      maxU = Math.max(maxU, uv.getX(i));
-      minV = Math.min(minV, uv.getY(i));
-      maxV = Math.max(maxV, uv.getY(i));
-    }
-    expect(minU).toBe(0);
-    expect(maxU).toBe(1);
-    expect(minV).toBe(0);
-    expect(maxV).toBe(1);
+    // The fallback quad's contract (flat +Y normal, full 0..1 UV span) is
+    // asserted once in the factory test — this test only checks the wiring.
+    expectFallbackQuad(scene);
   });
 });

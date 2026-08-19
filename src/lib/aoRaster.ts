@@ -1,7 +1,8 @@
 import { MeshBVH } from 'three-mesh-bvh';
 import { Vector3 } from 'three';
 import { castBakeRay, rasterizeBakeBand, type BakeScene } from './bakeGeometry';
-import { sampleNormalMap, type NormalMapSource } from './normal';
+import { sampleNormalMap, type SerializedNormalMap } from './normal';
+import type { BakeWorkerError } from './workerCommon';
 
 /**
  * Symmetric cosine-weighted hemisphere kernel for AO sampling, flattened to
@@ -73,15 +74,9 @@ export type SerializedBakeScene = {
   bvh: SerializedBVH | null;
 };
 
-/** Normal-map payload for the AO rasterizer: the decoded pixels plus the
- * strength / flipY decode flags. The per-triangle tangent bases ride in the
- * serialized bake scene itself (computed once at collection, shared by the
- * lightmap and AO bakes). */
-export type SerializedNormalMap = {
-  map: NormalMapSource;
-  strength: number;
-  flipY: boolean;
-};
+/** Re-exported from normal.ts so existing AO/lightmap consumers keep their
+ * import path while the payload type lives next to its bundler. */
+export type { SerializedNormalMap } from './normal';
 
 /**
  * Copies a collected bake scene into the transferable flat layout the band
@@ -460,9 +455,6 @@ export type AOBandResult = {
   timings: AOBandTimings;
 };
 
-/** Worker message: the band failed to rasterize. */
-export type AOBandError = {
-  type: 'error';
-  jobId: number;
-  message: string;
-};
+/** Worker message: the band failed to rasterize — the shared bake-worker
+ * error wire shape (see `BakeWorkerError` in workerCommon). */
+export type AOBandError = BakeWorkerError;

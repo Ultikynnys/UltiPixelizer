@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshPhongMaterial, MeshStandardMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture, Vector3 } from 'three';
 import { applyDisplacement, applyUVChannel, cloneModelScene, computeSmoothNormals, convertToLambertShading, createFallbackQuadScene, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, getFallbackQuadScene, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
+import { expectFallbackQuad } from './helpers/bakeFixtures';
 
 function mesh(channels: string[], materials = 1): Mesh {
   const geometry = new BufferGeometry();
@@ -236,30 +237,9 @@ describe('createFallbackQuadScene', () => {
     const quad = createFallbackQuadScene() as Mesh;
     expect(quad).toBeInstanceOf(Mesh);
     // The quad's normal points +Y after the rotateX(-π/2) — it faces up, so
-    // the default sun (which travels downward) lights it.
-    const normals = quad.geometry.getAttribute('normal');
-    for (let i = 0; i < normals.count; i += 1) {
-      expect(normals.getX(i)).toBeCloseTo(0);
-      expect(normals.getY(i)).toBeCloseTo(1);
-      expect(normals.getZ(i)).toBeCloseTo(0);
-    }
-    // UVs span the whole 0..1 unit square, so a bake covers the full texture
-    // rather than a corner island.
-    const uv = quad.geometry.getAttribute('uv');
-    let minU = Number.POSITIVE_INFINITY;
-    let maxU = Number.NEGATIVE_INFINITY;
-    let minV = Number.POSITIVE_INFINITY;
-    let maxV = Number.NEGATIVE_INFINITY;
-    for (let i = 0; i < uv.count; i += 1) {
-      minU = Math.min(minU, uv.getX(i));
-      maxU = Math.max(maxU, uv.getX(i));
-      minV = Math.min(minV, uv.getY(i));
-      maxV = Math.max(maxV, uv.getY(i));
-    }
-    expect(minU).toBe(0);
-    expect(maxU).toBe(1);
-    expect(minV).toBe(0);
-    expect(maxV).toBe(1);
+    // the default sun (which travels downward) lights it; the UVs span the
+    // whole 0..1 unit square so a bake covers the full texture.
+    expectFallbackQuad(quad);
   });
 
   it('subdivides the plane by the tessellation parameter', () => {

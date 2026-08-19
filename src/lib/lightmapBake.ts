@@ -1,10 +1,11 @@
 import { Object3D } from 'three';
 import { hexToRgb, isHexColor } from './palettes';
 import { directionToSun, type DirectionVector } from './sunDirection';
-import { collectBakeScene, dilateUVBake, type BakeScene } from './bakeGeometry';
-import { clamp01, type RGB } from './math';
-import type { NormalMapSource } from './normal';
-import { serializeBakeScene, type SerializedNormalMap } from './aoRaster';
+import { runBakeWithFallbacks } from './bakePipeline';
+import { blankBakeBuffers, collectBakeScene, dilateUVBake, type BakeScene } from './bakeGeometry';
+import type { RGB } from './math';
+import { normalMapPayload, type NormalMapSource } from './normal';
+import { serializeBakeScene } from './aoRaster';
 import { computeSunVisibilityGpu } from './lightmapGpu';
 import { computeSunVisibilityCpu, rasterizeLightmap, type LightmapBakeRequest, type LightmapBakeResult, type SerializedLightmapOptions } from './lightmapRaster';
 // The worker is inlined into the bundle (blob URL) — same rationale as the AO
@@ -49,11 +50,10 @@ function parseColor(color: string): RGB {
  */
 export function bakeMeshLightmap(scene: Object3D, width: number, height: number, options: BakeLightmapOptions, bakeSceneOverride?: BakeScene): Uint8ClampedArray {
   const bakeScene = bakeSceneOverride ?? collectBakeScene(scene);
-  const serialized = serializeBakeScene(bakeScene, 2, lightmapNormalMap(options));
+  const serialized = serializeBakeScene(bakeScene, 2, normalMapPayload(options));
   const serializedOptions = serializeLightmapOptions(options);
   const visibility = computeSunVisibilityCpu(serialized, bakeScene.bvh, serializedOptions.sunDirection, serializedOptions.sunIntensity);
-  const pixels = new Uint8ClampedArray(width * height * 4).fill(255);
-  const written = new Uint8Array(width * height);
+  const { pixels, written } = blankBakeBuffers(width, height, 4);
   rasterizeLightmap(pixels, written, visibility, serialized, width, height, serializedOptions);
   dilateUVBake(pixels, written, width, height, 4);
   return pixels;
@@ -70,19 +70,6 @@ function serializeLightmapOptions(options: BakeLightmapOptions): SerializedLight
     sunIntensity: options.sunIntensity,
     ambientColor: parseColor(options.ambientColor),
     ambientIntensity: options.ambientIntensity,
-  };
-}
-
-/** Bundles the normal map for the serialized bake scene — the same payload the
- * AO bake transfers, so both pipelines perturb shading normals through the
- * shared `texelShadingNormal` mirror. The strength is clamped to [0, 1] here
- * exactly where the old lightmap raster mirrored it. */
-function lightmapNormalMap(options: BakeLightmapOptions): SerializedNormalMap | undefined {
-  if (!options.normalMap) return undefined;
-  return {
-    map: options.normalMap,
-    strength: clamp01(options.normalStrength ?? 1),
-    flipY: options.normalFlipY ?? false,
   };
 }
 
@@ -108,58 +95,49 @@ export async function bakeLightmapAsync(
   const bakeScene = bakeSceneOverride ?? collectBakeScene(scene);
   const serializedOptions = serializeLightmapOptions(options);
 
-  // GPU visibility runs on the main thread (the ray cast is the expensive part;
-  // the raster pass is cheap). The navigator.gpu check is synchronous so the
-  // device request never fires in tests; any throw falls through to the
-  // worker/CPU path.
-  if (typeof navigator !== 'undefined' && navigator.gpu) {
-    try {
-      const serialized = serializeBakeScene(bakeScene, 2, lightmapNormalMap(options));
+  return runBakeWithFallbacks(
+    'Lightmap',
+    // GPU visibility runs on the main thread (the ray cast is the expensive
+    // part; the raster pass is cheap); any throw falls through to the
+    // worker/CPU path.
+    async () => {
+      const serialized = serializeBakeScene(bakeScene, 2, normalMapPayload(options));
       const visibility = await computeSunVisibilityGpu(serialized, serializedOptions.sunDirection, serializedOptions.sunIntensity);
-      const pixels = new Uint8ClampedArray(width * height * 4).fill(255);
-      const written = new Uint8Array(width * height);
+      const { pixels, written } = blankBakeBuffers(width, height, 4);
       rasterizeLightmap(pixels, written, visibility, serialized, width, height, serializedOptions);
       dilateUVBake(pixels, written, width, height, 4);
       return pixels;
-    } catch (error) {
-      console.error('Lightmap GPU bake failed, falling back to the CPU path.', error);
-    }
-  }
-
-  if (typeof Worker === 'undefined') {
-    return bakeMeshLightmap(scene, width, height, options, bakeScene);
-  }
-  try {
-    const serialized = serializeBakeScene(bakeScene, 2, lightmapNormalMap(options));
-    const request: LightmapBakeRequest = {
-      ...serialized,
-      type: 'bake',
-      jobId: 1,
-      width,
-      height,
-      options: serializedOptions,
-    };
-    return await new Promise<Uint8ClampedArray>((resolve, reject) => {
-      const worker = new LightmapWorker();
-      worker.onmessage = (event) => {
-        const message = event.data as LightmapBakeResult | { type: 'error'; message: string };
-        worker.terminate();
-        if (message.type === 'result') resolve(message.pixels);
-        else reject(new Error(message.message));
+    },
+    async () => {
+      const serialized = serializeBakeScene(bakeScene, 2, normalMapPayload(options));
+      const request: LightmapBakeRequest = {
+        ...serialized,
+        type: 'bake',
+        jobId: 1,
+        width,
+        height,
+        options: serializedOptions,
       };
-      worker.onerror = (event) => {
-        worker.terminate();
-        reject(new Error(event.message || 'Lightmap worker failed.'));
-      };
-      worker.postMessage(request, [
-        serialized.vertices.buffer,
-        serialized.triangleUVs.buffer,
-        serialized.triangleVerts.buffer,
-        serialized.occluderPositions.buffer,
-      ]);
-    });
-  } catch (error) {
-    console.error('Lightmap worker bake failed, falling back to the main thread.', error);
-    return bakeMeshLightmap(scene, width, height, options, bakeScene);
-  }
+      return await new Promise<Uint8ClampedArray>((resolve, reject) => {
+        const worker = new LightmapWorker();
+        worker.onmessage = (event) => {
+          const message = event.data as LightmapBakeResult | { type: 'error'; message: string };
+          worker.terminate();
+          if (message.type === 'result') resolve(message.pixels);
+          else reject(new Error(message.message));
+        };
+        worker.onerror = (event) => {
+          worker.terminate();
+          reject(new Error(event.message || 'Lightmap worker failed.'));
+        };
+        worker.postMessage(request, [
+          serialized.vertices.buffer,
+          serialized.triangleUVs.buffer,
+          serialized.triangleVerts.buffer,
+          serialized.occluderPositions.buffer,
+        ]);
+      });
+    },
+    () => bakeMeshLightmap(scene, width, height, options, bakeScene),
+  );
 }

@@ -1,9 +1,8 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Scene } from 'three';
 import { createOverlay } from '../src/lib/render/overlay';
-import type { RenderShared } from '../src/lib/render/types';
 import type { ModelViewport } from '../src/lib/modelPreview';
-import { createRendererDeps } from './helpers/rendererDeps';
+import { createRendererDeps, createRenderShared } from './helpers/rendererDeps';
 import { asSourceImage, domStubs, FakeCanvas, flushRaf, installDomStubs, rafCount } from './helpers/domStubs';
 
 beforeAll(() => {
@@ -36,13 +35,7 @@ function overlappingScene(): Scene {
 
 function setup(overrides: Parameters<typeof createRendererDeps>[0] = {}) {
   const deps = createRendererDeps(overrides);
-  const shared: RenderShared = {
-    renderedCanvas: new FakeCanvas() as unknown as HTMLCanvasElement,
-    originalBaseCanvas: new FakeCanvas() as unknown as HTMLCanvasElement,
-    implicitLightmapCanvas: null,
-    implicitLightmapTimer: 0,
-    lightmapCleared: false,
-  };
+  const shared = createRenderShared({ originalBaseCanvas: new FakeCanvas() as unknown as HTMLCanvasElement });
   const overlay = createOverlay(deps, shared);
   return { deps, shared, overlay };
 }

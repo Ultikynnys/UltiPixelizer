@@ -1,13 +1,14 @@
 import { createBake } from './bake';
 import { createOverlay } from './overlay';
 import { createRender2D } from './render2d';
+import { createCanvas } from '../canvas';
 import type { RendererDeps, RendererApi, RenderShared } from './types';
 
 export type { RendererApi, RendererDeps } from './types';
 
 export function createRenderer(deps: RendererDeps): RendererApi {
   const shared: RenderShared = {
-    renderedCanvas: document.createElement('canvas'),
+    renderedCanvas: createCanvas(0, 0).canvas,
     originalBaseCanvas: null,
     implicitLightmapCanvas: null,
     implicitLightmapTimer: 0,

@@ -466,6 +466,17 @@ export function rasterizeBakeBand(
   if (onRowsComplete && rowsDone > lastReported) onRowsComplete(rowsDone);
 }
 
+/** Blank bake buffers: the `fill(255)` pixel map (bright background = unwritten)
+ * plus the parallel written mask (1 = covered by a bake triangle). Every UV
+ * bake allocates this pair up front, so the mark-then-dilate pipeline gets one
+ * allocator instead of repeating the two-line idiom at each call site. */
+export function blankBakeBuffers(width: number, height: number, channels: number): { pixels: Uint8ClampedArray; written: Uint8Array } {
+  return {
+    pixels: new Uint8ClampedArray(width * height * channels).fill(255),
+    written: new Uint8Array(width * height),
+  };
+}
+
 /**
  * Rasterizes bake triangles into a fresh `255`-filled buffer, marking covered
  * texels and dilating the UV islands' edges outward afterward. Every UV-space
@@ -490,8 +501,7 @@ export function rasterizeBakedPixels(
     pixelOffset: number,
   ) => void,
 ): Uint8ClampedArray {
-  const pixels = new Uint8ClampedArray(width * height * channels).fill(255);
-  const written = new Uint8Array(width * height);
+  const { pixels, written } = blankBakeBuffers(width, height, channels);
   rasterizeBake(width, height, triangles, (px, py, w0, w1, w2, triangle, triangleIndex) => {
     written[py * width + px] = 1;
     writePixel(pixels, px, py, w0, w1, w2, triangle, triangleIndex, (py * width + px) * channels);

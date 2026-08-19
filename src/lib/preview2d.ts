@@ -1,4 +1,5 @@
 import { computeContainRect } from './canvas';
+import { clamp } from './math';
 
 /**
  * Interactive 2D texture preview for one pane: pan/zoom over the fitted
@@ -70,8 +71,6 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
   const pointers = new Map<number, { x: number; y: number }>();
   let pinchDistance = 0;
   let dragging = false;
-
-  const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 
   function computeFit(): void {
     const frameWidth = frame.clientWidth;

@@ -9,7 +9,7 @@ import {
 } from 'three';
 import { bakeMeshAO } from '../src/lib/aoBake';
 import { createFallbackQuadScene } from '../src/lib/modelScene';
-import { ceilingQuad, flatNormalMap, raisedNeighborScene, uvIsland } from './helpers/bakeFixtures';
+import { ceilingQuad, flatNormalMap, planeScene, raisedNeighborScene, uvIsland } from './helpers/bakeFixtures';
 
 function mirroredHalfOccluderScene(direction: -1 | 1): Scene {
   const scene = new Scene();
@@ -17,26 +17,20 @@ function mirroredHalfOccluderScene(direction: -1 | 1): Scene {
   surface.scale.x = direction;
   scene.add(surface);
 
-  const ceiling = new BufferGeometry();
-  ceiling.setAttribute('position', new Float32BufferAttribute([
-    0, -3, 0.5,  3 * direction, -3, 0.5,  3 * direction, 3, 0.5,
-    0, -3, 0.5,  3 * direction, 3, 0.5,  0, 3, 0.5,
-  ], 3));
-  scene.add(new Mesh(ceiling, new MeshBasicMaterial()));
+  const ceiling = ceilingQuad(3, direction);
+  scene.add(ceiling);
   return scene;
 }
 
 describe('bakeMeshAO', () => {
   it('returns full visibility for an unoccluded plane', () => {
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const scene = planeScene();
     const factors = bakeMeshAO(scene, 8, 8, { samples: 4 });
     expect(Array.from(factors)).toEqual(new Array(64).fill(255));
   });
 
   it('darkens a surface facing a nearby occluder', () => {
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const scene = planeScene();
 
     scene.add(ceilingQuad());
 

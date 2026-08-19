@@ -1,17 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { BufferAttribute, BufferGeometry, Mesh, MeshBasicMaterial, Object3D } from 'three';
+import { Object3D } from 'three';
 import { collectBakeScene } from '../src/lib/bakeGeometry';
 import { getBakeScene, invalidateBakeSceneCache } from '../src/lib/bakeSceneCache';
 import { bakeMeshLightmap } from '../src/lib/lightmapBake';
 import { getFallbackQuadScene } from '../src/lib/modelScene';
+import { uvTriangle } from './helpers/bakeFixtures';
 
 function triangleScene(): Object3D {
-  const geometry = new BufferGeometry();
-  geometry.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3));
-  geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]), 3));
-  geometry.setAttribute('uv', new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1]), 2));
   const scene = new Object3D();
-  scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+  scene.add(uvTriangle());
   return scene;
 }
 

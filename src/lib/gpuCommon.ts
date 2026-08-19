@@ -117,6 +117,12 @@ fn anyHit(o: vec3<f32>, d: vec3<f32>, near: f32, far: f32) -> bool {
 }
 `;
 
+/** Workgroup size for the bake compute passes; one invocation per texel (AO)
+ * or vertex (lightmap). Shared so the JS dispatch and both shaders'
+ * `@workgroup_size(...)` can never drift apart (a mismatch silently
+ * under-dispatches and leaves trailing elements unwritten). */
+export const COMPUTE_WORKGROUP_SIZE = 256;
+
 /* v8 ignore start */
 /** WGSL shader sources must be pure ASCII: some WebGPU compilers (Tint) reject
  * non-ASCII bytes even inside comments, surfacing as a cryptic "invalid
@@ -142,6 +148,13 @@ function uploadGpuBuffer(device: GPUDevice, data: ArrayBufferView | ArrayBuffer,
   const buffer = device.createBuffer({ size: data.byteLength, usage: usage | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(buffer, 0, data);
   return buffer;
+}
+
+/** Builds the uniform binding for a compute pass: a fresh uniform buffer holding
+ * `values` as f32s. Shared by the AO and lightmap shaders, whose 16-byte-
+ * aligned uniform structs differ only in which slots they fill. */
+export function uniformBinding(...values: number[]): { data: Float32Array; usage: number; type: 'uniform' } {
+  return { data: Float32Array.from(values), usage: GPUBufferUsage.UNIFORM, type: 'uniform' };
 }
 
 /** One WebGPU device per session, shared by the AO and lightmap GPU bakes.
@@ -210,7 +223,7 @@ export type ComputePassSpec = {
  * output back. Every failure throws so callers fall back to their CPU/worker
  * path unchanged. */
 export async function runComputePass(spec: ComputePassSpec): Promise<Float32Array> {
-  const { device, shader, label, bindings, count, workgroupSize = 256 } = spec;
+  const { device, shader, label, bindings, count, workgroupSize = COMPUTE_WORKGROUP_SIZE } = spec;
 
   const layoutEntries: GPUBindGroupLayoutEntry[] = [];
   const groupEntries: GPUBindGroupEntry[] = [];

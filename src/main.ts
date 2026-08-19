@@ -1,5 +1,6 @@
 import './style.css';
-import { createCanvas, createSampleTexture, downloadCanvas, downloadText, drawImageToCanvas, loadImageFile, resampleAndPixelate, type UpscaleMethod } from './lib/canvas';
+import { computeOutputDimensions, createCanvas, createSampleTexture, downloadCanvas, downloadText, drawImageToCanvas, loadImageFile, resampleAndPixelate, type UpscaleMethod } from './lib/canvas';
+import { clamp } from './lib/math';
 import { CONFIG_FOLDER, disableWebviewContextMenu, initTauriFileStore, openExternalLink, type TauriFileStore } from './lib/tauri';
 import { CUSTOM_PALETTE_STORAGE_KEY, createCustomPalette, deleteCustomPalette, deleteCustomPaletteFile, duplicatePalette, filePaletteFor, isCustomPalette, loadCustomPalettes, loadCustomPalettesFromFiles, matchingPaletteKey, paletteFileName, paletteFromImport, saveCustomPaletteFile, selectOrCreatePalette, serializePaletteHex, updateCustomPalette, upsertCustomPalette, watchPalettesFolder, type CustomPalette } from './lib/customPalettes';
 import type { StorageLike } from './lib/storage';
@@ -789,11 +790,10 @@ function setPaletteKey(key: string): void {
 }
 
 function dimensions(): { width: number; height: number } {
-  const source = textures.base.image!;
   // The pixel grid resamples the source to the requested width — smaller
   // sources upscale (nearest-neighbor in the render pipeline), so 2k output
   // is reachable regardless of the source size.
-  return { width: state.resolution, height: Math.max(1, Math.round(state.resolution * source.height / source.width)) };
+  return computeOutputDimensions(state.resolution, textures.base.image!);
 }
 
 function updatePreviewBadge(width?: number, height?: number): void {
@@ -1781,7 +1781,7 @@ function bindRangeValueEdit(input: HTMLInputElement, output: HTMLElement, apply:
     const step = edit.step !== '' && edit.step !== 'any' ? Number(edit.step) : 0;
     let value = Number(edit.value);
     if (!Number.isFinite(value)) value = input.valueAsNumber;
-    value = Math.min(max, Math.max(min, value));
+    value = clamp(value, min, max);
     if (step > 0) value = Number((Math.round(value / step) * step).toFixed(6));
     input.value = String(value);
     apply(value);

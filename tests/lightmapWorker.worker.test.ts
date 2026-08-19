@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Mesh, MeshBasicMaterial, PlaneGeometry, Scene } from 'three';
 import { collectBakeScene } from '../src/lib/bakeGeometry';
 import { serializeBakeScene } from '../src/lib/aoRaster';
 import { bakeMeshLightmap } from '../src/lib/lightmapBake';
 import type { NormalMapSource } from '../src/lib/normal';
 import { installWorkerScope } from './helpers/workerScope';
+import { planeScene } from './helpers/bakeFixtures';
 
 /** 2×2 map that perturbs every texel to tangent-space +X (sx = 1, sz = 0). */
 const xNormalMap: NormalMapSource = {
@@ -19,8 +19,7 @@ const xNormalMap: NormalMapSource = {
 /** A valid serialized bake request backed by a real plane scene, with the
  * same shape bakeLightmapAsync posts to the worker. */
 function bakeRequest(): Record<string, unknown> {
-  const scene = new Scene();
-  scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+  const scene = planeScene();
   const serialized = serializeBakeScene(collectBakeScene(scene), 2, { map: xNormalMap, strength: 1, flipY: false });
   return {
     ...serialized,
@@ -69,8 +68,7 @@ describe('lightmap worker', () => {
       .find((message) => message.type === 'result');
     // The worker raster must match the sync bake byte-for-byte — both read
     // the same collected tangent bases, so the +X perturbation lands identically.
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const scene = planeScene();
     const expected = bakeMeshLightmap(scene, 8, 8, {
       sunDirection: { x: 0, y: 0, z: -1 },
       sunColor: '#ffffff',

@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRender2D } from '../src/lib/render/render2d';
 import type { RenderShared } from '../src/lib/render/types';
 import type { ModelViewport } from '../src/lib/modelPreview';
-import { createRendererDeps } from './helpers/rendererDeps';
+import { createRendererDeps, createRenderShared } from './helpers/rendererDeps';
 import { asSourceImage, FakeCanvas, installDomStubs, stubDocument } from './helpers/domStubs';
 
 // The pixelization filter must downscale the source before the dither pass
@@ -40,13 +40,7 @@ function baseTexture() {
 }
 
 function sharedState(): RenderShared {
-  return {
-    renderedCanvas: new FakeCanvas() as unknown as HTMLCanvasElement,
-    originalBaseCanvas: null,
-    implicitLightmapCanvas: null,
-    implicitLightmapTimer: 0,
-    lightmapCleared: false,
-  };
+  return createRenderShared();
 }
 
 /** A source canvas that carries a fixed 1×1 pixel value. */

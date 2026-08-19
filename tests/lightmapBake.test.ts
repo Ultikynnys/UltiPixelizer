@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, PlaneGeometry, Scene, Vector3 } from 'three';
 import { bakeLightmapAsync, bakeMeshLightmap, type BakeLightmapOptions } from '../src/lib/lightmapBake';
 import { createFallbackQuadScene } from '../src/lib/modelScene';
-import { ceilingQuad, flatNormalMap, raisedNeighborScene, uvIsland } from './helpers/bakeFixtures';
+import { ceilingQuad, flatNormalMap, planeScene, raisedNeighborScene, uvIsland } from './helpers/bakeFixtures';
 
 const defaults: BakeLightmapOptions = {
   // Orthographic rays travel down camera-local forward (-Z) onto the default +Z plane face.
@@ -20,8 +20,7 @@ function centerRGB(pixels: Uint8ClampedArray, size = 8): number[] {
 
 describe('bakeMeshLightmap', () => {
   it('bakes ambient color independently of surface direction', () => {
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const scene = planeScene();
     const pixels = bakeMeshLightmap(scene, 8, 8, {
       ...defaults,
       sunIntensity: 0,
@@ -32,8 +31,7 @@ describe('bakeMeshLightmap', () => {
   });
 
   it('lets ambient intensity 0 bake pure black with no minimum fill', () => {
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const scene = planeScene();
     const pixels = bakeMeshLightmap(scene, 8, 8, {
       ...defaults,
       sunIntensity: 0,
@@ -44,8 +42,7 @@ describe('bakeMeshLightmap', () => {
   });
 
   it('lights a camera-facing surface when orthographic rays travel toward it', () => {
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const scene = planeScene();
     const pixels = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ff8040' });
     expect(centerRGB(pixels)).toEqual([255, 128, 64]);
   });
@@ -86,8 +83,7 @@ describe('bakeMeshLightmap', () => {
   });
 
   it('casts directional shadows from UV-less geometry', () => {
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const scene = planeScene();
     scene.add(ceilingQuad());
     const pixels = bakeMeshLightmap(scene, 8, 8, defaults);
     expect(centerRGB(pixels)).toEqual([0, 0, 0]);
@@ -119,8 +115,7 @@ describe('bakeMeshLightmap', () => {
   });
 
   it('ignores the normal map at zero strength', () => {
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const scene = planeScene();
     const tilt = { data: new Uint8ClampedArray([255, 0, 0, 255]), width: 1, height: 1 };
     const zero = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ff8040', normalMap: tilt, normalStrength: 0 });
     const none = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ff8040' });
@@ -128,8 +123,7 @@ describe('bakeMeshLightmap', () => {
   });
 
   it('bakes a flat normal map close to the unmapped result', () => {
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const scene = planeScene();
     const flat = flatNormalMap();
     const [r, g, b] = centerRGB(bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ff8040', normalMap: flat }));
     expect(r).toBeGreaterThanOrEqual(254);
@@ -140,8 +134,7 @@ describe('bakeMeshLightmap', () => {
   });
 
   it('reduces sun contribution when the normal map tilts away from the sun', () => {
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const scene = planeScene();
     const tilt = { data: new Uint8ClampedArray([255, 128, 128, 255]), width: 1, height: 1 };
     const flat = flatNormalMap();
     const tilted = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ffffff', normalMap: tilt });
@@ -203,8 +196,7 @@ describe('bakeMeshLightmap', () => {
   });
 
   it('keeps a full-strength sun at white regardless of ambient', () => {
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const scene = planeScene();
     const sunOnly = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunIntensity: 1, ambientIntensity: 0 });
     const withAmbient = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunIntensity: 1, ambientIntensity: 0.5 });
     expect(centerRGB(sunOnly)).toEqual([255, 255, 255]);
@@ -224,8 +216,7 @@ describe('bakeMeshLightmap', () => {
   });
 
   it('adds ambient to sun rather than subtracting it', () => {
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
+    const scene = planeScene();
     const pixels = bakeMeshLightmap(scene, 8, 8, {
       ...defaults,
       sunColor: '#ffffff',

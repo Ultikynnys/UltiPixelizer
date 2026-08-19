@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AnimationClip, BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, MOUSE, Object3D, ShaderMaterial, Texture } from 'three';
+import { AnimationClip, BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, MOUSE, Object3D, Scene, ShaderMaterial, Texture } from 'three';
 import { loadModel, ModelViewport, upAxisRotation } from '../src/lib/modelPreview';
 import { renderModelThumbnail } from '../src/lib/modelScene';
 import type { ModelFileBundle } from '../src/lib/modelFiles';
@@ -565,10 +565,18 @@ describe('ModelViewport', () => {
 
   it('setUVOverlap builds an overlay for mapped triangles and tolerates missing geometry', () => {
     const viewport = new ModelViewport(host());
+    const overlapMeshes = () =>
+      (viewport as unknown as { scene: Scene }).scene.children.filter((child) => child.renderOrder === 1);
+
     viewport.setUVOverlap(new Map()); // empty map → no-op
+    expect(overlapMeshes()).toHaveLength(0);
     viewport.setUVOverlap(new Map([[0, [0]]])); // no model → no-op
+    expect(overlapMeshes()).toHaveLength(0);
+
     viewport.setModel(meshScene(), []);
     viewport.setUVOverlap(new Map([[0, [0]]]));
+    // The mapped triangle's vertices were collected into the overlay mesh.
+    expect(overlapMeshes()).toHaveLength(1);
     viewport.dispose();
 
     const bare = new Object3D();
@@ -576,6 +584,10 @@ describe('ModelViewport', () => {
     const viewport2 = new ModelViewport(host());
     viewport2.setModel(bare, []);
     viewport2.setUVOverlap(new Map([[0, [0]]]));
+    // No positions to collect → no overlay mesh is added.
+    expect(
+      (viewport2 as unknown as { scene: Scene }).scene.children.filter((child) => child.renderOrder === 1),
+    ).toHaveLength(0);
     viewport2.dispose();
   });
 
@@ -698,7 +710,13 @@ describe('ModelViewport', () => {
     const viewport = new ModelViewport(host());
     viewport.setModel(meshScene(), []);
     viewport.setUVOverlap(new Map([[0, [0]]]));
+    const overlay = (viewport as unknown as { overlapOverlay: Mesh | null }).overlapOverlay;
+    expect(overlay).not.toBeNull();
+    const uniforms = (overlay!.material as ShaderMaterial).uniforms;
+    const before = uniforms.uTime.value;
     flushRaf(16); // animate runs with the overlay present
+    expect(uniforms.uTime.value).not.toBe(before);
+    expect(uniforms.uTime.value).toBeCloseTo(16 / 1000);
     viewport.dispose();
   });
 });
