@@ -186,6 +186,76 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 
+  it('pixelizes the AO factor in the dithered pane, keeping the original pane smooth', () => {
+    const ao = new FakeCanvas();
+    ao.width = 2;
+    ao.height = 2;
+    ao.context.pixels.set([
+      255, 255, 255, 255, 128, 128, 128, 255,
+      64, 64, 64, 255, 32, 32, 32, 255,
+    ]);
+    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: asSourceImage(ao), name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.mode = 'none'; // dither is pass-through; the output shows the lighting alone
+    deps.state.pixelation = 50; // downscale to half, then upscale back = 2×2 blocks
+    const shared = sharedState();
+    createRender2D(deps, shared).render();
+
+    // Original pane: per-pixel AO multiply (smooth) — 10×255/255=10, 20×128/255≈10,
+    // 30×64/255≈8, 40×32/255≈5. The pixel grid slider must not affect it.
+    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([
+      10, 10, 10, 255, 10, 10, 10, 255,
+      8, 8, 8, 255, 5, 5, 5, 255,
+    ]);
+    // Dithered pane: the AO block takes its top-left factor (255 = unoccluded),
+    // so the whole 2×2 block keeps the base's top-left pixel — one uniform
+    // lighting value per base block, matching the pixelized base.
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(10).flatMap((_v, index) => (index % 4 === 3 ? [255] : [10])));
+  });
+
+  it('pixelizes the lightmap in the dithered pane, keeping the original pane smooth', () => {
+    const lightmap = new FakeCanvas();
+    lightmap.width = 2;
+    lightmap.height = 2;
+    lightmap.context.pixels.set([
+      0, 0, 0, 255, 255, 255, 255, 255,
+      255, 255, 255, 255, 255, 255, 255, 255,
+    ]);
+    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: asSourceImage(lightmap), name: '' } } });
+    deps.state.mode = 'none';
+    deps.state.pixelation = 50;
+    const shared = sharedState();
+    createRender2D(deps, shared).render();
+
+    // Original pane: per-pixel multiply — only the black texel darkens.
+    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([
+      0, 0, 0, 255, 20, 20, 20, 255,
+      30, 30, 30, 255, 40, 40, 40, 255,
+    ]);
+    // Dithered pane: the lightmap block takes its top-left texel (black), so
+    // the whole block is shadowed like the base's own block.
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
+  });
+
+  it('pixelizes the AO before driving the halftone dot screen', () => {
+    const ao = new FakeCanvas();
+    ao.width = 2;
+    ao.height = 2;
+    ao.context.pixels.set([
+      255, 255, 255, 255, 0, 0, 0, 255,
+      0, 0, 0, 255, 0, 0, 0, 255,
+    ]);
+    const deps = createRendererDeps({ textures: { base: { image: solidTexture([200, 200, 200, 255]), name: '' }, ao: { image: asSourceImage(ao), name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.mode = 'halftone';
+    deps.state.pixelation = 50; // the AO block's top-left texel (unoccluded) wins
+    const shared = sharedState();
+    createRender2D(deps, shared).render();
+
+    // Without pixelation the mixed AO map would darken three quarters of the
+    // dot screen; pixelization quantizes it to one uniform unoccluded block,
+    // so the dots disappear and the hard-mapped white base shows through.
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
+  });
+
   it('halftone dots follow implicit lightmap changes (sun re-bakes)', () => {
     const deps = createRendererDeps({ textures: { base: { image: solidTexture([200, 200, 200, 255]), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
     deps.state.mode = 'halftone';

@@ -40,6 +40,7 @@ export class FakeCanvasRenderingContext2D {
   textAlign = 'start';
   textBaseline = 'alphabetic';
   globalCompositeOperation = 'source-over';
+  imageSmoothingEnabled = true;
 
   constructor(readonly canvas: FakeCanvas) {}
 

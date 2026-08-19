@@ -1,5 +1,6 @@
 import { isHexColor, isPalette, paletteCategories, type Palette, type PaletteCategory } from './palettes';
 import type { DitherMode } from './dither';
+import type { UpscaleMethod } from './canvas';
 import { clamp01 } from './math';
 import { parseJsonFile, serializeJsonFile } from './storage';
 import { slugify } from './strings';
@@ -12,6 +13,8 @@ export const PRESET_VERSION = 7;
 
 export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'halftone', 'none'];
 
+export const upscaleMethods: UpscaleMethod[] = ['nearest', 'bilinear'];
+
 export type ConversionConfig = {
   resolution: number;
   mode: DitherMode;
@@ -20,6 +23,7 @@ export type ConversionConfig = {
   contrast: number;
   saturation: number;
   pixelation: number;
+  upscale: UpscaleMethod;
   paletteKey: string;
   palette: Palette;
   stripeAngle: number;
@@ -134,7 +138,8 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'brightness', path: ['brightness'], default: 0, validate: inRange(-100, 100) },
   { key: 'contrast', path: ['contrast'], default: 8, validate: inRange(-100, 100) },
   { key: 'saturation', path: ['saturation'], default: 5, validate: inRange(-100, 100) },
-  { key: 'pixelation', path: ['pixelation'], default: 0, migrateDefault: 0, validate: inRange(0, 99) },
+  { key: 'pixelation', path: ['pixelation'], default: 0, migrateDefault: 0, validate: inRange(0, 80) },
+  { key: 'upscale', path: ['upscale'], default: 'nearest', migrateDefault: 'nearest', validate: isEnum(upscaleMethods) },
   { key: 'stripeAngle', path: ['stripeAngle'], default: 45, migrateDefault: 45, validate: inRange(0, 135) },
   { key: 'noiseScale', path: ['noiseScale'], default: 1, migrateDefault: 1, validate: inRange(1, 32) },
   { key: 'halftoneScale', path: ['halftoneScale'], default: 1, migrateDefault: 1, validate: inRange(0.5, 4) },
@@ -153,7 +158,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   // loaded, so its panel settings are saved like any other setting.
   { key: 'quadTessellation', path: ['quadTessellation'], default: 16, migrateDefault: 16, validate: inRange(2, 128) },
   { key: 'quadGrid', path: ['quadGrid'], default: false, migrateDefault: false, validate: isBoolean },
-  { key: 'displacementStrength', path: ['displacementStrength'], default: 0.15, migrateDefault: 0.15, validate: inRange(0, 1) },
+  { key: 'displacementStrength', path: ['displacementStrength'], default: 0.15, migrateDefault: 0.15, validate: inRange(0, 0.2) },
   { key: 'displacementFlip', path: ['displacementFlip'], default: false, migrateDefault: false, validate: isBoolean },
   // Camera interaction preference — the "Alt controls" pill. Not a conversion
   // parameter, but it is saved like the other settings (and restored from old
@@ -293,6 +298,14 @@ function migratePreset(value: unknown): unknown {
   // Orient Sun with Camera button derives the saved sun direction from it —
   // so it never belonged in the saved format either.
   delete migrated.cameraDirection;
+  // The displacement push amount was capped at 0.2: the old 0–1 range was
+  // far too strong for quad displacement. Files saved above the cap are
+  // clamped so they still load, with the tamed look landing at the new max.
+  if (migrated.displacementStrength !== undefined) migrated.displacementStrength = Math.min(Number(migrated.displacementStrength), 0.2);
+  // The pixelation slider was capped at 80%: the old 0–99 range bottomed out
+  // into unusably tiny blocks. Files saved above the cap are clamped so they
+  // still load, with the chunkiest allowed look landing at the new max.
+  if (migrated.pixelation !== undefined) migrated.pixelation = Math.min(Number(migrated.pixelation), 80);
   for (const field of CONFIG_FIELDS) {
     if (field.migrateDefault !== undefined && migrated[field.key] === undefined) migrated[field.key] = field.migrateDefault;
   }

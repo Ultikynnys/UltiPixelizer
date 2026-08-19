@@ -19,6 +19,7 @@ export function createStateFixture(): State {
     contrast: 0,
     saturation: 0,
     pixelation: 0,
+    upscale: 'nearest',
     quadTessellation: 16,
     quadGrid: false,
     displacementStrength: 0.15,

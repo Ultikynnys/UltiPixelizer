@@ -1,4 +1,5 @@
 import type { DitherMode } from './dither';
+import type { UpscaleMethod } from './canvas';
 import type { WorldAxis } from './modelFiles';
 import type { NormalFormat } from './normal';
 import type { Palette, PaletteCategory } from './palettes';
@@ -31,6 +32,8 @@ export type State = {
   contrast: number;
   saturation: number;
   pixelation: number;
+  /** How the pixelated image is upscaled back to full resolution. */
+  upscale: UpscaleMethod;
   quadTessellation: number;
   quadGrid: boolean;
   displacementStrength: number;

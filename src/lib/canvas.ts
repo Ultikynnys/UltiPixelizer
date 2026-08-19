@@ -53,6 +53,27 @@ export function computeContainRect(containerWidth: number, containerHeight: numb
   return { left: (containerWidth - width) / 2, top: (containerHeight - height) / 2, width, height, scale };
 }
 
+/** Upscale method for the pixelized pipeline: nearest keeps source pixels
+ * crisp (hard blocks, the default), bilinear smooths the scale with the
+ * browser's filtered resample (soft blocks). */
+export type UpscaleMethod = 'nearest' | 'bilinear';
+
+/** Resizes an image to the given size with the chosen upscale method. Always
+ * returns a fresh canvas at the target size, so callers can rely on canvas
+ * APIs (toBlob, getContext) regardless of the source. */
+export function resizeImage(
+  image: CanvasImageSource & { width: number; height: number },
+  width: number,
+  height: number,
+  method: UpscaleMethod = 'nearest',
+): HTMLCanvasElement {
+  const { canvas, context } = createCanvas(width, height);
+  if (!context) throw new Error('Canvas is unavailable.');
+  context.imageSmoothingEnabled = method === 'bilinear';
+  context.drawImage(image, 0, 0, width, height);
+  return canvas;
+}
+
 /** Nearest-neighbor (pixelized) resize of an image to the given size —
  * smoothing disabled so source pixels stay crisp, matching the dithered
  * pipeline's pixelated look. Always returns a fresh canvas at the target
@@ -64,11 +85,7 @@ export function resizeNearest(
   width: number,
   height: number,
 ): HTMLCanvasElement {
-  const { canvas, context } = createCanvas(width, height);
-  if (!context) throw new Error('Canvas is unavailable.');
-  context.imageSmoothingEnabled = false;
-  context.drawImage(image, 0, 0, width, height);
-  return canvas;
+  return resizeImage(image, width, height, 'nearest');
 }
 
 /** Draws an image at the given size and returns its RGBA pixel data. Shared by
@@ -122,29 +139,35 @@ export function processLitImageData(
 }
 
 /** Pixelizes a canvas by downscaling it to `1 - percent / 100` of its size and
- * nearest-neighbor upscaling it back to full resolution: a chunky block look
- * driven by a single 0..99 percentage (0 = off, the default). The downscale is
+ * upscaling it back to full resolution with the given method: a chunky block
+ * look driven by a single 0..80 percentage (0 = off, the default). The
+ * downscale samples with nearest-neighbor (each block keeps one source
+ * pixel); the upscale-back step renders the blocks with the chosen method —
+ * nearest gives hard block edges, bilinear smooths them. The downscale is
  * clamped to at least 1px so the image never collapses entirely. */
-export function pixelateCanvas(canvas: HTMLCanvasElement, percent: number): HTMLCanvasElement {
+export function pixelateCanvas(canvas: HTMLCanvasElement, percent: number, method: UpscaleMethod = 'nearest'): HTMLCanvasElement {
   if (percent <= 0) return canvas;
   const { width, height } = canvas;
   const scale = 1 - percent / 100;
   const smallWidth = Math.max(1, Math.round(width * scale));
   const smallHeight = Math.max(1, Math.round(height * scale));
   const small = resizeNearest(canvas, smallWidth, smallHeight);
-  return resizeNearest(small, width, height);
+  return resizeImage(small, width, height, method);
 }
 
 /** Nearest-neighbor resample to the given size followed by the downscale +
  * upscale pixelization filter — the processed normals map's pipeline, shared by
- * the 2D normals inspection, the processed viewport push, and the bake inputs. */
+ * the 2D normals inspection, the processed viewport push, and the bake inputs.
+ * The resample stays nearest (crisp map values); the pixelization's
+ * upscale-back step honors the chosen upscale method. */
 export function resampleAndPixelate(
   image: CanvasImageSource & { width: number; height: number },
   width: number,
   height: number,
   percent: number,
+  method: UpscaleMethod = 'nearest',
 ): HTMLCanvasElement {
-  return pixelateCanvas(resizeNearest(image, width, height), percent);
+  return pixelateCanvas(resizeNearest(image, width, height), percent, method);
 }
 
 function mulberry32(seed: number): () => number {

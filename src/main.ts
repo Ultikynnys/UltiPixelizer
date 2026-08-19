@@ -1,7 +1,7 @@
 import './style.css';
-import { createCanvas, createSampleTexture, downloadCanvas, downloadText, drawImageToCanvas, loadImageFile, resampleAndPixelate } from './lib/canvas';
+import { createCanvas, createSampleTexture, downloadCanvas, downloadText, drawImageToCanvas, loadImageFile, resampleAndPixelate, type UpscaleMethod } from './lib/canvas';
 import { CONFIG_FOLDER, disableWebviewContextMenu, initTauriFileStore, openExternalLink, type TauriFileStore } from './lib/tauri';
-import { CUSTOM_PALETTE_STORAGE_KEY, createCustomPalette, deleteCustomPalette, deleteCustomPaletteFile, duplicatePalette, filePaletteFor, isCustomPalette, loadCustomPalettes, loadCustomPalettesFromFiles, matchingPaletteKey, paletteFileName, paletteFromImport, saveCustomPaletteFile, selectOrCreatePalette, serializePaletteHex, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
+import { CUSTOM_PALETTE_STORAGE_KEY, createCustomPalette, deleteCustomPalette, deleteCustomPaletteFile, duplicatePalette, filePaletteFor, isCustomPalette, loadCustomPalettes, loadCustomPalettesFromFiles, matchingPaletteKey, paletteFileName, paletteFromImport, saveCustomPaletteFile, selectOrCreatePalette, serializePaletteHex, updateCustomPalette, upsertCustomPalette, watchPalettesFolder, type CustomPalette } from './lib/customPalettes';
 import type { StorageLike } from './lib/storage';
 import type { DitherMode } from './lib/dither';
 import { sampleColorAt } from './lib/eyedropper';
@@ -14,7 +14,7 @@ import { applyDisplacement, applyUVChannel, cloneModelScene, createFallbackQuadS
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
 import { computeAverageTexelDensity } from './lib/texelDensity';
-import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, type ConversionPreset, type SavedCamera } from './lib/presets';
+import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, upscaleMethods, type ConversionPreset, type SavedCamera } from './lib/presets';
 import { lightmapMatchesBaseColor } from './lib/lightmap';
 import { imageHeightmapPixels, sampleHeightmap, type NormalFormat } from './lib/normal';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY } from './lib/defaults';
@@ -35,6 +35,28 @@ const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string; bak
   { id: 'lightmap', label: 'Lightmap' },
   { id: 'displacement', label: 'Displacement' },
 ];
+
+// Pattern dropdown: one entry per dither mode in the canonical order (mirrors
+// presets.ts ditherModes), carrying the display label and the CSS pattern-swatch
+// class. Drives both the dropdown trigger and its option list from one place.
+const DITHER_MODE_OPTIONS: ReadonlyArray<{ mode: DitherMode; label: string; pattern: string }> = [
+  { mode: 'floyd', label: 'Floyd–Steinberg', pattern: 'noise' },
+  { mode: 'atkinson', label: 'Atkinson', pattern: 'atkinson' },
+  { mode: 'ordered', label: 'Ordered 4×4', pattern: 'grid' },
+  { mode: 'cross', label: 'Cross', pattern: 'cross' },
+  { mode: 'stripes', label: 'Stripes', pattern: 'stripes' },
+  { mode: 'noise', label: 'Noise', pattern: 'random' },
+  { mode: 'checker', label: 'Checker', pattern: 'checker' },
+  { mode: 'halftone', label: 'Halftone', pattern: 'halftone' },
+  { mode: 'none', label: 'None', pattern: 'none' },
+];
+
+/** Pattern swatch + label markup for a dither mode — the dropdown trigger and
+ * every option row share the same inner content. */
+function modeRow(mode: DitherMode): string {
+  const option = DITHER_MODE_OPTIONS.find((candidate) => candidate.mode === mode);
+  return option ? `<span class="pattern pattern-${option.pattern}"></span><strong>${option.label}</strong>` : '';
+}
 
 // Download-arrow icon shared by the palette export card, the texture slot
 // download buttons, and the Export PNG button, so the markup lives in one place.
@@ -319,16 +341,13 @@ app.innerHTML = `
 
         <section class="panel">
           <div class="panel-heading compact"><div><h2>Pattern</h2></div></div>
-          <div class="mode-grid" role="group" aria-label="Dithering algorithm">
-            <button class="mode-button active" data-mode="floyd" type="button"><span class="pattern pattern-noise"></span><strong>Floyd–Steinberg</strong></button>
-            <button class="mode-button" data-mode="atkinson" type="button"><span class="pattern pattern-atkinson"></span><strong>Atkinson</strong></button>
-            <button class="mode-button" data-mode="ordered" type="button"><span class="pattern pattern-grid"></span><strong>Ordered 4×4</strong></button>
-            <button class="mode-button" data-mode="cross" type="button"><span class="pattern pattern-cross"></span><strong>Cross</strong></button>
-            <button class="mode-button" data-mode="stripes" type="button"><span class="pattern pattern-stripes"></span><strong>Stripes</strong></button>
-            <button class="mode-button" data-mode="noise" type="button"><span class="pattern pattern-random"></span><strong>Noise</strong></button>
-            <button class="mode-button" data-mode="checker" type="button"><span class="pattern pattern-checker"></span><strong>Checker</strong></button>
-            <button class="mode-button" data-mode="halftone" type="button"><span class="pattern pattern-halftone"></span><strong>Halftone</strong></button>
-            <button class="mode-button" data-mode="none" type="button"><span class="pattern pattern-none"></span><strong>None</strong></button>
+          <div class="mode-dropdown" id="modeDropdown">
+            <button type="button" class="mode-select" id="modeSelect" aria-haspopup="listbox" aria-expanded="false" aria-controls="modeOptions">
+              ${modeRow(state.mode)}<span class="mode-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="mode-dropdown-list" id="modeOptions" role="group" aria-label="Dithering algorithm">
+              ${DITHER_MODE_OPTIONS.map((option) => `<button class="mode-button${option.mode === state.mode ? ' active' : ''}" data-mode="${option.mode}" type="button">${modeRow(option.mode)}</button>`).join('')}
+            </div>
           </div>
           ${rangeControl('strength', 'Dither strength', 0, 100, 1, 85, '85%', 'Error diffusion amount')}
           <div class="stripe-angle-control" id="stripeAngleControl" hidden>
@@ -347,7 +366,10 @@ app.innerHTML = `
           <div class="panel-heading compact">
             <div><h2>Adjustments</h2></div>
           </div>
-          <div id="pixelationControl"></div>
+          <div class="pixelation-row">
+            <div class="pixelation-control" id="pixelationControl"></div>
+            <select class="select upscale-select" id="upscale" title="How the pixelated image is upscaled back to full resolution. Nearest: crisp blocks. Bilinear: smoothed." aria-label="Upscale method">${upscaleMethods.map((method) => `<option value="${method}">${method[0].toUpperCase()}${method.slice(1)}</option>`).join('')}</select>
+          </div>
           <div class="resolution-block">
             <div id="resolutionControl"></div>
             <div class="range-labels"><span>CHUNKY</span><span>FINE</span></div>
@@ -373,7 +395,7 @@ app.innerHTML = `
           <div class="panel-heading compact"><div><h2>Fallback plane</h2></div></div>
           ${rangeControl('quadTessellation', 'Tessellation', 2, 128, 1, 16, '16 × 16', 'Subdivisions for the fallback quad')}
           <label class="control-row quad-grid-row"><span><strong>3×3 grid</strong><small>Middle tile baked — neighbors cast shadows</small></span>${toggleControl('quadGrid', 'Show the quad as a 3×3 grid')}</label>
-          ${rangeControl('displacementStrength', 'Displacement', 0, 1, 0.01, 0.15, '0.15', 'Heightmap push amount')}
+          ${rangeControl('displacementStrength', 'Displacement', 0, 0.2, 0.005, 0.15, '0.15', 'Heightmap push amount')}
           <label class="control-row quad-grid-row"><span><strong>Flip displacement</strong><small>Invert the heightmap — 1 − height</small></span>${toggleControl('displacementFlip', 'Invert the displacement heightmap')}</label>
         </section>
 
@@ -409,6 +431,9 @@ const paletteFilters = document.querySelector<HTMLDivElement>('#paletteFilters')
 const paletteSearchControl = document.querySelector<HTMLDivElement>('#paletteSearchControl')!;
 const paletteSearchInput = document.querySelector<HTMLInputElement>('#paletteSearchInput')!;
 const paletteSortToggle = document.querySelector<HTMLButtonElement>('#paletteSortToggle')!;
+const modeDropdown = document.querySelector<HTMLDivElement>('#modeDropdown')!;
+const modeSelect = document.querySelector<HTMLButtonElement>('#modeSelect')!;
+const upscaleSelect = document.querySelector<HTMLSelectElement>('#upscale')!;
 const customPaletteSection = document.querySelector<HTMLDivElement>('.custom-palette')!;
 const paletteEditorToggle = document.querySelector<HTMLButtonElement>('#paletteEditorToggle')!;
 const customColors = document.querySelector<HTMLDivElement>('#customColors')!;
@@ -916,7 +941,7 @@ function applyViewportNormalMap(): void {
     // The processed viewport's Normals view follows the pixelation amount:
     // downscale/upscale applies on top of the target-resolution resample,
     // mirroring the processed 2D normals inspection and the dithered base.
-    processedViewport.setNormalMap(image ? resampleAndPixelate(image, width, height, state.pixelation) : null, strength, flipY);
+    processedViewport.setNormalMap(image ? resampleAndPixelate(image, width, height, state.pixelation, state.upscale) : null, strength, flipY);
   }
 }
 
@@ -1099,6 +1124,15 @@ function syncActiveButton(root: ParentNode | null, selector: string, isActive: (
 
 function setActiveMode(mode: DitherMode): void {
   syncActiveButton(document, '[data-mode]', (button) => button.dataset.mode === mode);
+  // The dropdown trigger mirrors the selection, so the closed control always
+  // reads as the current pattern (icon + label + chevron).
+  modeSelect.innerHTML = `${modeRow(mode)}<span class="mode-chevron" aria-hidden="true"></span>`;
+}
+
+/** Closes the pattern dropdown without changing the selection. */
+function closeModeDropdown(): void {
+  modeDropdown.classList.remove('open');
+  modeSelect.setAttribute('aria-expanded', 'false');
 }
 
 function renderTextureRibbon(): void {
@@ -1455,7 +1489,16 @@ function renderAdjustments(): void {
   // the resolution block, with the tone adjustments below it. Both grid
   // controls go through the same rangeControl generator as every other slider
   // (same label / output / click-to-edit markup), so they stay DRY with them.
-  document.querySelector('#pixelationControl')!.innerHTML = rangeControl('pixelation', 'Pixelation', 0, 99, 1, state.pixelation, formatPercent(state.pixelation));
+  // The pixelization control uses a bespoke layout instead of rangeControl:
+  // the label line spans the full row so the percentage right-aligns with the
+  // upscale dropdown's edge, with the slider + dropdown on the line below.
+  // The ids match rangeControl's, so the slider bindings and click-to-edit
+  // keep working unchanged.
+  document.querySelector('#pixelationControl')!.innerHTML = `
+    <label for="pixelation"><span><strong>Pixelation</strong></span><output id="pixelationValue" title="Click to type a value">${formatPercent(state.pixelation)}</output><input class="range-value-edit" id="pixelationEdit" type="number" min="0" max="80" step="1" value="${state.pixelation}" aria-label="Pixelation value" hidden /></label>
+    <input class="range" id="pixelation" type="range" min="0" max="80" step="1" value="${state.pixelation}" aria-label="Pixelation" />
+  `;
+  upscaleSelect.value = state.upscale;
   document.querySelector('#resolutionControl')!.innerHTML = rangeControl('resolution', 'Resolution', 24, 1024, 8, state.resolution, formatPixels(state.resolution));
   const controls: Array<[keyof Pick<State, 'brightness' | 'contrast' | 'saturation'>, string]> = [
     ['brightness', 'Brightness'], ['contrast', 'Contrast'], ['saturation', 'Saturation'],
@@ -1636,6 +1679,22 @@ function removeCustomPalette(key: string): void {
   } catch (error) {
     console.error('Could not delete custom palette.', error);
   }
+}
+
+/** Applies a palette-library reload from disk: manual `.hex` file drops,
+ * edits or removals in the palettes folder (see watchPalettesFolder). When
+ * the active palette's file was removed, fall back like removeCustomPalette
+ * does; otherwise the grid re-renders in place. */
+function applyPaletteLibraryReload(palettes: CustomPalette[]): void {
+  const activeWasCustom = customPaletteByKey(state.paletteKey) !== undefined;
+  savedCustomPalettes = palettes;
+  if (activeWasCustom && customPaletteByKey(state.paletteKey) === undefined) {
+    setPaletteKey('desert');
+    draftName = '';
+    editingCustomKey = null;
+    render();
+  }
+  renderPalettes();
 }
 
 function activePaletteSnapshot() {
@@ -2149,10 +2208,26 @@ function bindAdjustmentEvents(): void {
       // nearest-neighbor upscale back to full resolution. Snap any typed
       // decimal and keep the viewport normals map in sync with the amount.
       apply: (value) => {
-        state.pixelation = Math.max(0, Math.min(99, Math.round(value)));
+        state.pixelation = Math.max(0, Math.min(80, Math.round(value)));
         applyViewportNormalMap();
       },
     });
+  }
+
+  // The resolution slider, value output and click-to-edit are regenerated by
+  // renderAdjustments on every sync, so they are re-bound here (like the
+  // adjustment sliders above) instead of once at module scope — a module-scope
+  // binding would be detached by the next regeneration.
+  const resolutionInput = document.querySelector<HTMLInputElement>('#resolution');
+  const resolutionOutput = document.querySelector<HTMLElement>('#resolutionValue');
+  if (resolutionInput && resolutionOutput) {
+    bindRange({
+      input: resolutionInput,
+      output: resolutionOutput,
+      format: formatPixels,
+      apply: (value) => updateResolution(value),
+    });
+    bindRangeValueEdit(resolutionInput, resolutionOutput, updateResolution, formatPixels);
   }
 }
 
@@ -2311,6 +2386,11 @@ async function bootDesktopStorage(): Promise<void> {
     console.error('Custom palettes could not be loaded from the data store.', error);
   }
   await restoreSettings();
+  // Live watch: `.hex` files dropped into the palettes folder from the OS
+  // file manager appear in the library without an app restart (see
+  // applyPaletteLibraryReload). Restored settings are applied first so the
+  // watcher's baseline reflects the restored library.
+  watchPalettesFolder(store, applyPaletteLibraryReload);
 }
 
 syncControlsFromState();
@@ -2341,15 +2421,9 @@ disableWebviewContextMenu();
 void bootDesktopStorage();
 void loadExampleAssets();
 
-document.querySelector('#resolution')!.addEventListener('input', (event) => updateResolution(Number((event.target as HTMLInputElement).value)));
-document.querySelector('#resolution')!.addEventListener('change', renderScheduler.flush);
-// Click-to-edit numeric entry, same as every other slider's value output.
-bindRangeValueEdit(
-  document.querySelector<HTMLInputElement>('#resolution')!,
-  document.querySelector<HTMLElement>('#resolutionValue')!,
-  (value) => updateResolution(value),
-  formatPixels,
-);
+// The resolution preset chips are static (never regenerated), so they bind
+// once here; the slider, value output and click-to-edit are re-bound on every
+// sync inside bindAdjustmentEvents, after renderAdjustments regenerates them.
 document.querySelectorAll<HTMLButtonElement>('[data-resolution]').forEach((button) => button.addEventListener('click', () => updateResolution(Number(button.dataset.resolution), true)));
 bindRange({
   input: strengthInput,
@@ -2455,8 +2529,31 @@ document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => 
   state.mode = button.dataset.mode as DitherMode;
   setActiveMode(state.mode);
   updatePatternControls();
+  closeModeDropdown();
   render();
 }));
+// The trigger toggles the dropdown; picking an option applies it and closes
+// (above). Outside clicks and Escape close without changing the selection.
+modeSelect.addEventListener('click', () => {
+  const open = modeDropdown.classList.toggle('open');
+  modeSelect.setAttribute('aria-expanded', String(open));
+});
+document.addEventListener('click', (event) => {
+  if (!modeDropdown.contains(event.target as Node)) closeModeDropdown();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && modeDropdown.classList.contains('open')) {
+    closeModeDropdown();
+    modeSelect.focus();
+  }
+});
+// The upscale method is the pixelization slider's sibling: switching it
+// re-syncs the processed viewport normals map and re-renders the 2D panes.
+upscaleSelect.addEventListener('change', () => {
+  state.upscale = upscaleSelect.value as UpscaleMethod;
+  applyViewportNormalMap();
+  render();
+});
 paletteFilters.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-filter]');
   if (!button?.dataset.filter) return;

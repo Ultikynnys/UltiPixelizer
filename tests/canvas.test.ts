@@ -13,6 +13,7 @@ import {
   pixelateCanvas,
   processLitImageData,
   resampleAndPixelate,
+  resizeImage,
   resizeNearest,
 } from '../src/lib/canvas';
 import { asSourceImage, domStubs, FakeCanvas, installDomStubs, stubDocument } from './helpers/domStubs';
@@ -110,6 +111,16 @@ describe('canvas drawing helpers', () => {
     const sameSize = resizeNearest(source, 1, 1);
     expect(sameSize).not.toBe(source);
     expect(Array.from((sameSize as unknown as FakeCanvas).context.pixels)).toEqual([200, 100, 50, 255]);
+  });
+
+  it('resizes with the chosen upscale method (nearest crisp, bilinear smoothed)', () => {
+    const source = pixelCanvas([200, 100, 50, 255]);
+    // The method toggles the canvas smoothing flag: nearest keeps source
+    // pixels hard, bilinear lets the browser filter the scale.
+    const nearest = resizeImage(source, 2, 1, 'nearest') as unknown as FakeCanvas;
+    const bilinear = resizeImage(source, 2, 1, 'bilinear') as unknown as FakeCanvas;
+    expect(nearest.context.imageSmoothingEnabled).toBe(false);
+    expect(bilinear.context.imageSmoothingEnabled).toBe(true);
   });
 
   it('throws a friendly error when pixels cannot be read', () => {

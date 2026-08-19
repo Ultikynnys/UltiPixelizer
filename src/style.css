@@ -470,9 +470,18 @@ body.eyedropping, body.eyedropping * { cursor: var(--eyedropper-cursor, crosshai
    chip's own click handling. */
 .custom-color.active label::after { box-shadow: 0 0 0 1px #000, 0 0 0 3px #fff; content: ''; inset: 0; pointer-events: none; position: absolute; z-index: 2; }
 .custom-color-add { align-items: center; background: var(--card); color: var(--muted); cursor: pointer; display: flex; font: 500 15px 'DM Mono', monospace; height: 25px; justify-content: center; line-height: 1; padding: 0; width: 25px; }
-/* Pattern buttons scroll at ~3 rows tall (3 × 25px buttons + 2 × 6px gaps),
- * mirroring the palette library's scroll container. */
-.mode-grid { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); max-height: 90px; overscroll-behavior: contain; overflow-x: hidden; overflow-y: auto; padding-right: 10px; scrollbar-color: var(--line-bright) var(--panel); scrollbar-gutter: stable; }
+/* Pattern dropdown: a single-row trigger (swatch + label + chevron) that opens
+ * the full list of every dither mode — all options visible at once, no panel
+ * scrolling. The list overlays the controls below; the control column's own
+ * scrollbar still reaches it if it outgrows the window. */
+.mode-dropdown { position: relative; }
+.mode-select { align-items: center; background: var(--card); border: 0; color: var(--paper); cursor: pointer; display: flex; gap: 8px; padding: 6px 8px; text-align: left; width: 100%; }
+.mode-select:hover, .mode-select:focus-visible { background: var(--raised); }
+.mode-select strong { font-size: 9px; font-weight: 600; }
+.mode-chevron { border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--muted); margin-left: auto; transition: transform .12s ease; }
+.mode-dropdown.open .mode-chevron { transform: rotate(180deg); }
+.mode-dropdown-list { background: var(--surface); border: 1px solid var(--line); display: none; flex-direction: column; gap: 2px; left: 0; padding: 4px; position: absolute; right: 0; top: calc(100% + 4px); z-index: 40; }
+.mode-dropdown.open .mode-dropdown-list { display: flex; }
 .mode-button { align-items: center; background: var(--card); cursor: pointer; display: grid; gap: 2px; grid-template-columns: 24px minmax(0, 1fr); padding: 4px 6px; text-align: left; }
 .mode-button:hover { background: var(--raised); }
 .mode-button.active { background: color-mix(in srgb, var(--accent) 22%, var(--card)); }
@@ -487,6 +496,16 @@ body.eyedropping, body.eyedropping * { cursor: var(--eyedropper-cursor, crosshai
 .pattern-checker { background-image: linear-gradient(45deg,var(--pattern-dot) 25%,transparent 25%,transparent 75%,var(--pattern-dot) 75%),linear-gradient(45deg,var(--pattern-dot) 25%,transparent 25%,transparent 75%,var(--pattern-dot) 75%); background-position: 0 0,4px 4px; background-size: 8px 8px; }
 .pattern-halftone { background-image: radial-gradient(var(--pattern-dot) 26%,transparent 29%); background-position: 0 0,3.5px 3.5px; background-size: 7px 7px; }
 .pattern-none { background: linear-gradient(135deg,var(--ink) 50%,var(--paper-soft) 50%); }
+/* The pixelization slider and the upscale-method dropdown share one row: the
+ * label line spans the full row (percentage right-aligned to the dropdown's
+ * edge) with the slider + bare dropdown on the line below. */
+.pixelation-row { align-items: end; display: flex; flex-wrap: wrap; gap: 7px 12px; margin-top: 15px; }
+.pixelation-row .pixelation-control { display: contents; }
+.pixelation-row label { align-items: end; display: flex; flex: 1 1 100%; justify-content: space-between; }
+.pixelation-row label strong { display: block; font-size: 10px; }
+.pixelation-row label output { color: var(--paper); font: 500 9px 'DM Mono', monospace; }
+.pixelation-row .range { flex: 1 1 0; min-width: 0; }
+.pixelation-row .upscale-select { flex: 0 0 auto; }
 .control-row { margin-top: 15px; }
 .control-row > label { align-items: end; display: flex; justify-content: space-between; margin-bottom: 7px; }
 .control-row strong, .control-row small { display: block; }
@@ -569,7 +588,7 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
   .preview-pane canvas { min-width: 0; width: 100%; }
   .button { padding: 11px 12px; }
   .panel { padding: 12px 18px; }
-  .palette-grid, .mode-grid { gap: 7px; }
+  .palette-grid { gap: 7px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

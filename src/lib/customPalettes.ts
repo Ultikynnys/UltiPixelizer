@@ -170,6 +170,48 @@ export async function loadCustomPalettesFromFiles(store: TauriFileStore): Promis
   return palettes;
 }
 
+/** Watches the desktop palettes folder for manual changes: `.hex` files dropped
+ * in (or edited / removed) from the OS file manager appear in the library
+ * without an app restart. Polls the folder and compares the loaded library
+ * against the previous snapshot by key + colors — identical libraries skip
+ * the callback, so the app's own saves (which also touch the folder) don't
+ * churn the grid. Palette files are a few hundred bytes, so re-reading them
+ * per poll is negligible. Returns a stop function; errors are logged and
+ * polling continues. */
+export function watchPalettesFolder(
+  store: TauriFileStore,
+  onChanged: (palettes: CustomPalette[]) => void,
+  options: { intervalMs?: number } = {},
+): () => void {
+  const intervalMs = options.intervalMs ?? 2000;
+  let stopped = false;
+  let previous: CustomPalette[] | null = null;
+  void (async () => {
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      if (stopped) return;
+      try {
+        const palettes = await loadCustomPalettesFromFiles(store);
+        // The first poll only establishes the baseline — boot already loaded
+        // the library, so no duplicate load fires onChanged.
+        if (previous !== null && !palettesMatch(previous, palettes)) onChanged(palettes);
+        previous = palettes;
+      } catch (error) {
+        // A transient read error (file mid-write, folder lock) must not kill
+        // the watch — the next poll retries.
+        console.error('Could not watch the palettes folder.', error);
+      }
+    }
+  })();
+  return () => { stopped = true; };
+}
+
+/** Same keys and colors in the same order (the folder listing is sorted). */
+function palettesMatch(a: CustomPalette[], b: CustomPalette[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((palette, index) => palette.key === b[index].key && palette.colors.join(',') === b[index].colors.join(','));
+}
+
 /** Persists one palette as `palettes/<name>.hex` (overwriting any file with
  * the same name). */
 export async function saveCustomPaletteFile(store: TauriFileStore, palette: CustomPalette): Promise<void> {

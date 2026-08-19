@@ -21,9 +21,10 @@ const config: ConversionConfig = {
   contrast: -8,
   saturation: 25,
   pixelation: 1,
+  upscale: 'nearest',
   quadTessellation: 64,
   quadGrid: true,
-  displacementStrength: 0.4,
+  displacementStrength: 0.18,
   displacementFlip: true,
   navigationPan: false,
   paletteFilter: 'search',
@@ -76,6 +77,18 @@ describe('conversion presets', () => {
     expect(parsePreset(JSON.stringify(legacy)).seed).toBe(1);
   });
 
+  it('clamps displacement strength saved above the 0.2 cap', () => {
+    const legacy = createPreset('Legacy displacement', '', config);
+    const parsed = parsePreset(JSON.stringify({ ...legacy, displacementStrength: 0.5 }));
+    expect(parsed.displacementStrength).toBe(0.2);
+  });
+
+  it('clamps pixelation saved above the 80% cap', () => {
+    const legacy = createPreset('Legacy pixelation', '', config);
+    const parsed = parsePreset(JSON.stringify({ ...legacy, pixelation: 95 }));
+    expect(parsed.pixelation).toBe(80);
+  });
+
   it('backfills the palette-library filter/query/sort into presets saved before they existed', () => {
     const current = createPreset('Legacy palette UI', '', config);
     const { paletteFilter: _filter, paletteSearchQuery: _query, paletteSearchSort: _sort, ...legacy } = current;
@@ -120,11 +133,11 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...base, stripeAngle: 136 })).toBe(false);
   });
 
-  it('accepts pixelation percentages from 0 to 99', () => {
+  it('accepts pixelation percentages from 0 to 80', () => {
     const base = createPreset('Boundary', '', config);
     expect(isConversionPreset({ ...base, pixelation: 0 })).toBe(true);
-    expect(isConversionPreset({ ...base, pixelation: 99 })).toBe(true);
-    expect(isConversionPreset({ ...base, pixelation: 100 })).toBe(false);
+    expect(isConversionPreset({ ...base, pixelation: 80 })).toBe(true);
+    expect(isConversionPreset({ ...base, pixelation: 81 })).toBe(false);
     expect(isConversionPreset({ ...base, pixelation: -1 })).toBe(false);
   });
 
@@ -253,6 +266,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       contrast: -8,
       saturation: 25,
       pixelation: 1,
+      upscale: 'nearest',
       quadTessellation: 16,
       quadGrid: false,
       displacementStrength: 0.15,
@@ -278,7 +292,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(29);
+    expect(Object.keys(defaults)).toHaveLength(30);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -287,6 +301,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       contrast: 8,
       saturation: 5,
       pixelation: 0,
+      upscale: 'nearest',
       stripeAngle: 45,
       noiseScale: 1,
       halftoneScale: 1,
@@ -327,6 +342,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       contrast: -8,
       saturation: 25,
       pixelation: 1,
+      upscale: 'nearest',
       stripeAngle: 45,
       noiseScale: 1,
       halftoneScale: 1,

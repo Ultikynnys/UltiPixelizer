@@ -1,5 +1,5 @@
-import { applyAO, aoMultiplier, imageAOFactors } from '../ao';
-import { drawImageToCanvas, imagePixels, pixelateCanvas, pixelsToCanvas, processLitImageData, resampleAndPixelate, resizeNearest } from '../canvas';
+import { applyAO, aoMultiplier, imageAOFactors, redChannelFactors } from '../ao';
+import { drawImageToCanvas, imagePixels, pixelateCanvas, pixelsToCanvas, processLitImageData, resampleAndPixelate, resizeImage } from '../canvas';
 import { processImageData } from '../dither';
 import { applyLightmap } from '../lightmap';
 import type { PreviewViewMode, SourceImage } from '../state';
@@ -25,21 +25,34 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     repeatTextureProcessed,
   } = deps;
 
-  function currentAOFactors(width: number, height: number): Uint8ClampedArray | null {
+  /** Resamples a lighting map at the processed resolution, then pixelizes it
+   * with the same downscale/upscale amount as the base — each base block gets
+   * one uniform AO/lighting value, so the shading follows the chunky grid
+   * instead of varying smoothly inside a block. */
+  function resamplePixelated(image: SourceImage, width: number, height: number): Uint8ClampedArray {
+    const canvas = pixelateCanvas(drawImageToCanvas(image, width, height).canvas, state.pixelation, state.upscale);
+    return imagePixels(canvas, width, height);
+  }
+
+  function currentAOFactors(width: number, height: number, pixelate = false): Uint8ClampedArray | null {
     const source = textures.ao.image;
     if (!source) return null;
+    if (pixelate && state.pixelation > 0) {
+      return redChannelFactors({ data: resamplePixelated(source, width, height), width, height });
+    }
     return imageAOFactors(source, width, height);
   }
 
-  function currentLightmapPixels(width: number, height: number): Uint8ClampedArray | null {
+  function currentLightmapPixels(width: number, height: number, pixelate = false): Uint8ClampedArray | null {
     const image = textures.lightmap.image ?? shared.implicitLightmapCanvas;
-    return image ? imagePixels(image, width, height) : null;
+    if (!image) return null;
+    return pixelate && state.pixelation > 0 ? resamplePixelated(image, width, height) : imagePixels(image, width, height);
   }
 
-  function applyLighting(data: Uint8ClampedArray, width: number, height: number): void {
-    const aoFactors = currentAOFactors(width, height);
+  function applyLighting(data: Uint8ClampedArray, width: number, height: number, pixelate = false): void {
+    const aoFactors = currentAOFactors(width, height, pixelate);
     if (aoFactors) applyAO(data, aoFactors, state.aoBias, state.aoPower);
-    const lightmapPixels = currentLightmapPixels(width, height);
+    const lightmapPixels = currentLightmapPixels(width, height, pixelate);
     if (lightmapPixels) applyLightmap(data, lightmapPixels);
   }
 
@@ -56,10 +69,10 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
    * the explicit bake if present, else the live implicit bake, so moving the
    * sun re-sizes the dots. */
   function halftoneLighting(width: number, height: number): Float32Array | null {
-    const aoFactors = currentAOFactors(width, height);
+    const aoFactors = currentAOFactors(width, height, true);
     const lightmap = textures.lightmap.image ?? shared.implicitLightmapCanvas;
     if (!aoFactors && !lightmap) return null;
-    const lightmapPixels = lightmap ? imagePixels(lightmap, width, height) : null;
+    const lightmapPixels = currentLightmapPixels(width, height, true);
     const lighting = new Float32Array(width * height);
     for (let i = 0; i < width * height; i += 1) {
       let factor = 1;
@@ -161,14 +174,14 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       // The normals inspection shows the same chunky blocks as the dithered
       // base: the downscale/upscale pixelization applies on top of the
       // target-resolution resample (normals can't be palette-dithered).
-      nextCanvas = resampleAndPixelate(processedSource, width, height, state.pixelation);
+      nextCanvas = resampleAndPixelate(processedSource, width, height, state.pixelation, state.upscale);
     } else if (width > processedSource.width) {
-      // Upscaling (grid finer than the source) must stay crisp — the browser's
-      // smoothed resample would blur source pixels before dithering. Only
-      // downscales keep the filtered drawImage path.
-      nextCanvas = pixelateCanvas(resizeNearest(processedSource, width, height), state.pixelation);
+      // Upscaling (grid finer than the source) follows the chosen upscale
+      // method — nearest keeps the resample crisp for dithering, bilinear
+      // smooths it. Downscales keep the filtered drawImage path.
+      nextCanvas = pixelateCanvas(resizeImage(processedSource, width, height, state.upscale), state.pixelation, state.upscale);
     } else {
-      nextCanvas = pixelateCanvas(drawImageToCanvas(processedSource, width, height).canvas, state.pixelation);
+      nextCanvas = pixelateCanvas(drawImageToCanvas(processedSource, width, height).canvas, state.pixelation, state.upscale);
     }
     shared.renderedCanvas = nextCanvas;
     const renderContext = nextCanvas.getContext('2d');
@@ -197,7 +210,10 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       } else {
         processedData = processLitImageData(
           sourceData,
-          processedOnlySource ? skipLighting : applyLighting,
+          // Lighting in the dithered pane follows the base's pixelization: the
+          // AO/lightmap maps are block-quantized with the same amount before
+          // the multiply (the original pane keeps the smooth maps).
+          processedOnlySource ? skipLighting : (data, w, h) => applyLighting(data, w, h, true),
           (lit) => processImageData(lit, processedOptions),
         ).processed;
       }

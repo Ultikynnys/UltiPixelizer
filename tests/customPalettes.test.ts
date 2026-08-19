@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { palettes } from '../src/lib/palettes';
 import {
   CUSTOM_PALETTE_STORAGE_KEY,
@@ -21,6 +21,7 @@ import {
   serializePaletteHex,
   updateCustomPalette,
   upsertCustomPalette,
+  watchPalettesFolder,
   type StorageLike,
 } from '../src/lib/customPalettes';
 import type { TauriFileStore, TauriStorageLocation } from '../src/lib/tauri';
@@ -300,5 +301,81 @@ describe('desktop .hex file store', () => {
     store.files.set('palettes/My Colors.hex', '000000\nffffff\n');
     await deleteCustomPaletteFile(store, 'My Colors');
     expect(store.files.has('palettes/My Colors.hex')).toBe(false);
+  });
+});
+
+describe('watchPalettesFolder', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('fires when a .hex file is dropped into the folder', async () => {
+    const store = new FakeFileStore();
+    const onChanged = vi.fn();
+    const stop = watchPalettesFolder(store, onChanged, { intervalMs: 100 });
+    await vi.advanceTimersByTimeAsync(100); // baseline poll — no callback
+    expect(onChanged).not.toHaveBeenCalled();
+
+    store.files.set('palettes/New.hex', '000000\nffffff\n');
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(onChanged).toHaveBeenCalledWith([expect.objectContaining({ name: 'New', colors: ['#000000', '#FFFFFF'] })]);
+    stop();
+  });
+
+  it('skips the callback while the library is unchanged', async () => {
+    const store = new FakeFileStore();
+    store.files.set('palettes/One.hex', '000000\nffffff\n');
+    const onChanged = vi.fn();
+    const stop = watchPalettesFolder(store, onChanged, { intervalMs: 100 });
+    await vi.advanceTimersByTimeAsync(300); // baseline + two unchanged polls
+    expect(onChanged).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it('fires on an in-place content edit of an existing file', async () => {
+    const store = new FakeFileStore();
+    store.files.set('palettes/One.hex', '000000\nffffff\n');
+    const onChanged = vi.fn();
+    const stop = watchPalettesFolder(store, onChanged, { intervalMs: 100 });
+    await vi.advanceTimersByTimeAsync(100);
+
+    store.files.set('palettes/One.hex', '111111\neeeeee\n');
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(onChanged).toHaveBeenCalledWith([expect.objectContaining({ colors: ['#111111', '#EEEEEE'] })]);
+    stop();
+  });
+
+  it('survives a listing error and recovers on the next poll', async () => {
+    const store = new FakeFileStore();
+    store.files.set('palettes/One.hex', '000000\nffffff\n');
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onChanged = vi.fn();
+    const stop = watchPalettesFolder(store, onChanged, { intervalMs: 100 });
+    await vi.advanceTimersByTimeAsync(100);
+
+    const realList = store.list.bind(store);
+    store.list = async () => { throw new Error('folder locked'); };
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onChanged).not.toHaveBeenCalled();
+
+    store.list = realList;
+    store.files.set('palettes/Two.hex', '112233\n445566\n');
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    stop();
+    error.mockRestore();
+  });
+
+  it('stops polling when the stop function is called', async () => {
+    const store = new FakeFileStore();
+    store.files.set('palettes/One.hex', '000000\nffffff\n');
+    const onChanged = vi.fn();
+    const stop = watchPalettesFolder(store, onChanged, { intervalMs: 100 });
+    await vi.advanceTimersByTimeAsync(100);
+    stop();
+    store.files.set('palettes/Two.hex', '112233\n445566\n');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(onChanged).not.toHaveBeenCalled();
   });
 });

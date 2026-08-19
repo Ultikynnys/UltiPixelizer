@@ -1,6 +1,6 @@
 import { bakeMeshAOAsync, logAOBakeStage } from '../aoBake';
 import { getBakeScene, invalidateBakeSceneCache } from '../bakeSceneCache';
-import { factorsToCanvas, pixelsToCanvas, resampleAndPixelate } from '../canvas';
+import { factorsToCanvas, pixelsToCanvas, resampleAndPixelate, type UpscaleMethod } from '../canvas';
 import { bakeLightmapAsync, type BakeLightmapOptions } from '../lightmapBake';
 import { getFallbackQuadScene } from '../modelScene';
 import { imageNormalMapPixels } from '../normal';
@@ -68,13 +68,15 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   // The processed normal map — resampled to the output resolution and pixelized
   // with the downscale/upscale amount — is what the bakes sample, so lighting
   // and AO follow the same chunky normals the processed viewports display. The
-  // decoded pixels are memoized per (image, bake size, pixelation): re-baking
-  // on a sun or strength tweak shouldn't re-read the whole map off the canvas.
+  // decoded pixels are memoized per (image, bake size, pixelation, upscale):
+  // re-baking on a sun or strength tweak shouldn't re-read the whole map off
+  // the canvas.
   let cachedNormalMap: {
     image: SourceImage;
     width: number;
     height: number;
     pixelation: number;
+    upscale: UpscaleMethod;
     source: ReturnType<typeof imageNormalMapPixels>;
   } | null = null;
 
@@ -89,13 +91,15 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
       || cachedNormalMap.width !== width
       || cachedNormalMap.height !== height
       || cachedNormalMap.pixelation !== state.pixelation
+      || cachedNormalMap.upscale !== state.upscale
     ) {
       cachedNormalMap = {
         image,
         width,
         height,
         pixelation: state.pixelation,
-        source: imageNormalMapPixels(resampleAndPixelate(image, width, height, state.pixelation)),
+        upscale: state.upscale,
+        source: imageNormalMapPixels(resampleAndPixelate(image, width, height, state.pixelation, state.upscale)),
       };
     }
     return {
