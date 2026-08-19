@@ -2,11 +2,12 @@
 // Usage: node scripts/render-brand.mjs [out.png] [scale]
 //
 // Launches headless Chrome, loads a minimal page that reproduces the exact
-// `.brand` markup + CSS from src/style.css (Manrope 800, --paper #f3f0e6,
-// --accent #8b5cf6), and captures the element's bounding box with a
-// transparent background. Requires a system Chrome/Edge install.
+// `.brand` markup + CSS from src/style.css, parameterized by the brand values
+// in scripts/brand.json (single source of truth for mark colors/geometry),
+// and captures the element's bounding box with a transparent background.
+// Requires a system Chrome/Edge install.
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,31 +21,32 @@ const CANDIDATES = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
 ];
 const CHROME = CANDIDATES.find((p) => existsSync(p));
+const BRAND = JSON.parse(readFileSync(join(ROOT, 'scripts/brand.json'), 'utf8'));
 
 const HTML = `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Manrope:wght=${BRAND.fontWeight}&display=swap');
   html, body { margin: 0; background: transparent; }
   body { padding: 60px; }
   .brand {
     align-items: center;
-    color: #f3f0e6;
+    color: ${BRAND.paper};
     display: flex;
-    font-size: 18px;
-    font-weight: 800;
-    gap: 12px;
+    font-size: ${BRAND.fontSize}px;
+    font-weight: ${BRAND.fontWeight};
+    gap: ${BRAND.wordGap}px;
     letter-spacing: -0.04em;
     text-decoration: none;
     width: fit-content;
     font-family: 'Manrope', system-ui, sans-serif;
   }
-  .brand > span:nth-child(2) > span { color: #8b5cf6; }
-  .brand-mark { display: grid; grid-template-columns: repeat(2, 7px); gap: 2px; transform: rotate(45deg); }
-  .brand-mark i { background: #f3f0e6; display: block; height: 7px; }
-  .brand-mark i:last-child { background: #8b5cf6; }
+  .brand > span:nth-child(2) > span { color: ${BRAND.accent}; }
+  .brand-mark { display: grid; grid-template-columns: repeat(2, ${BRAND.cell}px); gap: ${BRAND.gap}px; transform: rotate(${BRAND.rotate}deg); }
+  .brand-mark i { background: ${BRAND.paper}; display: block; height: ${BRAND.cell}px; }
+  .brand-mark i:last-child { background: ${BRAND.accent}; }
 </style>
 </head>
 <body>
@@ -120,7 +122,7 @@ async function main() {
     await send('Runtime.evaluate', { expression: 'document.fonts.ready', awaitPromise: true, returnByValue: true });
 
     const fontOk = await send('Runtime.evaluate', {
-      expression: "document.fonts.check('800 18px Manrope')",
+      expression: `document.fonts.check('${BRAND.fontWeight} ${BRAND.fontSize}px Manrope')`,
       returnByValue: true,
     });
 

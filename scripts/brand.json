@@ -1,0 +1,10 @@
+{
+  "paper": "#f3f0e6",
+  "accent": "#8b5cf6",
+  "cell": 7,
+  "gap": 2,
+  "rotate": 45,
+  "fontSize": 18,
+  "fontWeight": 800,
+  "wordGap": 12
+}

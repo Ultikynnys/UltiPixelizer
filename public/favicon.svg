@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <!-- UltiPixelizer brand mark: 2x2 pixel grid (7px cells, 2px gaps) rotated 45deg.
-       Colors defined once here; mirror src/style.css :root --paper / --accent. -->
+       Static snapshot; colors/geometry single-sourced in scripts/brand.json. -->
   <style>
     svg { --paper: #f3f0e6; --accent: #8b5cf6; }
   </style>

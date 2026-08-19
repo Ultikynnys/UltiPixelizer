@@ -11,27 +11,38 @@ Rasterizes the UltiPixelizer brand mark — a 2x2 pixel grid (7px cells,
       <rect x="1" y="1" width="7" height="7" fill="var(--accent)"/>
     </g>
 
-Colors mirror src/style.css :root --paper #f3f0e6, --accent #8b5cf6.
+All brand parameters (colors, cell/gap geometry, rotation) are read from
+scripts/brand.json, the single source of truth for the mark.
 Run from the project root:  python3 scripts/regenerate-favicon.py
 """
 
 import binascii
+import json
 import math
 import os
 import struct
 import sys
 import zlib
 
-# ── brand colors (mirror src/style.css :root) ────────────────────────────
-PAPER = (243, 240, 230)   # --paper: #f3f0e6
-ACCENT = (139, 92, 246)   # --accent: #8b5cf6
+# ── brand mark parameters (single source: scripts/brand.json) ────────────
+with open(os.path.join('scripts', 'brand.json'), encoding='utf-8') as _f:
+    BRAND = json.load(_f)
+
+
+def _hex(color: str):
+    """'#rrggbb' hex color -> (r, g, b) tuple."""
+    return tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
+
+
+PAPER = _hex(BRAND['paper'])
+ACCENT = _hex(BRAND['accent'])
 
 # ── brand mark geometry (mirror public/favicon.svg) ──────────────────────
 VIEWBOX = 64.0
-ROTATE = math.radians(45.0)
+ROTATE = math.radians(BRAND['rotate'])
 SCALE = 2.2627
-CELL = 7
-GAP = 2
+CELL = BRAND['cell']
+GAP = BRAND['gap']
 CELLS = [  # (x, y, color)
     (-8, -8, PAPER),
     (1, -8, PAPER),

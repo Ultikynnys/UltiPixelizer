@@ -27,7 +27,7 @@
   --paper-dim: #b9b9af;
   --paper-soft: #d7d3c8;
   --paper: #f3f0e6;
-  /* ── brand accent ── */
+  /* ── brand accent (single-sourced in scripts/brand.json) ── */
   --accent: #8b5cf6;
   --accent-hover: color-mix(in srgb, var(--accent) 88%, white);
   --on-accent: #fff;
@@ -84,6 +84,9 @@ button { border: 0; color: inherit; }
   container-type: inline-size; gap: var(--topbar-gap); min-height: 72px; min-width: 0; overflow: hidden; padding: 0 clamp(16px, 2.4vw, 28px);
   backdrop-filter: blur(12px);
 }
+/* ── brand wordmark: mark colors/geometry/metrics single-sourced in
+   scripts/brand.json (paper, accent, cell, gap, rotate, fontSize,
+   fontWeight, wordGap); render-brand.mjs / regenerate-favicon.py read it. */
 .brand { align-items: center; color: var(--paper); display: flex; font-size: 18px; font-weight: 800; gap: 12px; letter-spacing: -.04em; text-decoration: none; width: fit-content; }
 .brand > span:nth-child(2) > span { color: var(--accent); }
 .build-version { align-items: center; background: var(--card); color: var(--muted); display: inline-flex; font: 500 8px 'DM Mono', monospace; height: var(--control-height); letter-spacing: .04em; padding: 0 6px; }
