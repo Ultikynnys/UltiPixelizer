@@ -1,13 +1,15 @@
-# Prep shared by every build job: full-history checkout, Node 24 with npm
-# cache, dependency install, and the build-version stamping that both the
-# topbar badge (VITE_BUILD_NUMBER / VITE_COMMIT_SHA) and the installer
-# versioning depend on. Single home for the version scheme, so deploy.yml and
-# desktop.yml cannot drift from each other.
+# Prep shared by every build job: Node 24 with npm cache, dependency install,
+# and the build-version stamping that both the topbar badge (VITE_BUILD_NUMBER
+# / VITE_COMMIT_SHA) and the installer versioning depend on. Single home for
+# the version scheme, so deploy.yml and desktop.yml cannot drift from each
+# other. Callers must run actions/checkout (fetch-depth: 0) first: a local
+# action is resolved from the workspace, which is empty before checkout.
 name: Prepare UltiPixelizer build
 description: >-
-  Checkout with full history, set up Node 24 with npm cache, install
-  dependencies, and stamp the build-version env vars (VITE_BUILD_NUMBER /
-  VITE_COMMIT_SHA). With tauri-version: true, also writes
+  Set up Node 24 with npm cache, install dependencies, and stamp the
+  build-version env vars (VITE_BUILD_NUMBER / VITE_COMMIT_SHA). Requires the
+  caller to have run actions/checkout with fetch-depth: 0 (the build number
+  derives from full git history). With tauri-version: true, also writes
   src-tauri/tauri.version.json from the same git build count.
 
 inputs:
@@ -21,14 +23,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Checkout
-      uses: actions/checkout@v7
-      with:
-        # Full history so `git rev-list --count HEAD` (the build number the
-        # badge and installer version derive from) counts real commits — the
-        # default shallow checkout would always report 1.
-        fetch-depth: 0
-
     - name: Set up Node
       uses: actions/setup-node@v7
       with:
