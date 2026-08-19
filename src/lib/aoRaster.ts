@@ -1,6 +1,6 @@
 import { MeshBVH } from 'three-mesh-bvh';
 import { Vector3 } from 'three';
-import { castBakeRay, type BakeScene } from './bakeGeometry';
+import { castBakeRay, rasterizeBakeBand, type BakeScene } from './bakeGeometry';
 import { sampleNormalMap, type NormalMapSource } from './normal';
 
 /**
@@ -186,76 +186,21 @@ export function rasterizeAOBand(
   context: AOBandContext,
 ): void {
   const { width, height, yStart, yEnd, onRowsComplete, timings } = context;
-  const { vertices, triangleUVs, triangleVerts, kernel, samples, epsilon, maxDistance } = input;
+  const { vertices, kernel, samples, epsilon, maxDistance } = input;
   const rasterStart = timings ? performance.now() : 0;
-  const triangleCount = triangleVerts.length / 3;
-  const bandHeight = yEnd - yStart;
-  // Progress counts UNIQUE rows touched in this band, not (triangle, row)
-  // visits — the raster is triangle-major, so overlapping triangles would
-  // otherwise overcount rows and push the reported percent past 100.
-  const rowTouched = new Uint8Array(bandHeight);
-  const reportEvery = Math.max(1, Math.floor(bandHeight / 128));
-  let rowsDone = 0;
-  let lastReported = 0;
-  const reportProgress = (): void => {
-    if (!onRowsComplete) return;
-    if (rowsDone - lastReported >= reportEvery) {
-      lastReported = rowsDone;
-      onRowsComplete(rowsDone);
-    }
-  };
-
-  for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex += 1) {
-    const uvOffset = triangleIndex * 6;
-    const ax = triangleUVs[uvOffset] * width;
-    const ay = (1 - triangleUVs[uvOffset + 1]) * height;
-    const bx = triangleUVs[uvOffset + 2] * width;
-    const by = (1 - triangleUVs[uvOffset + 3]) * height;
-    const cx = triangleUVs[uvOffset + 4] * width;
-    const cy = (1 - triangleUVs[uvOffset + 5]) * height;
-
-    // Clip the triangle's UV bbox to both the canvas and this row band.
-    const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
-    const maxX = Math.min(width - 1, Math.ceil(Math.max(ax, bx, cx)));
-    const minY = Math.max(yStart, Math.floor(Math.min(ay, by, cy)));
-    const maxY = Math.min(yEnd - 1, Math.ceil(Math.max(ay, by, cy)));
-    const denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
-    if (denominator === 0) continue;
-
-    const vertOffset = triangleIndex * 3;
-    const v0 = triangleVerts[vertOffset] * 6;
-    const v1 = triangleVerts[vertOffset + 1] * 6;
-    const v2 = triangleVerts[vertOffset + 2] * 6;
-
-    for (let py = minY; py <= maxY; py += 1) {
-      const bandRow = py - yStart;
-      if (!rowTouched[bandRow]) {
-        rowTouched[bandRow] = 1;
-        rowsDone += 1;
-        reportProgress();
-      }
-      const rowOffset = bandRow * width;
-      for (let px = minX; px <= maxX; px += 1) {
-        const x = px + 0.5;
-        const y = py + 0.5;
-        const w0 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / denominator;
-        const w1 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denominator;
-        const w2 = 1 - w0 - w1;
-        if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-        const index = rowOffset + px;
-        written[index] = 1;
-        const shadeStart = timings ? performance.now() : 0;
-        factors[index] = shadeAOTexel(
-          vertices, v0, v1, v2, w0, w1, w2,
-          kernel, samples, bvh, epsilon, maxDistance,
-          input, triangleIndex, uvOffset,
-          timings,
-        );
-        if (timings) timings.shadeMs += performance.now() - shadeStart;
-      }
-    }
-  }
-  if (onRowsComplete && rowsDone > lastReported) onRowsComplete(rowsDone);
+  rasterizeBakeBand(width, height, yStart, yEnd, input.triangleUVs, input.triangleVerts, written,
+    (_px, _py, w0, w1, w2, index, triangleIndex, uvOffset, _vertOffset, v0, v1, v2) => {
+      const shadeStart = timings ? performance.now() : 0;
+      factors[index] = shadeAOTexel(
+        vertices, v0, v1, v2, w0, w1, w2,
+        kernel, samples, bvh, epsilon, maxDistance,
+        input, triangleIndex, uvOffset,
+        timings,
+      );
+      if (timings) timings.shadeMs += performance.now() - shadeStart;
+    },
+    onRowsComplete,
+  );
   if (timings) timings.rasterMs = performance.now() - rasterStart;
 }
 
@@ -440,70 +385,19 @@ export function rasterizeAOShading(
 ): void {
   const { width, height, yStart, yEnd, onRowsComplete } = context;
   const { vertices, triangleUVs, triangleVerts, epsilon } = input;
-  const triangleCount = triangleVerts.length / 3;
-  const bandHeight = yEnd - yStart;
-  const rowTouched = new Uint8Array(bandHeight);
-  const reportEvery = Math.max(1, Math.floor(bandHeight / 128));
-  let rowsDone = 0;
-  let lastReported = 0;
-  const reportProgress = (): void => {
-    if (!onRowsComplete) return;
-    if (rowsDone - lastReported >= reportEvery) {
-      lastReported = rowsDone;
-      onRowsComplete(rowsDone);
-    }
-  };
-
-  for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex += 1) {
-    const uvOffset = triangleIndex * 6;
-    const ax = triangleUVs[uvOffset] * width;
-    const ay = (1 - triangleUVs[uvOffset + 1]) * height;
-    const bx = triangleUVs[uvOffset + 2] * width;
-    const by = (1 - triangleUVs[uvOffset + 3]) * height;
-    const cx = triangleUVs[uvOffset + 4] * width;
-    const cy = (1 - triangleUVs[uvOffset + 5]) * height;
-
-    const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
-    const maxX = Math.min(width - 1, Math.ceil(Math.max(ax, bx, cx)));
-    const minY = Math.max(yStart, Math.floor(Math.min(ay, by, cy)));
-    const maxY = Math.min(yEnd - 1, Math.ceil(Math.max(ay, by, cy)));
-    const denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
-    if (denominator === 0) continue;
-
-    const vertOffset = triangleIndex * 3;
-    const v0 = triangleVerts[vertOffset] * 6;
-    const v1 = triangleVerts[vertOffset + 1] * 6;
-    const v2 = triangleVerts[vertOffset + 2] * 6;
-
-    for (let py = minY; py <= maxY; py += 1) {
-      const bandRow = py - yStart;
-      if (!rowTouched[bandRow]) {
-        rowTouched[bandRow] = 1;
-        rowsDone += 1;
-        reportProgress();
-      }
-      const rowOffset = bandRow * width;
-      for (let px = minX; px <= maxX; px += 1) {
-        const x = px + 0.5;
-        const y = py + 0.5;
-        const w0 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / denominator;
-        const w1 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denominator;
-        const w2 = 1 - w0 - w1;
-        if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-        const index = rowOffset + px;
-        written[index] = 1;
-        const shading = computeAOTexelShading(vertices, v0, v1, v2, w0, w1, w2, input, triangleIndex, uvOffset);
-        const dataOffset = index * 6;
-        texelData[dataOffset] = shading.originX + epsilon * shading.gNormalX;
-        texelData[dataOffset + 1] = shading.originY + epsilon * shading.gNormalY;
-        texelData[dataOffset + 2] = shading.originZ + epsilon * shading.gNormalZ;
-        texelData[dataOffset + 3] = shading.sNormalX;
-        texelData[dataOffset + 4] = shading.sNormalY;
-        texelData[dataOffset + 5] = shading.sNormalZ;
-      }
-    }
-  }
-  if (onRowsComplete && rowsDone > lastReported) onRowsComplete(rowsDone);
+  rasterizeBakeBand(width, height, yStart, yEnd, triangleUVs, triangleVerts, written,
+    (_px, _py, w0, w1, w2, index, triangleIndex, uvOffset, _vertOffset, v0, v1, v2) => {
+      const shading = computeAOTexelShading(vertices, v0, v1, v2, w0, w1, w2, input, triangleIndex, uvOffset);
+      const dataOffset = index * 6;
+      texelData[dataOffset] = shading.originX + epsilon * shading.gNormalX;
+      texelData[dataOffset + 1] = shading.originY + epsilon * shading.gNormalY;
+      texelData[dataOffset + 2] = shading.originZ + epsilon * shading.gNormalZ;
+      texelData[dataOffset + 3] = shading.sNormalX;
+      texelData[dataOffset + 4] = shading.sNormalY;
+      texelData[dataOffset + 5] = shading.sNormalZ;
+    },
+    onRowsComplete,
+  );
 }
 
 /** Worker message: rasterize one row band. */

@@ -324,7 +324,9 @@ function rayBoxIntersects(ray: Ray, box: Box3, near: number, far: number): boole
  * with the barycentric weights for every covered pixel. Generic over triangle
  * shape — the bake (BakeTriangle) and UV-overlap (UVTriangle) rasterizers are
  * the same math. UV (0,0) is the texture bottom-left; the canvas is top-left,
- * so V is flipped here.
+ * so V is flipped here. The flat serialized-scene sibling is
+ * `rasterizeBakeBand` (band-clipped, progress-aware); both share one
+ * barycentric core.
  */
 export function rasterizeBake<T extends { uv: [UvPair, UvPair, UvPair] }>(
   width: number,
@@ -361,6 +363,107 @@ export function rasterizeBake<T extends { uv: [UvPair, UvPair, UvPair] }>(
       }
     }
   }
+}
+
+/**
+ * Band-aware barycentric UV rasterizer over the flat serialized triangle
+ * layout (`triangleUVs` / `triangleVerts` from `serializeBakeScene`): the
+ * serialized-scene sibling of `rasterizeBake`, clipped to the `[yStart, yEnd)`
+ * row band. Every UV-space bake raster (AO factor bands, AO GPU data, lightmap
+ * CPU/worker/GPU) funnels through here so the paths stay byte-identical by
+ * construction. `written` marks covered texels (band-local row-major index);
+ * `perTexel` receives the barycentric weights plus the triangle offsets;
+ * `onRowsComplete` reports unique rows touched for progress.
+ */
+export function rasterizeBakeBand(
+  width: number,
+  height: number,
+  yStart: number,
+  yEnd: number,
+  triangleUVs: Float32Array,
+  triangleVerts: Uint32Array,
+  written: Uint8Array,
+  perTexel: (
+    px: number,
+    py: number,
+    w0: number,
+    w1: number,
+    w2: number,
+    /** Band-local texel index (row-major within [yStart, yEnd)). */
+    index: number,
+    triangleIndex: number,
+    /** triangleIndex * 6: this triangle's UVs start in `triangleUVs`. */
+    uvOffset: number,
+    /** triangleIndex * 3: this triangle's vertex indices start in `triangleVerts`. */
+    vertOffset: number,
+    /** Vertex offsets into the interleaved 6-float vertex array (index * 6). */
+    v0: number,
+    v1: number,
+    v2: number,
+  ) => void,
+  onRowsComplete?: (rows: number) => void,
+): void {
+  const triangleCount = triangleVerts.length / 3;
+  const bandHeight = yEnd - yStart;
+  // Progress counts UNIQUE rows touched in this band, not (triangle, row)
+  // visits — the raster is triangle-major, so overlapping triangles would
+  // otherwise overcount rows and push the reported percent past 100.
+  const rowTouched = onRowsComplete ? new Uint8Array(bandHeight) : null;
+  const reportEvery = onRowsComplete ? Math.max(1, Math.floor(bandHeight / 128)) : 0;
+  let rowsDone = 0;
+  let lastReported = 0;
+  const reportProgress = (): void => {
+    if (!onRowsComplete || rowsDone - lastReported < reportEvery) return;
+    lastReported = rowsDone;
+    onRowsComplete(rowsDone);
+  };
+
+  for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex += 1) {
+    const uvOffset = triangleIndex * 6;
+    const ax = triangleUVs[uvOffset] * width;
+    const ay = (1 - triangleUVs[uvOffset + 1]) * height;
+    const bx = triangleUVs[uvOffset + 2] * width;
+    const by = (1 - triangleUVs[uvOffset + 3]) * height;
+    const cx = triangleUVs[uvOffset + 4] * width;
+    const cy = (1 - triangleUVs[uvOffset + 5]) * height;
+
+    // Clip the triangle's UV bbox to both the canvas and this row band.
+    const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
+    const maxX = Math.min(width - 1, Math.ceil(Math.max(ax, bx, cx)));
+    const minY = Math.max(yStart, Math.floor(Math.min(ay, by, cy)));
+    const maxY = Math.min(yEnd - 1, Math.ceil(Math.max(ay, by, cy)));
+    const denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+    if (denominator === 0) continue;
+
+    const vertOffset = triangleIndex * 3;
+    const v0 = triangleVerts[vertOffset] * 6;
+    const v1 = triangleVerts[vertOffset + 1] * 6;
+    const v2 = triangleVerts[vertOffset + 2] * 6;
+
+    for (let py = minY; py <= maxY; py += 1) {
+      if (rowTouched) {
+        const bandRow = py - yStart;
+        if (!rowTouched[bandRow]) {
+          rowTouched[bandRow] = 1;
+          rowsDone += 1;
+          reportProgress();
+        }
+      }
+      const rowOffset = (py - yStart) * width;
+      for (let px = minX; px <= maxX; px += 1) {
+        const x = px + 0.5;
+        const y = py + 0.5;
+        const w0 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / denominator;
+        const w1 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denominator;
+        const w2 = 1 - w0 - w1;
+        if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+        const index = rowOffset + px;
+        written[index] = 1;
+        perTexel(px, py, w0, w1, w2, index, triangleIndex, uvOffset, vertOffset, v0, v1, v2);
+      }
+    }
+  }
+  if (onRowsComplete && rowsDone > lastReported) onRowsComplete(rowsDone);
 }
 
 /**

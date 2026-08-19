@@ -2,7 +2,7 @@ import { Object3D, Vector3 } from 'three';
 import { hexToRgb, isHexColor } from './palettes';
 import { directionToSun, type DirectionVector } from './sunDirection';
 import { castBakeRay, collectBakeScene, dilateUVBake, rasterizeBakedPixels, type BakeScene } from './bakeGeometry';
-import { clamp01, type RGB } from './math';
+import { clamp01, combineLight, type RGB } from './math';
 import { sampleNormalMap, type NormalMapSource } from './normal';
 import { serializeBakeScene } from './aoRaster';
 import { computeSunVisibilityGpu } from './lightmapGpu';
@@ -31,27 +31,6 @@ function parseColor(color: string): RGB {
 
 function lambertFactor(normal: Vector3, towardSun: Vector3): number {
   return Math.max(0, normal.dot(towardSun));
-}
-
-/**
- * Combines ambient and directional illumination additively. Each term is clamped
- * to [0, 1] before summing; a sun intensity above 1 overexposes, saturating the
- * sun term at full brightness for faces angled beyond the falloff. The total is
- * clamped again to keep white as the ceiling.
- */
-function combineLight(
-  ambientColor: RGB,
-  sunColor: RGB,
-  ambientScale: number,
-  sunScale: number,
-  lambert: number,
-  sunVisibility: number,
-): RGB {
-  return [0, 1, 2].map((channel) => {
-    const ambient = clamp01(ambientColor[channel] * ambientScale);
-    const sun = clamp01(sunColor[channel] * sunScale * lambert * sunVisibility);
-    return clamp01(ambient + sun);
-  }) as RGB;
 }
 
 /**
