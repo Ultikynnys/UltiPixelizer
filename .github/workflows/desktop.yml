@@ -37,22 +37,10 @@ jobs:
           - platform: ubuntu-latest
     runs-on: ${{ matrix.platform }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      - name: Checkout, install, stamp build version
+        uses: ./.github/actions/prepare
         with:
-          # Full history so `git rev-list --count HEAD` (the build number the
-          # badge and installer version derive from) counts real commits —
-          # the default shallow checkout would always report 1.
-          fetch-depth: 0
-
-      - name: Set up Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
+          tauri-version: true
 
       # WebKitGTK + packaging deps required to compile the Tauri Rust crate and
       # produce AppImage/deb bundles on Ubuntu (per the Tauri v2 docs).
@@ -64,25 +52,6 @@ jobs:
 
       - name: Test
         run: npm test
-
-      # The build version badge (topbar) is stamped at build time by Vite. The
-      # installer version is generated from the SAME git build count via
-      # scripts/build-version.mjs — a static 2.0.0 OFFSET (200) is added to
-      # the commit count and split into semver digits, and the badge shows the
-      # same offset count, so the topbar `v209` always matches installer
-      # `2.0.9` (commit 1 -> v201/2.0.1; the squash to one commit keeps
-      # releases in the 2.0.x range instead of downgrading to 0.0.1) — written
-      # to src-tauri/tauri.version.json, which tauri-action merges into the
-      # bundle config with --config — no version is hardcoded here, in
-      # tauri.conf.json, or in any env file; local `npm run tauri:build`
-      # derives it the exact same way.
-      - name: Set build version
-        shell: bash
-        run: |
-          BUILD_NUMBER=$(node scripts/build-version.mjs --count)
-          echo "VITE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
-          echo "VITE_COMMIT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
-          node scripts/write-tauri-version.mjs
 
       # Installs the Rust toolchain and packages the installers. No release is
       # created here — the matrix jobs would race; the release job below

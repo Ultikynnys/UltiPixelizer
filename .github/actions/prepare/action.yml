@@ -1,0 +1,62 @@
+# Prep shared by every build job: full-history checkout, Node 24 with npm
+# cache, dependency install, and the build-version stamping that both the
+# topbar badge (VITE_BUILD_NUMBER / VITE_COMMIT_SHA) and the installer
+# versioning depend on. Single home for the version scheme, so deploy.yml and
+# desktop.yml cannot drift from each other.
+name: Prepare UltiPixelizer build
+description: >-
+  Checkout with full history, set up Node 24 with npm cache, install
+  dependencies, and stamp the build-version env vars (VITE_BUILD_NUMBER /
+  VITE_COMMIT_SHA). With tauri-version: true, also writes
+  src-tauri/tauri.version.json from the same git build count.
+
+inputs:
+  tauri-version:
+    description: >-
+      When 'true', also run scripts/write-tauri-version.mjs so the installer
+      version derives from the same git build count as the badge.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        # Full history so `git rev-list --count HEAD` (the build number the
+        # badge and installer version derive from) counts real commits — the
+        # default shallow checkout would always report 1.
+        fetch-depth: 0
+
+    - name: Set up Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        cache: npm
+
+    - name: Install dependencies
+      shell: bash
+      run: npm ci
+
+    # The build version badge (topbar) is stamped at build time by Vite. The
+    # installer version is generated from the SAME git build count via
+    # scripts/build-version.mjs — a static 2.0.0 OFFSET (200) is added to
+    # the commit count and split into semver digits, and the badge shows the
+    # same offset count, so the topbar `v209` always matches installer
+    # `2.0.9` (commit 1 -> v201/2.0.1; the squash to one commit keeps
+    # releases in the 2.0.x range instead of downgrading to 0.0.1) — written
+    # to src-tauri/tauri.version.json, which tauri-action merges into the
+    # bundle config with --config — no version is hardcoded here, in
+    # tauri.conf.json, or in any env file; local `npm run tauri:build`
+    # derives it the exact same way.
+    - name: Set build version
+      shell: bash
+      run: |
+        echo "VITE_BUILD_NUMBER=$(node scripts/build-version.mjs --count)" >> "$GITHUB_ENV"
+        echo "VITE_COMMIT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+    - name: Write Tauri version
+      if: inputs.tauri-version == 'true'
+      shell: bash
+      run: node scripts/write-tauri-version.mjs
