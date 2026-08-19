@@ -6,6 +6,7 @@ import {
   type AOBandProgress,
   type AOBandRequest,
   type AOBandResult,
+  type AOBandTimings,
 } from './aoRaster';
 
 /**
@@ -27,9 +28,15 @@ workerScope.addEventListener('message', (event) => {
   if (!request || request.type !== 'band') return;
   const { jobId, width, height, yStart, yEnd } = request;
   try {
+    const timings: AOBandTimings = { deserializeMs: 0, rayMs: 0, shadeMs: 0, rasterMs: 0 };
     const occluder = new BufferGeometry();
     occluder.setAttribute('position', new BufferAttribute(request.occluderPositions, 3));
-    const bvh = new MeshBVH(occluder);
+    // The occluder BVH was already built once at scene collection and rides in
+    // the request serialized — deserialize instead of rebuilding the same tree
+    // per worker (the serialized roots are byte-identical to a fresh build).
+    const deserializeStart = performance.now();
+    const bvh = request.bvh ? MeshBVH.deserialize(request.bvh, occluder) : new MeshBVH(occluder);
+    timings.deserializeMs = performance.now() - deserializeStart;
     const bandHeight = yEnd - yStart;
     const factors = new Uint8ClampedArray(bandHeight * width).fill(255);
     const written = new Uint8Array(bandHeight * width);
@@ -38,12 +45,13 @@ workerScope.addEventListener('message', (event) => {
       height,
       yStart,
       yEnd,
+      timings,
       onRowsComplete: (rowsDone) => {
         workerScope.postMessage({ type: 'progress', jobId, rowsDone });
       },
     });
     workerScope.postMessage(
-      { type: 'result', jobId, factors, written },
+      { type: 'result', jobId, factors, written, timings },
       [factors.buffer as ArrayBuffer, written.buffer as ArrayBuffer],
     );
   } catch (error) {

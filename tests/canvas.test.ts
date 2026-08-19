@@ -10,7 +10,9 @@ import {
   imagePixels,
   loadImageFile,
   pixelsToCanvas,
+  pixelateCanvas,
   processLitImageData,
+  resampleAndPixelate,
   resizeNearest,
 } from '../src/lib/canvas';
 import { asSourceImage, domStubs, FakeCanvas, installDomStubs, stubDocument } from './helpers/domStubs';
@@ -275,4 +277,57 @@ describe('file helpers', () => {
       expect(domStubs.anchors).toHaveLength(0);
     });
   });
+
+describe('pixelateCanvas', () => {
+  it('returns the canvas untouched at 0% (the default)', () => {
+    const canvas = new FakeCanvas();
+    canvas.width = 2;
+    canvas.height = 2;
+    canvas.context.pixels.set([
+      10, 10, 10, 255, 20, 20, 20, 255,
+      30, 30, 30, 255, 40, 40, 40, 255,
+    ]);
+    expect(pixelateCanvas(canvas as unknown as HTMLCanvasElement, 0)).toBe(canvas);
+  });
+
+  it('downscales then nearest-neighbor upscales back to full size', () => {
+    const canvas = new FakeCanvas();
+    canvas.width = 2;
+    canvas.height = 2;
+    canvas.context.pixels.set([
+      10, 10, 10, 255, 20, 20, 20, 255,
+      30, 30, 30, 255, 40, 40, 40, 255,
+    ]);
+    // 50% downscales the 2×2 to 1×1 (the top-left pixel), then upscales back:
+    // the whole canvas collapses to that single pixel.
+    const pixelated = pixelateCanvas(canvas as unknown as HTMLCanvasElement, 50) as unknown as FakeCanvas;
+    expect(Array.from(pixelated.context.pixels)).toEqual(new Array(4).fill([10, 10, 10, 255]).flat());
+  });
+
+  it('resampleAndPixelate resamples to the target size then pixelizes', () => {
+    const source = new FakeCanvas();
+    source.width = 4;
+    source.height = 4;
+    source.context.pixels.set([
+      10, 10, 10, 255, 11, 11, 11, 255, 20, 20, 20, 255, 21, 21, 21, 255,
+      12, 12, 12, 255, 13, 13, 13, 255, 22, 22, 22, 255, 23, 23, 23, 255,
+      30, 30, 30, 255, 31, 31, 31, 255, 40, 40, 40, 255, 41, 41, 41, 255,
+      32, 32, 32, 255, 33, 33, 33, 255, 42, 42, 42, 255, 43, 43, 43, 255,
+    ]);
+
+    // 0%: the nearest resample alone (identity here) with no pixelization.
+    const plain = resampleAndPixelate(source as unknown as HTMLCanvasElement, 4, 4, 0) as unknown as FakeCanvas;
+    expect(Array.from(plain.context.pixels)).toEqual(Array.from(source.context.pixels));
+
+    // 50%: downscale the 4×4 to 2×2 (each 2×2 block's top-left), then upscale
+    // back: 2×2 chunky blocks at full resolution.
+    const blocked = resampleAndPixelate(source as unknown as HTMLCanvasElement, 4, 4, 50) as unknown as FakeCanvas;
+    expect(Array.from(blocked.context.pixels)).toEqual([
+      10, 10, 10, 255, 10, 10, 10, 255, 20, 20, 20, 255, 20, 20, 20, 255,
+      10, 10, 10, 255, 10, 10, 10, 255, 20, 20, 20, 255, 20, 20, 20, 255,
+      30, 30, 30, 255, 30, 30, 30, 255, 40, 40, 40, 255, 40, 40, 40, 255,
+      30, 30, 30, 255, 30, 30, 30, 255, 40, 40, 40, 255, 40, 40, 40, 255,
+    ]);
+  });
+});
 });

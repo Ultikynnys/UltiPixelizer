@@ -1,6 +1,7 @@
 import { isPalette, type Palette } from './palettes';
-import { createStoredCollection, parseJsonFile, serializeJsonFile, type StorageLike } from './storage';
+import { createStoredCollection, type StorageLike } from './storage';
 import { slugify } from './strings';
+import { CUSTOM_PALETTES_FOLDER, type TauriFileStore } from './tauri';
 export type { StorageLike } from './storage';
 
 export const CUSTOM_PALETTE_VERSION = 1;
@@ -51,17 +52,6 @@ export function updateCustomPalette(source: CustomPalette, name: string, colors:
   return updated;
 }
 
-export function parseCustomPalette(json: string): CustomPalette {
-  return parseJsonFile(json, isCustomPalette, {
-    invalidJson: 'Palette file is not valid JSON.',
-    invalidData: 'Palette file has invalid or unsupported data.',
-  }, { after: (palette) => ({ ...palette, colors: [...palette.colors] }) });
-}
-
-export function serializeCustomPalette(palette: CustomPalette): string {
-  return serializeJsonFile(palette, isCustomPalette, 'Cannot export an invalid custom palette.');
-}
-
 const hexColorToken = /#([0-9a-f]{6}|[0-9a-f]{3})\b|\b([0-9a-f]{6})\b/gi;
 
 /** Normalizes a hex token (bare or "#"-prefixed, 3 or 6 digits) to an uppercase
@@ -97,41 +87,98 @@ function paletteNameFromFile(fileName: string | undefined): string {
 }
 
 /**
- * Parses a palette import in any supported format:
- * - the app's own `.palette.json` (CustomPalette round-trip),
- * - Lospec `.json` (`{ name, author, colors }`),
- * - plain-text hex lists (Lospec `.hex`, `.txt`).
+ * Parses a palette import: plain-text hex lists (Lospec `.hex`, `.txt`).
+ * The palette name derives from the file name, minus the extension.
  */
 export function paletteFromImport(text: string, fileName?: string): CustomPalette {
-  const trimmed = text.trim();
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    let value: unknown;
-    try {
-      value = JSON.parse(trimmed);
-    } catch (error) {
-      throw new Error('Palette file is not valid JSON.', { cause: error });
-    }
-    if (isCustomPalette(value)) return { ...value, colors: [...value.colors] };
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const record = value as Record<string, unknown>;
-      if (Array.isArray(record.colors)) {
-        const colors: string[] = [];
-        for (const entry of record.colors) {
-          const normalized = typeof entry === 'string' ? normalizeHex(entry) : null;
-          if (!normalized) throw new Error('Palette file has no valid colors.');
-          colors.push(normalized);
-        }
-        if (colors.length < 2 || colors.length > 256) throw new Error('Palette file has no valid colors.');
-        const name = (typeof record.name === 'string' && record.name.trim() ? record.name : paletteNameFromFile(fileName)).slice(0, 60);
-        return createCustomPalette(name, colors);
-      }
-    }
-    throw new Error('Palette file has invalid or unsupported data.');
-  }
-
-  const colors = extractHexColors(trimmed);
+  const colors = extractHexColors(text.trim());
   if (colors.length < 2 || colors.length > 256) throw new Error('Palette file has no valid colors.');
   return createCustomPalette(paletteNameFromFile(fileName).slice(0, 60), colors);
+}
+
+// ---------------------------------------------------------------------------
+// Desktop .hex file store: one file per palette, named after the palette
+// ---------------------------------------------------------------------------
+
+/** Windows-safe file name for a palette: the palette name IS the file name
+ * (minus the ".hex" extension), so spaces and case are preserved. Leading and
+ * trailing dots/whitespace are stripped — the Rust validator rejects names
+ * starting with a dot, so the two sides must agree. */
+export function paletteFileName(name: string): string {
+  const sanitized = name.replace(/[<>:"/\\|?*]/g, '-').replace(/^[.\s]+|[.\s]+$/g, '');
+  return `${sanitized || 'custom-palette'}.hex`;
+}
+
+/** Key derived from a palette file name — identity follows the file name, so
+ * renaming a palette (its file) re-keys it. */
+export function paletteKeyFromFileName(fileName: string): string {
+  return `custom-${slugify(fileName.replace(/\.hex$/i, ''), 'palette', 40)}`;
+}
+
+/** Desktop palette identity: the key derives from the name (the file name). */
+export function filePaletteFor(palette: CustomPalette): CustomPalette {
+  return { ...palette, key: paletteKeyFromFileName(palette.name) };
+}
+
+/** Serializes a palette as a Lospec-style `.hex` list: one bare lowercase hex
+ * color per line. Round-trips through `extractHexColors`. */
+export function serializePaletteHex(palette: Palette): string {
+  return `${palette.colors.map((color) => color.slice(1).toLowerCase()).join('\n')}\n`;
+}
+
+/** Builds a custom palette from a `.hex` file's contents; the palette name is
+ * the file name with the ".hex" extension dropped. */
+export function paletteFromHexFile(fileName: string, text: string, now = new Date()): CustomPalette {
+  const colors = extractHexColors(text);
+  if (colors.length < 2 || colors.length > 256) throw new Error('Palette file has no valid colors.');
+  return {
+    version: CUSTOM_PALETTE_VERSION,
+    key: paletteKeyFromFileName(fileName),
+    name: (fileName.replace(/\.hex$/i, '').trim() || 'Imported palette').slice(0, 60),
+    category: 'custom',
+    colors,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+}
+
+/** Loads every palette from the desktop palettes folder: one `.hex` file per
+ * palette, name derived from the file name. Unparseable files are skipped
+ * with a warning, like invalid entries in the web storage library, and names
+ * that sanitize to the same key (e.g. "My Palette" vs "my-palette") keep the
+ * first one. */
+export async function loadCustomPalettesFromFiles(store: TauriFileStore): Promise<CustomPalette[]> {
+  const palettes: CustomPalette[] = [];
+  const seen = new Set<string>();
+  const names = await store.list(CUSTOM_PALETTES_FOLDER);
+  for (const name of names) {
+    if (!name.toLowerCase().endsWith('.hex')) continue;
+    const text = await store.preload(`${CUSTOM_PALETTES_FOLDER}/${name}`);
+    if (text === null) continue;
+    try {
+      const palette = paletteFromHexFile(name, text);
+      if (seen.has(palette.key)) {
+        console.warn(`Dropping a palette file "${name}" that duplicates "${palette.name}".`);
+        continue;
+      }
+      seen.add(palette.key);
+      palettes.push(palette);
+    } catch (error) {
+      console.warn(`Dropping an invalid palette file "${name}".`, error);
+    }
+  }
+  return palettes;
+}
+
+/** Persists one palette as `palettes/<name>.hex` (overwriting any file with
+ * the same name). */
+export async function saveCustomPaletteFile(store: TauriFileStore, palette: CustomPalette): Promise<void> {
+  await store.write(`${CUSTOM_PALETTES_FOLDER}/${paletteFileName(palette.name)}`, serializePaletteHex(palette));
+}
+
+/** Deletes one palette's file; absent files are a no-op. */
+export async function deleteCustomPaletteFile(store: TauriFileStore, name: string): Promise<void> {
+  await store.remove(`${CUSTOM_PALETTES_FOLDER}/${paletteFileName(name)}`);
 }
 
 export function matchingPaletteKey(catalog: Record<string, Palette>, colors: string[], preferredKey?: string): string | null {

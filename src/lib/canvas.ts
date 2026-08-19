@@ -121,6 +121,32 @@ export function processLitImageData(
   return { lit, processed: process(lit) };
 }
 
+/** Pixelizes a canvas by downscaling it to `1 - percent / 100` of its size and
+ * nearest-neighbor upscaling it back to full resolution: a chunky block look
+ * driven by a single 0..99 percentage (0 = off, the default). The downscale is
+ * clamped to at least 1px so the image never collapses entirely. */
+export function pixelateCanvas(canvas: HTMLCanvasElement, percent: number): HTMLCanvasElement {
+  if (percent <= 0) return canvas;
+  const { width, height } = canvas;
+  const scale = 1 - percent / 100;
+  const smallWidth = Math.max(1, Math.round(width * scale));
+  const smallHeight = Math.max(1, Math.round(height * scale));
+  const small = resizeNearest(canvas, smallWidth, smallHeight);
+  return resizeNearest(small, width, height);
+}
+
+/** Nearest-neighbor resample to the given size followed by the downscale +
+ * upscale pixelization filter — the processed normals map's pipeline, shared by
+ * the 2D normals inspection, the processed viewport push, and the bake inputs. */
+export function resampleAndPixelate(
+  image: CanvasImageSource & { width: number; height: number },
+  width: number,
+  height: number,
+  percent: number,
+): HTMLCanvasElement {
+  return pixelateCanvas(resizeNearest(image, width, height), percent);
+}
+
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {

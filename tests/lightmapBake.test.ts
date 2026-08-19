@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, PlaneGeometry, Scene, Vector3 } from 'three';
-import { bakeMeshLightmap, type BakeLightmapOptions } from '../src/lib/lightmapBake';
+import { bakeLightmapAsync, bakeMeshLightmap, type BakeLightmapOptions } from '../src/lib/lightmapBake';
 import { createFallbackQuadScene } from '../src/lib/modelScene';
 
 const defaults: BakeLightmapOptions = {
@@ -259,5 +259,41 @@ describe('bakeMeshLightmap', () => {
     expect(rgb(2, 3)).toEqual([0, 0, 0]);
     // A texel far from the island keeps the full-light background.
     expect(rgb(0, 0)).toEqual([255, 255, 255]);
+  });
+});
+
+describe('bakeLightmapAsync', () => {
+  it('matches the sync bake byte-for-byte (workers unavailable in tests)', async () => {
+    const scene = createFallbackQuadScene(8, true);
+    const options: BakeLightmapOptions = {
+      ...defaults,
+      ambientColor: '#204080',
+      ambientIntensity: 0.4,
+    };
+    const sync = bakeMeshLightmap(scene, 16, 16, options);
+    const asyncResult = await bakeLightmapAsync(scene, 16, 16, options);
+    expect(asyncResult).toEqual(sync);
+  });
+
+  it('matches the sync bake with a normal map', async () => {
+    // Flat-blue normal map built directly (no canvas — this suite runs in a
+    // node environment without DOM stubs).
+    const data = new Uint8ClampedArray(4 * 4 * 4);
+    for (let i = 0; i < 4 * 4; i += 1) {
+      data[i * 4] = 128;
+      data[i * 4 + 1] = 128;
+      data[i * 4 + 2] = 255;
+      data[i * 4 + 3] = 255;
+    }
+    const scene = createFallbackQuadScene(4, false);
+    const options: BakeLightmapOptions = {
+      ...defaults,
+      normalMap: { data, width: 4, height: 4 },
+      normalStrength: 1,
+      normalFlipY: false,
+    };
+    const sync = bakeMeshLightmap(scene, 8, 8, options);
+    const asyncResult = await bakeLightmapAsync(scene, 8, 8, options);
+    expect(asyncResult).toEqual(sync);
   });
 });

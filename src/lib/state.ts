@@ -27,6 +27,11 @@ export type State = {
   brightness: number;
   contrast: number;
   saturation: number;
+  pixelation: number;
+  quadTessellation: number;
+  quadGrid: boolean;
+  displacementStrength: number;
+  displacementFlip: boolean;
   paletteFilter: PaletteCategory;
   uvMap: string;
   lodLevel: number;
@@ -36,6 +41,7 @@ export type State = {
   cameraDirection: DirectionVector;
   stripeAngle: number;
   noiseScale: number;
+  ditherScale: number;
   halftoneScale: number;
   seed: number;
   aoBias: number;

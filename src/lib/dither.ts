@@ -12,6 +12,11 @@ export type ProcessOptions = {
   saturation: number;
   stripeAngle: number;
   noiseScale: number;
+  /** Pattern coarseness for the threshold modes: 1 = one pattern sample per
+   * output pixel (the classic 1:1), lower magnifies the pattern — e.g. 0.08
+   * samples the 4×4 ordered grid every 50 px. Composes with noiseScale for
+   * the noise mode. Error diffusion and halftone are unaffected. */
+  ditherScale?: number;
   seed: number;
   /** Multiplier on the halftone dot-cell size (1 = 4 px cells). Larger values
    * make coarser dots; the dots scale with their cells. */
@@ -32,6 +37,13 @@ const BAYER_4 = [
 
 const thresholdModes = new Set<DitherMode>(['ordered', 'cross', 'stripes', 'noise', 'checker']);
 const LUMA = { red: 0.299, green: 0.587, blue: 0.114 };
+
+/** True for the coordinate-pattern modes (ordered / cross / stripes / noise /
+ * checker) — the modes the dither-scale control applies to. Error diffusion,
+ * halftone and 'none' have no pattern coordinates. */
+export function isPatternMode(mode: DitherMode): boolean {
+  return thresholdModes.has(mode);
+}
 
 // Base halftone dot-cell size in pixels; `halftoneScale` multiplies it so the
 // pattern period and the dots scale together (dots just touch at full black).
@@ -99,45 +111,181 @@ export function adjustColor(color: RGB, brightness: number, contrast: number, sa
   return [clamp(red, 0, 255), clamp(green, 0, 255), clamp(blue, 0, 255)];
 }
 
-function ditherImageData(source: ImageData, options: ProcessOptions): ImageData {
+/** Palettes at or below this size use the linear scan; larger palettes get
+ * the exact k-d tree, whose build + query cost amortizes over the scan. */
+const KD_THRESHOLD = 32;
+
+/** Nearest-color matcher over a palette. Both the linear scan and the k-d
+ * tree compute the LUMA-weighted distance with the identical expression and
+ * resolve exact ties to the lowest palette index, so `matchPalette` returns
+ * the same index a plain linear scan would for every input. */
+type PaletteMatcher = {
+  count: number;
+  flat: Float32Array;
+  weights: Float32Array;
+  tree: KDNode | null;
+};
+
+type KDNode = {
+  axis: number;
+  value: number;
+  index: number;
+  left: KDNode | null;
+  right: KDNode | null;
+};
+
+function buildPaletteMatcher(palette: string[]): PaletteMatcher {
+  const count = palette.length;
+  const flat = new Float32Array(count * 3);
+  const colors = palette.map(hexToRgb);
+  for (let i = 0; i < count; i += 1) {
+    flat[i * 3] = colors[i][0];
+    flat[i * 3 + 1] = colors[i][1];
+    flat[i * 3 + 2] = colors[i][2];
+  }
+  const weights = new Float32Array([LUMA.red, LUMA.green, LUMA.blue]);
+  let tree: KDNode | null = null;
+  if (count > KD_THRESHOLD) {
+    const indices = new Int32Array(count);
+    for (let i = 0; i < count; i += 1) indices[i] = i;
+    tree = buildKDNode(indices, flat, 0, count, 0);
+  }
+  return { count, flat, weights, tree };
+}
+
+/** Median-split k-d tree over the palette's raw RGB coordinates — the LUMA
+ * weights enter only the distance/prune arithmetic, so the split planes are
+ * the same as in scaled space. */
+function buildKDNode(indices: Int32Array, flat: Float32Array, start: number, end: number, axis: number): KDNode | null {
+  if (start >= end) return null;
+  const slice = indices.subarray(start, end);
+  slice.sort((a, b) => flat[a * 3 + axis] - flat[b * 3 + axis]);
+  const mid = start + ((end - start) >> 1);
+  const index = indices[mid];
+  return {
+    axis,
+    value: flat[index * 3 + axis],
+    index,
+    left: buildKDNode(indices, flat, start, mid, (axis + 1) % 3),
+    right: buildKDNode(indices, flat, mid + 1, end, (axis + 1) % 3),
+  };
+}
+
+type BestMatch = { index: number; distance: number };
+
+/** Exact nearest-color query. The node's own point is evaluated with the
+ * linear-scan distance expression; the far subtree is pruned only when the
+ * slab lower bound clears the best distance with a margin, so float rounding
+ * can never skip a true winner. Exact distance ties resolve to the lowest
+ * palette index, matching the linear scan's first-minimum behavior. */
+function queryKD(node: KDNode, flat: Float32Array, weights: Float32Array, r: number, g: number, b: number, best: BestMatch): void {
+  const index = node.index;
+  const dr = r - flat[index * 3];
+  const dg = g - flat[index * 3 + 1];
+  const db = b - flat[index * 3 + 2];
+  const distance = dr * dr * weights[0] + dg * dg * weights[1] + db * db * weights[2];
+  if (distance < best.distance || (distance === best.distance && index < best.index)) {
+    best.distance = distance;
+    best.index = index;
+  }
+  const axis = node.axis;
+  const v = axis === 0 ? r : axis === 1 ? g : b;
+  const near = v < node.value ? node.left : node.right;
+  const far = near === node.left ? node.right : node.left;
+  if (near) queryKD(near, flat, weights, r, g, b, best);
+  if (far) {
+    const diff = v - node.value;
+    if (weights[axis] * diff * diff < best.distance * 1.000001) queryKD(far, flat, weights, r, g, b, best);
+  }
+}
+
+function linearMatch(flat: Float32Array, weights: Float32Array, count: number, r: number, g: number, b: number): number {
+  let best = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < count; i += 1) {
+    const dr = r - flat[i * 3];
+    const dg = g - flat[i * 3 + 1];
+    const db = b - flat[i * 3 + 2];
+    const distance = dr * dr * weights[0] + dg * dg * weights[1] + db * db * weights[2];
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = i;
+    }
+  }
+  return best;
+}
+
+function matchPalette(m: PaletteMatcher, r: number, g: number, b: number): number {
+  if (m.tree) {
+    const best: BestMatch = { index: -1, distance: Number.POSITIVE_INFINITY };
+    queryKD(m.tree, m.flat, m.weights, r, g, b, best);
+    return best.index;
+  }
+  return linearMatch(m.flat, m.weights, m.count, r, g, b);
+}
+
+export function ditherImageData(source: ImageData, options: ProcessOptions): ImageData {
+  // The 'none' mode performs no adjustment and no palette mapping — the
+  // caller's lighting pass (lightmap + AO multiply) is the only modification.
+  if (options.mode === 'none') return source;
   const output = new ImageData(new Uint8ClampedArray(source.data), source.width, source.height);
   const data = output.data;
-  const palette = options.palette.map(hexToRgb);
   const work = new Float32Array(source.width * source.height * 3);
+  const matcher = buildPaletteMatcher(options.palette);
+  const { width, height } = source;
+  const strength = options.strength;
+  const isThreshold = thresholdModes.has(options.mode);
+  const isHalftone = options.mode === 'halftone';
+  const isFloyd = options.mode === 'floyd';
+  const isAtkinson = options.mode === 'atkinson';
+  const brightnessOffset = options.brightness * 2.55;
+  const contrastFactor = (259 * (options.contrast + 255)) / (255 * (259 - options.contrast));
+  const saturationFactor = 1 + options.saturation / 100;
 
   // Halftone splits color from shading: the base is the palette hard-map of
   // the adjusted color and the dot screen carries the shading, so no ink/paper
   // extremes are precomputed.
 
-  for (let pixel = 0; pixel < source.width * source.height; pixel += 1) {
+  for (let pixel = 0; pixel < width * height; pixel += 1) {
     const index = pixel * 4;
-    const adjusted = adjustColor([data[index], data[index + 1], data[index + 2]], options.brightness, options.contrast, options.saturation);
-    work[pixel * 3] = adjusted[0];
-    work[pixel * 3 + 1] = adjusted[1];
-    work[pixel * 3 + 2] = adjusted[2];
+    let ar = contrastFactor * (data[index] - 128) + 128 + brightnessOffset;
+    let ag = contrastFactor * (data[index + 1] - 128) + 128 + brightnessOffset;
+    let ab = contrastFactor * (data[index + 2] - 128) + 128 + brightnessOffset;
+    const gray = ar * LUMA.red + ag * LUMA.green + ab * LUMA.blue;
+    const w = pixel * 3;
+    work[w] = clamp(gray + (ar - gray) * saturationFactor, 0, 255);
+    work[w + 1] = clamp(gray + (ag - gray) * saturationFactor, 0, 255);
+    work[w + 2] = clamp(gray + (ab - gray) * saturationFactor, 0, 255);
   }
 
-  const spread = (x: number, y: number, error: RGB, factor: number) => {
-    if (x < 0 || x >= source.width || y < 0 || y >= source.height) return;
-    const target = (y * source.width + x) * 3;
-    for (let channel = 0; channel < 3; channel += 1) {
-      work[target + channel] += error[channel] * factor * options.strength;
-    }
+  const spread = (x: number, y: number, er: number, eg: number, eb: number, factor: number): void => {
+    if (x < 0 || x >= width || y < 0 || y >= height) return;
+    const target = (y * width + x) * 3;
+    work[target] += er * factor * strength;
+    work[target + 1] += eg * factor * strength;
+    work[target + 2] += eb * factor * strength;
   };
 
-  for (let y = 0; y < source.height; y += 1) {
-    for (let x = 0; x < source.width; x += 1) {
-      const pixel = y * source.width + x;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const pixel = y * width + x;
       const workIndex = pixel * 3;
-      let current: RGB = [work[workIndex], work[workIndex + 1], work[workIndex + 2]];
+      let r = work[workIndex];
+      let g = work[workIndex + 1];
+      let b = work[workIndex + 2];
 
-      if (thresholdModes.has(options.mode)) {
-        const offset = (patternThreshold(options.mode, x, y, options.stripeAngle, options.noiseScale, options.seed) - 0.5) * 96 * options.strength;
-        current = [clamp(current[0] + offset, 0, 255), clamp(current[1] + offset, 0, 255), clamp(current[2] + offset, 0, 255)];
+      if (isThreshold) {
+        // ditherScale < 1 magnifies the pattern: the threshold grid is sampled
+        // at scaled coordinates, so every pattern cell grows by 1 / scale.
+        const ditherScale = options.ditherScale ?? 1;
+        const offset = (patternThreshold(options.mode, x / ditherScale, y / ditherScale, options.stripeAngle, options.noiseScale, options.seed) - 0.5) * 96 * strength;
+        r = clamp(r + offset, 0, 255);
+        g = clamp(g + offset, 0, 255);
+        b = clamp(b + offset, 0, 255);
       }
 
-      let matched: RGB;
-      if (options.mode === 'halftone') {
+      let matchedIndex: number;
+      if (isHalftone) {
         // Staggered lattice of dot centers (mid-cell on even rows, shared
         // boundary on odd rows). Each dot's radius is driven by the shading
         // factor sampled at its cell center, so sizes stay uniform per cell
@@ -156,37 +304,43 @@ function ditherImageData(source: ImageData, options: ProcessOptions): ImageData 
         const distance = Math.hypot(x + 0.5 - centerX, y + 0.5 - centerY);
         let factor: number;
         if (options.lighting) {
-          const sampleX = clamp(Math.round(centerX), 0, source.width - 1);
-          const sampleY = clamp(Math.round(centerY), 0, source.height - 1);
-          factor = options.lighting[sampleY * source.width + sampleX];
+          const sampleX = clamp(Math.round(centerX), 0, width - 1);
+          const sampleY = clamp(Math.round(centerY), 0, height - 1);
+          factor = options.lighting[sampleY * width + sampleX];
         } else {
-          factor = (current[0] * LUMA.red + current[1] * LUMA.green + current[2] * LUMA.blue) / 255;
+          factor = (r * LUMA.red + g * LUMA.green + b * LUMA.blue) / 255;
         }
         const maxRadius = Math.hypot(cell / 2, cell / 2);
         const dotRadius = maxRadius * (1 - factor);
-        matched = distance <= dotRadius ? [0, 0, 0] : nearestColor(current, palette);
+        // −1 marks an ink dot (pure black); the base is the hard-mapped color.
+        matchedIndex = distance <= dotRadius ? -1 : matchPalette(matcher, r, g, b);
       } else {
-        matched = nearestColor(current, palette);
+        matchedIndex = matchPalette(matcher, r, g, b);
       }
       const outputIndex = pixel * 4;
-      data[outputIndex] = matched[0];
-      data[outputIndex + 1] = matched[1];
-      data[outputIndex + 2] = matched[2];
+      const mr = matchedIndex < 0 ? 0 : matcher.flat[matchedIndex * 3];
+      const mg = matchedIndex < 0 ? 0 : matcher.flat[matchedIndex * 3 + 1];
+      const mb = matchedIndex < 0 ? 0 : matcher.flat[matchedIndex * 3 + 2];
+      data[outputIndex] = mr;
+      data[outputIndex + 1] = mg;
+      data[outputIndex + 2] = mb;
 
-      if (options.mode === 'floyd' || options.mode === 'atkinson') {
-        const error: RGB = [current[0] - matched[0], current[1] - matched[1], current[2] - matched[2]];
-        if (options.mode === 'floyd') {
-          spread(x + 1, y, error, 7 / 16);
-          spread(x - 1, y + 1, error, 3 / 16);
-          spread(x, y + 1, error, 5 / 16);
-          spread(x + 1, y + 1, error, 1 / 16);
+      if (isFloyd || isAtkinson) {
+        const er = r - mr;
+        const eg = g - mg;
+        const eb = b - mb;
+        if (isFloyd) {
+          spread(x + 1, y, er, eg, eb, 7 / 16);
+          spread(x - 1, y + 1, er, eg, eb, 3 / 16);
+          spread(x, y + 1, er, eg, eb, 5 / 16);
+          spread(x + 1, y + 1, er, eg, eb, 1 / 16);
         } else {
-          spread(x + 1, y, error, 1 / 8);
-          spread(x + 2, y, error, 1 / 8);
-          spread(x - 1, y + 1, error, 1 / 8);
-          spread(x, y + 1, error, 1 / 8);
-          spread(x + 1, y + 1, error, 1 / 8);
-          spread(x, y + 2, error, 1 / 8);
+          spread(x + 1, y, er, eg, eb, 1 / 8);
+          spread(x + 2, y, er, eg, eb, 1 / 8);
+          spread(x - 1, y + 1, er, eg, eb, 1 / 8);
+          spread(x, y + 1, er, eg, eb, 1 / 8);
+          spread(x + 1, y + 1, er, eg, eb, 1 / 8);
+          spread(x, y + 2, er, eg, eb, 1 / 8);
         }
       }
     }
@@ -201,44 +355,129 @@ function ditherImageData(source: ImageData, options: ProcessOptions): ImageData 
  * dither the padded canvas, then crop back to the original bounds — lets the
  * border errors wrap into the opposite edge, so the tile dithers as if it
  * were part of an infinite tiling. Threshold and halftone modes are stateless
- * (per-pixel / per-cell), so they need no padding and skip the 9× cost. */
+ * (per-pixel / per-cell), so they need no padding.
+ *
+ * The canonical seamless grid is 3×3 (9 tiles). Diffusion flows only down and
+ * right, so the center tile never reads the bottom strip (rows 2h..3h−1) or
+ * the right strip below the top row — but the top strip must extend to 3w:
+ * the tile's top-right pixel receives the 3/16 down-left spread of column 2w
+ * (verified: a 3×2 grid is byte-identical to the 3×3 for floyd and atkinson,
+ * while 2×2/2×3 differ). The grid is pure re-indexing — padded pixel (px, py)
+ * shows source (px mod w, py mod h) — so `streamDitherSeamless` scans the
+ * virtual 3w×2h grid with a rolling work buffer and writes only the center
+ * tile. That keeps the working set at ~KB instead of the ~750 MB the padded
+ * buffers need at 2k, and the per-slot accumulation order is unchanged
+ * (adjusted value first, then error arrivals in scan order), so the output is
+ * byte-identical to the padded implementation. */
 const SEAMLESS_MODES = new Set<DitherMode>(['floyd', 'atkinson']);
-const PAD_TILES = 1;
 
-/** Copies `source` into a `(1 + 2·tiles)²` grid of exact repeats: padded row
- * `py` shows source row `py % height` (and likewise for columns). */
-function padTiled(source: ImageData, tiles: number): ImageData {
+/** Streaming seamless error diffusion — see the comment above. */
+function streamDitherSeamless(source: ImageData, options: ProcessOptions): ImageData {
   const { width, height } = source;
-  const size = 1 + tiles * 2;
-  const padded = new ImageData(new Uint8ClampedArray(size * size * width * height * 4), size * width, size * height);
-  for (let py = 0; py < size * height; py += 1) {
-    const sy = py % height;
-    for (let px = 0; px < size * width; px += 1) {
-      const s = (sy * width + (px % width)) * 4;
-      const d = (py * size * width + px) * 4;
-      padded.data[d] = source.data[s];
-      padded.data[d + 1] = source.data[s + 1];
-      padded.data[d + 2] = source.data[s + 2];
-      padded.data[d + 3] = source.data[s + 3];
-    }
-  }
-  return padded;
-}
-
-/** Extracts the center tile of a padded canvas at the original dimensions. */
-function cropCenter(padded: ImageData, width: number, height: number, tiles: number): ImageData {
-  const size = 1 + tiles * 2;
+  const atkinson = options.mode === 'atkinson';
+  const rowsNeeded = atkinson ? 3 : 2;
+  const gridWidth = width * 3;
+  const gridHeight = height * 2;
+  // Rolling work rows: each virtual grid row's adjusted colors plus the error
+  // diffused into it. Floyd reaches one row down, atkinson two, so two or
+  // three row slots cover the whole grid regardless of its height.
+  const work = new Float32Array(rowsNeeded * gridWidth * 3);
   const output = new ImageData(new Uint8ClampedArray(width * height * 4), width, height);
-  const rowStride = size * width;
-  const start = tiles * height * rowStride + tiles * width;
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const s = (start + y * rowStride + x) * 4;
-      const d = (y * width + x) * 4;
-      output.data[d] = padded.data[s];
-      output.data[d + 1] = padded.data[s + 1];
-      output.data[d + 2] = padded.data[s + 2];
-      output.data[d + 3] = padded.data[s + 3];
+  const src = source.data;
+
+  // The shared matcher's flat arrays (float32 LUMA weights) keep this path
+  // byte-identical with ditherImageData's matchPalette — but the k-d tree is
+  // deliberately NOT used here. Error-diffusion queries stay near the palette
+  // gamut, so the far-subtree prune rarely engages on dense palettes and the
+  // recursive query runs ~3× slower than the tight linear loop (measured:
+  // 256-color floyd at 2k, 117s with the tree vs 41s with the scan).
+  const matcher = buildPaletteMatcher(options.palette);
+
+  const brightness = options.brightness;
+  const contrast = options.contrast;
+  const saturation = options.saturation;
+  const strength = options.strength;
+  const brightnessOffset = brightness * 2.55;
+  const contrastFactor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+  const saturationFactor = 1 + saturation / 100;
+
+  /** Writes the tone-adjusted colors of virtual grid row `py` into `slot`.
+   * Runs one row ahead of the scan so every slot the diffusion touches is
+   * initialized exactly as the padded implementation initialized it. */
+  const initRow = (slot: number, py: number): void => {
+    const sy = py % height;
+    const srcRow = sy * width * 4;
+    const base = slot * gridWidth * 3;
+    for (let px = 0; px < gridWidth; px += 1) {
+      const s = srcRow + (px % width) * 4;
+      let ar = contrastFactor * (src[s] - 128) + 128 + brightnessOffset;
+      let ag = contrastFactor * (src[s + 1] - 128) + 128 + brightnessOffset;
+      let ab = contrastFactor * (src[s + 2] - 128) + 128 + brightnessOffset;
+      const gray = ar * LUMA.red + ag * LUMA.green + ab * LUMA.blue;
+      ar = clamp(gray + (ar - gray) * saturationFactor, 0, 255);
+      ag = clamp(gray + (ag - gray) * saturationFactor, 0, 255);
+      ab = clamp(gray + (ab - gray) * saturationFactor, 0, 255);
+      const w = base + px * 3;
+      work[w] = ar;
+      work[w + 1] = ag;
+      work[w + 2] = ab;
+    }
+  };
+
+  /** Adds `error · factor · strength` into grid row slot `target` at column
+   * `x`; columns outside the grid are dropped, exactly like the padded
+   * implementation's edge clamp. */
+  const spreadRow = (target: number, x: number, er: number, eg: number, eb: number, factor: number): void => {
+    if (x < 0 || x >= gridWidth) return;
+    const t = target + x * 3;
+    work[t] += er * factor * strength;
+    work[t + 1] += eg * factor * strength;
+    work[t + 2] += eb * factor * strength;
+  };
+
+  initRow(0, 0);
+  if (rowsNeeded > 2) initRow(1, 1);
+
+  for (let py = 0; py < gridHeight; py += 1) {
+    const rowSlot = py % rowsNeeded;
+    const nextRow = py + rowsNeeded - 1;
+    if (nextRow < gridHeight) initRow(nextRow % rowsNeeded, nextRow);
+    const base = rowSlot * gridWidth * 3;
+    const below = ((py + 1) % rowsNeeded) * gridWidth * 3;
+    const below2 = ((py + 2) % rowsNeeded) * gridWidth * 3;
+    const inCenter = py >= height;
+    for (let px = 0; px < gridWidth; px += 1) {
+      const w = base + px * 3;
+      const r = work[w];
+      const g = work[w + 1];
+      const b = work[w + 2];
+      const best = linearMatch(matcher.flat, matcher.weights, matcher.count, r, g, b);
+      const mr = matcher.flat[best * 3];
+      const mg = matcher.flat[best * 3 + 1];
+      const mb = matcher.flat[best * 3 + 2];
+      if (inCenter && px >= width && px < width * 2) {
+        const o = ((py - height) * width + (px - width)) * 4;
+        output.data[o] = mr;
+        output.data[o + 1] = mg;
+        output.data[o + 2] = mb;
+        output.data[o + 3] = src[(py % height) * width * 4 + (px % width) * 4 + 3];
+      }
+      const er = r - mr;
+      const eg = g - mg;
+      const eb = b - mb;
+      if (atkinson) {
+        spreadRow(base, px + 1, er, eg, eb, 1 / 8);
+        spreadRow(base, px + 2, er, eg, eb, 1 / 8);
+        spreadRow(below, px - 1, er, eg, eb, 1 / 8);
+        spreadRow(below, px, er, eg, eb, 1 / 8);
+        spreadRow(below, px + 1, er, eg, eb, 1 / 8);
+        spreadRow(below2, px, er, eg, eb, 1 / 8);
+      } else {
+        spreadRow(base, px + 1, er, eg, eb, 7 / 16);
+        spreadRow(below, px - 1, er, eg, eb, 3 / 16);
+        spreadRow(below, px, er, eg, eb, 5 / 16);
+        spreadRow(below, px + 1, er, eg, eb, 1 / 16);
+      }
     }
   }
   return output;
@@ -246,5 +485,5 @@ function cropCenter(padded: ImageData, width: number, height: number, tiles: num
 
 export function processImageData(source: ImageData, options: ProcessOptions): ImageData {
   if (!SEAMLESS_MODES.has(options.mode)) return ditherImageData(source, options);
-  return cropCenter(ditherImageData(padTiled(source, PAD_TILES), options), source.width, source.height, PAD_TILES);
+  return streamDitherSeamless(source, options);
 }

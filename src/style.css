@@ -43,9 +43,17 @@
 * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
 /* Desktop-app feel: no text is selectable except where the user actually types. */
 input, textarea, [contenteditable] { user-select: text; -webkit-user-select: text; }
-html { background: var(--ink); }
+/* The app enforces a 750×480 floor on both surfaces: the Tauri window's
+   min_inner_size (native: the desktop window cannot be resized smaller) and
+   these CSS minimums (web: a smaller browser viewport scrolls instead of
+   clipping the fixed-height layout). Only the minimum is clamped; the
+   window stays freely resizable above it. */
+html { background: var(--ink); min-width: 750px; min-height: 480px; }
 html, body, #app { height: 100%; margin: 0; }
-body { overflow: hidden; }
+/* Auto (not hidden) so a web viewport below the 750×480 floor can scroll to
+   the layout's clipped edges; the desktop window is never below the floor,
+   so no scrollbars appear there. */
+body { overflow: auto; }
 body { background: var(--ink); color: var(--paper); }
 button, input { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
@@ -56,6 +64,20 @@ button { border: 0; color: inherit; }
    canvas stage — it just reserves its column and scrolls internally. */
 .app-shell { display: grid; grid-template-columns: minmax(0, 1fr) var(--control-width); height: 100%; min-width: 0; }
 .main-column { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; overflow: hidden; }
+
+/* Storage-location notice: a full-width row above the two columns, shown only
+   when the desktop install folder isn't writable (Program Files / AppImage /
+   app bundle) and data lives in the per-user app-data dir instead. */
+.storage-notice {
+  background: color-mix(in srgb, #d9a441 14%, var(--panel));
+  border-bottom: 1px solid color-mix(in srgb, #d9a441 40%, transparent);
+  color: var(--paper-dim);
+  font: 500 9px 'DM Mono', monospace;
+  grid-column: 1 / -1;
+  line-height: 1.5;
+  padding: 7px 16px;
+}
+.storage-notice[hidden] { display: none; }
 
 .topbar {
   align-items: center; background: color-mix(in srgb, var(--ink) 96%, transparent); display: flex;
@@ -76,7 +98,13 @@ button { border: 0; color: inherit; }
 .button-quiet { background: transparent; color: var(--muted); justify-self: end; padding-right: 0; }
 .button-quiet:hover { color: var(--paper); }
 .topbar-actions { align-items: center; display: flex; gap: var(--topbar-gap); margin-left: auto; min-width: 0; }
-.topbar-actions .button { height: var(--control-height); padding: 0 var(--topbar-gap); }
+/* The action buttons (Save / Load / Reset settings) scale their type with the
+   topbar container (cqw, not vw: the topbar is full-width but this keeps the
+   sizing local to its own container). Reset settings is the widest label, so
+   it's the one that would wrap first when the row gets tight: the font drops
+   from 12px to a 10px floor before the buttons run out of room, and nowrap
+   guarantees the label never splits across two rows. */
+.topbar-actions .button { font-size: clamp(10px, 2.1cqw, 12px); height: var(--control-height); padding: 0 var(--topbar-gap); white-space: nowrap; }
 .brand-group { align-items: center; display: flex; gap: var(--topbar-gap); min-width: 0; }
 .brand-group .build-version { flex: none; }
 .circle-link {
@@ -105,7 +133,6 @@ button { border: 0; color: inherit; }
 .preview-toolbar { align-items: center; display: flex; gap: 24px; min-height: 86px; min-width: 0; overflow: hidden; padding: 18px clamp(16px, 2.4vw, 28px); }
 .eyebrow { color: var(--accent); font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500; letter-spacing: .15em; margin: 0 0 7px; }
 .toolbar-actions { align-items: flex-end; display: flex; flex-direction: column; gap: 6px; margin-left: auto; }
-.value-pill { background: var(--card); color: var(--paper-dim); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .08em; padding: 9px 11px; }
 .uv-control { align-items: center; display: flex; gap: 6px; }
 .uv-control span { color: var(--muted); font: 500 8px 'DM Mono', monospace; text-transform: uppercase; }
 .select {
@@ -134,10 +161,27 @@ select option { background: var(--card); color: var(--paper); }
 .sun-overlay-heading > span { color: var(--paper); font: 600 8px 'DM Mono', monospace; letter-spacing: .1em; text-transform: uppercase; }
 .uv-overlap-control.is-disabled { opacity: .45; pointer-events: none; }
 .orient-sun-button {
-  color: inherit; cursor: pointer;
+  align-items: center; color: inherit; cursor: pointer;
+  display: inline-flex; gap: 6px; justify-content: center;
   font: 600 8px 'DM Mono', monospace; margin: 7px 0 3px; padding: 7px 8px; text-transform: uppercase; width: 84px;
 }
 .orient-sun-button:disabled { cursor: not-allowed; opacity: .35; }
+/* Busy (Orient Sun with Camera): the action re-bakes the lightmap, which can
+   take a while on a heavy grid — gray the button out and spin a throbber so
+   the user knows it is working and cannot double-click it. */
+.orient-sun-button.busy:disabled { opacity: .55; }
+.orient-sun-spinner { display: none; }
+.orient-sun-button.busy .orient-sun-spinner {
+  animation: orient-sun-spin .7s linear infinite;
+  border: 1.5px solid color-mix(in srgb, var(--paper) 28%, transparent);
+  border-radius: 50%;
+  border-top-color: var(--paper);
+  display: inline-block;
+  flex: none;
+  height: 8px;
+  width: 8px;
+}
+@keyframes orient-sun-spin { to { transform: rotate(360deg); } }
 .orientation-readout { display: grid; gap: 4px; margin-top: 7px; padding-top: 7px; width: 86px; }
 .orientation-row { align-items: center; display: flex; font: 500 8px 'DM Mono', monospace; justify-content: space-between; }
 .orientation-label { color: var(--muted); font-size: 6px; text-transform: uppercase; }
@@ -218,9 +262,9 @@ select option { background: var(--card); color: var(--paper); }
   display: flex; gap: 2px; padding: 3px; position: absolute; right: 8px; top: 8px; z-index: 10;
 }
 .preview-mode-toggle[hidden] { display: none; }
-#uvOverlapControl, #uvWireframeControl, #repeatTextureControl, #processedUVOverlapControl, #processedUVWireframeControl, #processedRepeatTextureControl { background: color-mix(in srgb, var(--ink) 92%, transparent); padding: 3px 6px; position: absolute; right: 8px; z-index: 10; }
-#uvOverlapControl, #repeatTextureControl, #processedUVOverlapControl, #processedRepeatTextureControl { top: 42px; }
-#uvWireframeControl, #processedUVWireframeControl { top: 62px; }
+#uvOverlapControl, #uvWireframeControl, #repeatTextureControl, #processedUVOverlapControl, #processedUVWireframeControl, #processedRepeatTextureControl, #navigationToggle, #worldAxisToggle { background: color-mix(in srgb, var(--ink) 92%, transparent); padding: 3px 6px; position: absolute; right: 8px; z-index: 10; }
+#uvOverlapControl, #repeatTextureControl, #processedUVOverlapControl, #processedRepeatTextureControl, #navigationToggle { top: 42px; }
+#uvWireframeControl, #processedUVWireframeControl, #worldAxisToggle { top: 62px; }
 .preview-mode-toggle button {
   background: transparent; border: 0; color: inherit; cursor: pointer;
   font: 700 9px 'Manrope', system-ui, sans-serif; letter-spacing: .08em; padding: 6px 12px;
@@ -240,7 +284,6 @@ select option { background: var(--card); color: var(--paper); }
   padding: clamp(3px, 0.5vw, 5px) clamp(4px, 0.7vw, 8px); text-transform: uppercase; white-space: nowrap;
 }
 .preview-view-toggle button:disabled { cursor: not-allowed; opacity: .35; }
-.world-axis-toggle { bottom: 8px; left: auto; right: 8px; }
 /* Export PNG sits on the dithered preview's bottom-left corner — inside the
    canvas-frame, above whichever pane (2D canvas or 3D model) fills it — so it
    stays reachable in both preview modes. It borrows the view-mode segment pill
@@ -341,7 +384,7 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .range::-moz-range-progress { background: var(--line); height: 2px; }
 .range::-moz-range-thumb { background: var(--paper); border: 0; height: 14px; width: 8px; }
 .range-labels { color: var(--faint); display: flex; font: 400 8px 'DM Mono', monospace; justify-content: space-between; margin-top: 5px; }
-.resolution-presets { display: grid; gap: 5px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 14px; }
+.resolution-presets { display: grid; gap: 5px; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 14px; }
 .resolution-presets button { background: var(--card); color: var(--muted); cursor: pointer; font: 500 10px 'DM Mono', monospace; padding: 8px; }
 .resolution-presets button.active, .resolution-presets button:hover { background: var(--paper); color: var(--ink); }
 .resolution-block { margin-bottom: 18px; }
@@ -385,6 +428,12 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .palette-editor { border: 0; margin: 0; min-width: 0; padding: 0; }
 .palette-editor:disabled { filter: grayscale(1); opacity: .45; pointer-events: none; }
 .custom-colors { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+.custom-palette-toggle { align-items: center; background: none; border: 0; color: var(--muted); cursor: pointer; display: flex; font: 600 12px 'DM Mono', monospace; gap: 8px; padding: 0; }
+.custom-palette-toggle:hover, .custom-palette-toggle:focus-visible { color: var(--paper); }
+.custom-palette-chevron { display: flex; font-size: 15px; font-weight: 600; line-height: 1; }
+.custom-palette-chevron::before { content: '-'; }
+.custom-palette.collapsed .custom-palette-chevron::before { content: '+'; }
+.custom-palette.collapsed .palette-editor { display: none; }
 .custom-color { height: 31px; position: relative; width: 31px; }
 .custom-color label { cursor: pointer; display: block; height: 25px; position: relative; width: 25px; }
 .custom-color .color-chip { height: 100%; width: 100%; }
@@ -407,7 +456,9 @@ body.eyedropping, body.eyedropping * { cursor: var(--eyedropper-cursor, crosshai
    chip's own click handling. */
 .custom-color.active label::after { box-shadow: 0 0 0 1px #000, 0 0 0 3px #fff; content: ''; inset: 0; pointer-events: none; position: absolute; z-index: 2; }
 .custom-color-add { align-items: center; background: var(--card); color: var(--muted); cursor: pointer; display: flex; font: 500 15px 'DM Mono', monospace; height: 25px; justify-content: center; line-height: 1; padding: 0; width: 25px; }
-.mode-grid { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+/* Pattern buttons scroll at ~3 rows tall (3 × 25px buttons + 2 × 6px gaps),
+ * mirroring the palette library's scroll container. */
+.mode-grid { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); max-height: 90px; overscroll-behavior: contain; overflow-x: hidden; overflow-y: auto; padding-right: 10px; scrollbar-color: var(--line-bright) var(--panel); scrollbar-gutter: stable; }
 .mode-button { align-items: center; background: var(--card); cursor: pointer; display: grid; gap: 2px; grid-template-columns: 24px minmax(0, 1fr); padding: 4px 6px; text-align: left; }
 .mode-button:hover { background: var(--raised); }
 .mode-button.active { background: color-mix(in srgb, var(--accent) 22%, var(--card)); }
@@ -428,6 +479,8 @@ body.eyedropping, body.eyedropping * { cursor: var(--eyedropper-cursor, crosshai
 .control-row strong { font-size: 10px; }
 .control-row small { color: var(--muted); font-size: 8px; margin-top: 3px; }
 .control-row output { color: var(--paper); font: 500 9px 'DM Mono', monospace; }
+.range-value-edit { background: var(--surface); border: 1px solid var(--line-bright); color: var(--paper); font: 500 9px 'DM Mono', monospace; max-width: 84px; padding: 1px 4px; text-align: right; }
+.range-value-edit:focus { border-color: var(--accent); outline: none; }
 .panel-description { color: var(--muted); font-size: 9px; line-height: 1.5; margin: 4px 0 0; }
 .lightmap-status { background: var(--surface); color: var(--paper-dim); font: 500 8px 'DM Mono', monospace; margin-top: 13px; overflow: hidden; padding: 8px; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -446,7 +499,7 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
 .palette-card:focus-visible, .mode-button:focus-visible { background: color-mix(in srgb, var(--accent) 22%, var(--card)); }
 .hidden-input:focus-visible + .color-chip { background: color-mix(in srgb, var(--accent) 40%, var(--swatch)); }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   /* The sidebar (control column) stays on the right at every width — it never
      reflows to the bottom. Its width is --control-width, a clamp that scales
      with the window, so the preview column keeps the larger share. */
@@ -457,18 +510,16 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
      dithered preview is the work product, so the Original pane drops out and
      takes its space; the topbar keeps only the app actions; the model-only
      UV map / LOD selects hide. The Original pane's shared controls (view
-     mode, UV toggles) are relocated into the dithered pane by
-     main.ts — the view mode enum sits on the bottom edge with Export PNG
-     lifted above it (texel density stays top-left, with Orient Sun with
-     Camera tucked beneath it). The world-axis toggle and the rest of the
-     lighting overlay are NOT relocated — they hide along with the Original
-     pane. */
+     mode, UV toggles) and the full lighting panel are relocated into the
+     dithered pane by main.ts: the view mode enum sits on the bottom-left
+     edge, Export PNG fills the bottom-right corner, and the texel density
+     chip stacks under the 2D/3D toggle with the 2D-view toggles beneath it. */
   .comparison-grid { grid-template-columns: 1fr; }
   .original-pane { display: none; }
   .circle-link { display: none; }
   .uv-control { display: none; }
   /* The texture ribbon's six slots (5 textures + model) need ~500px at their
-     full 82px size; below ~900px the preview column can't hold them, so the
+     full 82px size; below ~1100px the preview column can't hold them, so the
      slots scale down fluidly — (16.67vw − 56px) is the exact width that fits
      6 slots + gaps + toolbar chrome once the control column hits its 260px
      floor (~812px window), clamped to stay usable at both ends. */
@@ -477,11 +528,18 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
   .texture-ribbon { gap: 8px; }
   .texture-slot { height: 56px; min-width: clamp(46px, calc(16.67vw - 56px), 70px); padding: 5px 6px; }
   .texture-slot-preview { height: 24px; width: 32px; }
-  .resolution-presets { grid-template-columns: 1fr; }
-  #exportButton { bottom: 46px; }
-  /* The relocated Orient Sun with Camera button sits directly under the
-     texel density chip (top-left) in the single-pane layout. */
-  #orientSunWithCamera { left: 8px; margin: 0; position: absolute; top: 54px; }
+  /* The five resolution preset chips can't fit a row once the control column
+     hits its 260px floor; the resolution slider above remains the control. */
+  .resolution-presets { display: none; }
+  /* Export PNG takes the bottom-right corner; the relocated view-mode enum
+     owns the bottom-left edge, so the corners don't collide. */
+  #exportButton { bottom: 8px; left: auto; right: 8px; }
+  /* The texel density chip stacks directly under the 2D/3D toggle; the
+     2D-view toggles (Image repeat, UV overlap, UV islands) drop below it to
+     clear the top-right stack. */
+  #processedTexelDensity { left: auto; right: 8px; top: 42px; }
+  #processedRepeatTextureControl, #processedUVOverlapControl { top: 86px; }
+  #processedUVWireframeControl { top: 106px; }
 }
 
 @media (max-width: 620px) {

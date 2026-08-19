@@ -9,13 +9,20 @@ export function createStateFixture(): State {
     paletteKey: 'pico8',
     customColors: [],
     // Small by default so tests with tiny sources exercise exact pixel math
-    // (no upscale); tests that assert downscale dimensions pin 64.
+    // (no upscale); tests that assert downscale dimensions pin 64. The default
+    // mode is the zero-strength ordered grid — plain palette mapping with no
+    // pattern (the empty 'none' mode now passes the source through unchanged).
     resolution: 2,
-    mode: 'none',
-    strength: 1,
+    mode: 'ordered',
+    strength: 0,
     brightness: 0,
     contrast: 0,
     saturation: 0,
+    pixelation: 0,
+    quadTessellation: 16,
+    quadGrid: false,
+    displacementStrength: 0.15,
+    displacementFlip: false,
     paletteFilter: 'compact',
     uvMap: 'uv',
     lodLevel: 0,
@@ -24,6 +31,7 @@ export function createStateFixture(): State {
     worldAxis: 'maya',
     stripeAngle: 45,
     noiseScale: 1,
+    ditherScale: 1,
     halftoneScale: 1,
     seed: 1,
     aoBias: 0,

@@ -124,4 +124,39 @@ describe('bakeMeshAO', () => {
     // A texel far from the island keeps the background.
     expect(factors[0]).toBe(255);
   });
+
+  it('ignores the normal map at zero strength, byte-identical to unmapped', () => {
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial()));
+    scene.add(ceilingQuad(3));
+    const flat = { data: new Uint8ClampedArray([128, 128, 255, 255]), width: 1, height: 1 };
+    const mapped = bakeMeshAO(scene, 16, 16, { samples: 32, distance: 1, normalMap: flat, normalStrength: 0 });
+    const unmapped = bakeMeshAO(scene, 16, 16, { samples: 32, distance: 1 });
+    expect(mapped).toEqual(unmapped);
+  });
+
+  it('reorients the AO hemisphere with the normal map, darkening toward an occluder', () => {
+    const wallScene = () => {
+      const scene = new Scene();
+      scene.add(new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial()));
+      // A wall at x = +1.5 rising above the plane (occluder-only: no UVs).
+      const wall = new BufferGeometry();
+      wall.setAttribute('position', new Float32BufferAttribute([
+        1.5, -2, 0,  1.5, -2, 3,  1.5, 2, 3,
+        1.5, -2, 0,  1.5, 2, 3,  1.5, 2, 0,
+      ], 3));
+      scene.add(new Mesh(wall, new MeshBasicMaterial()));
+      return scene;
+    };
+    // The plane's tangent runs +X, so red tilts the hemisphere into the wall,
+    // black away from it. Both tilts self-occlude identically against the
+    // plane's own surface, isolating the wall's contribution.
+    const toward = { data: new Uint8ClampedArray([255, 128, 128, 255]), width: 1, height: 1 };
+    const away = { data: new Uint8ClampedArray([0, 128, 128, 255]), width: 1, height: 1 };
+    const towardAO = bakeMeshAO(wallScene(), 16, 16, { samples: 64, distance: 2, normalMap: toward });
+    const awayAO = bakeMeshAO(wallScene(), 16, 16, { samples: 64, distance: 2, normalMap: away });
+    const center = 8 * 16 + 8;
+    // Tilting into the wall occludes more of the hemisphere than tilting away.
+    expect(towardAO[center]).toBeLessThan(awayAO[center]);
+  });
 });

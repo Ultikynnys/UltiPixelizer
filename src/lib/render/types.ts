@@ -25,6 +25,11 @@ export interface RendererDeps {
   applySun: () => void;
   /** Whole-percent AO bake progress (0–100), forwarded from the worker bands. */
   onAoProgress?: (percent: number) => void;
+  /** Fires when the implicit lightmap bake pipeline settles: a bake landed,
+   * failed, was skipped (no base image / lightmap active / cleared), or was
+   * cancelled (reset / lightmap clear). Ends "busy" indicators on actions that
+   * trigger an implicit bake, e.g. orient sun with camera. */
+  onImplicitBakeSettled?: () => void;
   /** When set and true, the pane renders the texture tiled 3×3 (image repeat)
    * so tile-boundary seams are visible. Fallback-quad diagnostic, per pane. */
   repeatTextureOriginal?: () => boolean;
@@ -33,6 +38,10 @@ export interface RendererDeps {
 
 export interface RendererApi {
   render: () => void;
+  /** Re-applies the last rendered frames to both 3D viewports — call right
+   * after swapping a viewport's model/quad so the fresh materials pick up the
+   * texture synchronously instead of flashing white until the next render. */
+  applyViewportImages: () => void;
   generateAo: () => Promise<boolean>;
   bakeLighting: () => Promise<boolean>;
   /** Removes the lightmap. Pass `suppressImplicit: true` (the slot X button)

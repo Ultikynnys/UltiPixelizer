@@ -1,19 +1,20 @@
 import './style.css';
-import { createCanvas, createSampleTexture, downloadCanvas, downloadText, drawImageToCanvas, loadImageFile, resizeNearest } from './lib/canvas';
-import { openExternalLink } from './lib/tauri';
-import { createCustomPalette, deleteCustomPalette, duplicatePalette, loadCustomPalettes, paletteFromImport, selectOrCreatePalette, serializeCustomPalette, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
-import type { DitherMode } from './lib/dither';
+import { createCanvas, createSampleTexture, downloadCanvas, downloadText, drawImageToCanvas, loadImageFile, resampleAndPixelate } from './lib/canvas';
+import { CONFIG_FOLDER, disableWebviewContextMenu, initTauriFileStore, openExternalLink, type TauriFileStore } from './lib/tauri';
+import { CUSTOM_PALETTE_STORAGE_KEY, createCustomPalette, deleteCustomPalette, deleteCustomPaletteFile, duplicatePalette, filePaletteFor, isCustomPalette, loadCustomPalettes, loadCustomPalettesFromFiles, matchingPaletteKey, paletteFileName, paletteFromImport, saveCustomPaletteFile, selectOrCreatePalette, serializePaletteHex, updateCustomPalette, upsertCustomPalette, type CustomPalette } from './lib/customPalettes';
+import type { StorageLike } from './lib/storage';
+import { isPatternMode, type DitherMode } from './lib/dither';
 import { sampleColorAt } from './lib/eyedropper';
 import { hexToRgb, hsvToRgb, palettes, rgbToHex, rgbToHsv, type Palette, type PaletteCategory } from './lib/palettes';
 import { computePosterizeStats, posterizeColors, type PosterizeStats } from './lib/posterize';
 import { createRenderScheduler } from './lib/renderScheduler';
-import { createModelFileBundle, modelFormat, type ModelFileBundle, type WorldAxis } from './lib/modelFiles';
+import { createModelFileBundle, modelFormat, type ModelFileBundle } from './lib/modelFiles';
 import { collectModelTextures, type ExtractedModelTextures } from './lib/modelTextures';
-import { applyDisplacement, applyUVChannel, cloneModelScene, createFallbackQuadScene, disposeModel, geometryUVChannels, renderModelThumbnail, type HeightSampler } from './lib/modelScene';
+import { applyDisplacement, applyUVChannel, cloneModelScene, createFallbackQuadScene, disposeModel, geometryUVChannels, getFallbackQuadScene, renderModelThumbnail, type HeightSampler } from './lib/modelScene';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
 import { computeAverageTexelDensity } from './lib/texelDensity';
-import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, type ConversionPreset } from './lib/presets';
+import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, type ConversionPreset, type SavedCamera } from './lib/presets';
 import { lightmapMatchesBaseColor } from './lib/lightmap';
 import { imageHeightmapPixels, sampleHeightmap, type NormalFormat } from './lib/normal';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY } from './lib/defaults';
@@ -82,7 +83,7 @@ const sunOverlayMarkup = (): string => `
     <div class="sun-overlay-heading">
       <span>Lighting controls</span>
     </div>
-    <button class="orient-sun-button" id="orientSunWithCamera" type="button" title="Copy the 3D viewport angle to the sun">Orient Sun with Camera</button>
+    <button class="orient-sun-button" id="orientSunWithCamera" type="button" title="Copy the 3D viewport angle to the sun"><span class="orient-sun-spinner" aria-hidden="true"></span>Orient Sun with Camera</button>
     <div class="orientation-readout" title="World-space direction (x, y, z)">
       <div class="orientation-row"><span class="orientation-label">Sun</span><output id="sunDirectionValue">—</output></div>
       <div class="orientation-row"><span class="orientation-label">Cam</span><output id="cameraDirectionValue">—</output></div>
@@ -147,6 +148,7 @@ const state: State = defaultState();
 
 app.innerHTML = `
   <div class="app-shell">
+    <div id="storageNotice" class="storage-notice" hidden></div>
     <div class="main-column">
     <header class="topbar">
       <div class="brand-group">
@@ -233,10 +235,14 @@ app.innerHTML = `
                   <button type="button" data-view="lightmap">Lightmap</button>
                   <button type="button" data-view="lightmap-ao">Lightmap+AO</button>
                 </div>
-                <div class="preview-view-toggle world-axis-toggle" id="worldAxisToggle" hidden role="group" aria-label="World axis">
-                  <button type="button" data-world-axis="blender" class="active" title="Blender · Z-up">Z-up</button>
-                  <button type="button" data-world-axis="maya" title="Maya · Y-up">Y-up</button>
-                </div>
+                <label class="uv-overlap-control" id="navigationToggle" hidden title="Left-drag camera action. On: pan moves the camera sideways. Off: orbit rotates around the target. The middle button always zooms.">
+                  <span>Alt controls</span>
+                  ${toggleControl('navigationPan', 'Pan the camera on left-drag (off: orbit)')}
+                </label>
+                <label class="uv-overlap-control" id="worldAxisToggle" hidden title="Up axis for FBX/OBJ models. On: Y-up (Maya). Off: Z-up (Blender).">
+                  <span>Y-Up</span>
+                  ${toggleControl('worldAxisYUp', 'Use Y-up as the model up axis (off: Z-up)')}
+                </label>
               </div>
             </figure>
             <figure class="preview-pane processed-pane">
@@ -288,6 +294,9 @@ app.innerHTML = `
           </div>
           <div class="palette-grid" id="paletteGrid"></div>
           <div class="custom-palette">
+            <button type="button" class="custom-palette-toggle" id="paletteEditorToggle" aria-expanded="true" aria-controls="paletteEditor">
+              <span>Palette Editor</span><span class="custom-palette-chevron" aria-hidden="true"></span>
+            </button>
             <fieldset class="palette-editor" id="paletteEditor">
               <div class="color-picker" id="colorPicker">
                 <div class="color-picker-body">
@@ -301,7 +310,7 @@ app.innerHTML = `
               <div id="customColors" class="custom-colors"></div>
             </fieldset>
           </div>
-          <input id="importCustomPalette" type="file" accept=".json,.hex,.txt,application/json" hidden />
+          <input id="importCustomPalette" type="file" accept=".hex,.txt,text/plain" hidden />
         </section>
 
         <section class="panel">
@@ -315,7 +324,7 @@ app.innerHTML = `
             <button class="mode-button" data-mode="noise" type="button"><span class="pattern pattern-random"></span><strong>Noise</strong></button>
             <button class="mode-button" data-mode="checker" type="button"><span class="pattern pattern-checker"></span><strong>Checker</strong></button>
             <button class="mode-button" data-mode="halftone" type="button"><span class="pattern pattern-halftone"></span><strong>Halftone</strong></button>
-            <button class="mode-button" data-mode="none" type="button"><span class="pattern pattern-none"></span><strong>Hard map</strong></button>
+            <button class="mode-button" data-mode="none" type="button"><span class="pattern pattern-none"></span><strong>None</strong></button>
           </div>
           ${rangeControl('strength', 'Dither strength', 0, 100, 1, 85, '85%', 'Error diffusion amount')}
           <div class="stripe-angle-control" id="stripeAngleControl" hidden>
@@ -325,6 +334,9 @@ app.innerHTML = `
             ${rangeControl('noiseScale', 'Noise scale', 1, 32, 1, 1, '1 px', 'Grain size')}
             ${rangeControl('seed', 'Seed', 0, 9999, 1, 1, '1', 'Noise pattern')}
           </div>
+          <div class="dither-scale-control" id="ditherScaleControl" hidden>
+            ${rangeControl('ditherScale', 'Dither scale', 0.08, 1, 0.01, 1, '1.00', 'Pattern coarseness — 1 = one sample per pixel, lower magnifies')}
+          </div>
           <div class="halftone-scale-control" id="halftoneScaleControl" hidden>
             ${rangeControl('halftoneScale', 'Dot scale', 0.5, 4, 0.1, 1, '1.00×', 'Halftone dot size')}
           </div>
@@ -333,10 +345,10 @@ app.innerHTML = `
         <section class="panel adjustments">
           <div class="panel-heading compact">
             <div><p class="eyebrow">RESOLUTION + TONE</p><h2>Adjustments</h2></div>
-            <output class="value-pill" id="resolutionValue">128 px</output>
           </div>
+          <div id="pixelationControl"></div>
           <div class="resolution-block">
-            <input class="range" id="resolution" type="range" min="24" max="2048" step="8" value="128" aria-label="Pixelization width" />
+            <div id="resolutionControl"></div>
             <div class="range-labels"><span>CHUNKY</span><span>FINE</span></div>
             <div class="resolution-presets" role="group" aria-label="Resolution presets">
               <button type="button" data-resolution="64">64</button>
@@ -344,7 +356,6 @@ app.innerHTML = `
               <button type="button" data-resolution="256">256</button>
               <button type="button" data-resolution="512">512</button>
               <button type="button" data-resolution="1024">1024</button>
-              <button type="button" data-resolution="2048">2048</button>
             </div>
           </div>
           <div id="adjustmentControls"></div>
@@ -352,14 +363,14 @@ app.innerHTML = `
 
         <section class="panel">
           <div class="panel-heading compact"><div><p class="eyebrow">LIGHTING</p><h2>Ambient occlusion</h2></div></div>
-          ${rangeControl('aoBias', 'Bias', -1, 1, 0.01, 0, '+0.00', 'Occlusion floor — bright pixels stay bright')}
-          ${rangeControl('aoPower', 'Power', 0, 16, 0.01, 1, '1.00', 'Occlusion curve exponent (1 = as baked)')}
-          ${rangeControl('aoDistance', 'Distance', 0.05, 3, 0.05, 2, '2.00×', 'Ray reach for generated AO')}
+          ${rangeControl('aoBias', 'Bias', -1, 1, 0.01, 0, '+0.00')}
+          ${rangeControl('aoPower', 'Power', 0, 16, 0.01, 1, '1.00')}
+          ${rangeControl('aoDistance', 'Distance', 0.05, 3, 0.05, 2, '2.00×')}
         </section>
 
         <section class="panel" id="quadPanel" hidden>
           <div class="panel-heading compact"><div><p class="eyebrow">QUAD</p><h2>Fallback plane</h2></div></div>
-          ${rangeControl('quadTessellation', 'Tessellation', 2, 256, 1, 16, '16 × 16', 'Subdivisions for the fallback quad')}
+          ${rangeControl('quadTessellation', 'Tessellation', 2, 128, 1, 16, '16 × 16', 'Subdivisions for the fallback quad')}
           <label class="control-row quad-grid-row"><span><strong>3×3 grid</strong><small>Middle tile baked — neighbors cast shadows</small></span>${toggleControl('quadGrid', 'Show the quad as a 3×3 grid')}</label>
           ${rangeControl('displacementStrength', 'Displacement', 0, 1, 0.01, 0.15, '0.15', 'Heightmap push amount')}
           <label class="control-row quad-grid-row"><span><strong>Flip displacement</strong><small>Invert the heightmap — 1 − height</small></span>${toggleControl('displacementFlip', 'Invert the displacement heightmap')}</label>
@@ -395,6 +406,7 @@ const aoBakePercent = document.querySelector<HTMLParagraphElement>('#aoBakePerce
 const paletteGrid = document.querySelector<HTMLDivElement>('#paletteGrid')!;
 const paletteFilters = document.querySelector<HTMLDivElement>('#paletteFilters')!;
 const customPaletteSection = document.querySelector<HTMLDivElement>('.custom-palette')!;
+const paletteEditorToggle = document.querySelector<HTMLButtonElement>('#paletteEditorToggle')!;
 const customColors = document.querySelector<HTMLDivElement>('#customColors')!;
 const paletteEditor = document.querySelector<HTMLFieldSetElement>('#paletteEditor')!;
 const colorPickerField = document.querySelector<HTMLDivElement>('#colorPickerField')!;
@@ -413,6 +425,10 @@ const uvMapSelect = document.querySelector<HTMLSelectElement>('#uvMap')!;
 const lodControl = document.querySelector<HTMLLabelElement>('#lodControl')!;
 const lodMapSelect = document.querySelector<HTMLSelectElement>('#lodMap')!;
 const worldAxisToggle = document.querySelector<HTMLElement>('#worldAxisToggle')!;
+const worldAxisYUpInput = document.querySelector<HTMLInputElement>('#worldAxisYUp')!;
+// Camera-controls pill — pinned to the Original pane's 3D view. The choice is
+// global across both viewports (see navigationPanLeft).
+const navigationToggle = document.querySelector<HTMLElement>('#navigationToggle')!;
 const uvOverlapControl = document.querySelector<HTMLLabelElement>('#uvOverlapControl')!;
 const uvOverlapInput = document.querySelector<HTMLInputElement>('#uvOverlap')!;
 const repeatTextureControl = document.querySelector<HTMLLabelElement>('#repeatTextureControl')!;
@@ -452,38 +468,25 @@ const sunControlElements: SunElements = {
   normalStrengthValue: document.querySelector<HTMLOutputElement>('#normalStrengthValue')!,
 };
 // Narrow windows hide the Original pane (CSS), so the pane-independent
-// controls that live on it — view mode, world axis, UV toggles, sun — move
-// onto the dithered pane, and back when the window widens. Moving the DOM
-// nodes keeps their event listeners and state intact; every binding holds a
-// node reference, so nothing re-queries or re-binds.
+// controls that live on it (view mode, UV toggles, and the full lighting
+// panel) move onto the dithered pane, and back when the window widens.
+// Moving the DOM nodes keeps their event listeners and state intact; every
+// binding holds a node reference, so nothing re-queries or re-binds.
 const originalPaneFrame = document.querySelector<HTMLDivElement>('.original-pane .canvas-frame')!;
 const processedPaneFrame = document.querySelector<HTMLDivElement>('.processed-pane .canvas-frame')!;
 const sharedPaneControls: HTMLElement[] = [
   originalViewToggle,
   uvOverlapControl,
   uvWireframeControl,
+  sunControlElements.control,
 ];
-// The lighting overlay (#sunControl) is deliberately NOT in the shared set:
-// when the Original pane drops out at narrow widths the lighting controls
-// hide along with it instead of crowding the dithered pane.
-const narrowLayout = window.matchMedia('(max-width: 900px)');
+const narrowLayout = window.matchMedia('(max-width: 1100px)');
 function relocateSharedControls(narrow: boolean): void {
   const target = narrow ? processedPaneFrame : originalPaneFrame;
   sharedPaneControls.forEach((element) => target.append(element));
 }
 relocateSharedControls(narrowLayout.matches);
 narrowLayout.addEventListener('change', (event) => relocateSharedControls(event.matches));
-// The Orient Sun with Camera button is the one lighting control worth keeping
-// in the single-pane layout — it tucks under the texel density chip in the
-// dithered pane, and returns to the lighting overlay when the window widens.
-const sunOverlayHeading = sunControlElements.control.querySelector<HTMLDivElement>('.sun-overlay-heading')!;
-function relocateOrientSunButton(narrow: boolean): void {
-  const button = sunControlElements.orientWithCamera;
-  if (narrow) processedPaneFrame.append(button);
-  else sunOverlayHeading.after(button);
-}
-relocateOrientSunButton(narrowLayout.matches);
-narrowLayout.addEventListener('change', (event) => relocateOrientSunButton(event.matches));
 const sunDirectionValue = document.querySelector<HTMLOutputElement>('#sunDirectionValue')!;const cameraDirectionValue = document.querySelector<HTMLOutputElement>('#cameraDirectionValue')!;
 const stripeAngleControl = document.querySelector<HTMLDivElement>('#stripeAngleControl')!;
 const stripeAngleInput = document.querySelector<HTMLInputElement>('#stripeAngle')!;
@@ -494,6 +497,9 @@ const noiseScaleValue = document.querySelector<HTMLOutputElement>('#noiseScaleVa
 const halftoneScaleControl = document.querySelector<HTMLDivElement>('#halftoneScaleControl')!;
 const halftoneScaleInput = document.querySelector<HTMLInputElement>('#halftoneScale')!;
 const halftoneScaleValue = document.querySelector<HTMLOutputElement>('#halftoneScaleValue')!;
+const ditherScaleControl = document.querySelector<HTMLDivElement>('#ditherScaleControl')!;
+const ditherScaleInput = document.querySelector<HTMLInputElement>('#ditherScale')!;
+const ditherScaleValue = document.querySelector<HTMLOutputElement>('#ditherScaleValue')!;
 const seedInput = document.querySelector<HTMLInputElement>('#seed')!;
 const seedValue = document.querySelector<HTMLOutputElement>('#seedValue')!;
 const loadConfigInput = document.querySelector<HTMLInputElement>('#loadConfigInput')!;
@@ -517,11 +523,24 @@ const displacementFlipInput = document.querySelector<HTMLInputElement>('#displac
 const strengthInput = document.querySelector<HTMLInputElement>('#strength')!;
 const strengthValue = document.querySelector<HTMLOutputElement>('#strengthValue')!;
 const normalFormatToggle = document.querySelector<HTMLElement>('[data-texture="normal"] .texture-slot-format')!;
+const storageNotice = document.querySelector<HTMLElement>('#storageNotice')!;
 let savedCustomPalettes: CustomPalette[] = [];
+// The palette library's backing store: localStorage in the web build. On
+// desktop each palette is its own `.hex` file in the install folder, managed
+// through `tauriStore` (loaded by bootDesktopStorage).
+let appStorage: StorageLike = localStorage;
+// Set once desktop storage initializes; drives the settings auto-save and the
+// per-palette .hex file writes.
+let tauriStore: TauriFileStore | null = null;
 try {
-  savedCustomPalettes = loadCustomPalettes(localStorage);
+  savedCustomPalettes = loadCustomPalettes(appStorage);
 } catch (error) {
   console.error('Custom palettes could not be loaded from storage.', error);
+  // Blocked storage (private mode, disabled storage) breaks every palette
+  // save for the session — say so loudly instead of failing silently.
+  if (error instanceof Error && error.message.includes('Reading stored data')) {
+    showStorageNotice('Browser storage is unavailable (private mode or storage disabled). Palettes will not persist after this session.');
+  }
 }
 let editingCustomKey: string | null = null;
 // The current draft's palette name lives here — the editable name field moved
@@ -552,22 +571,24 @@ function ensureViewports(): void {
     processedViewport = new ModelViewport(processedModelHost);
     processedViewport.setModel(createFallbackQuadScene(), []);
   }
+  forEachViewport((viewport) => viewport.setNavigationDragMode(navigationPanLeft));
 }
 
-// Quad-view configuration — module-level (not persisted state): the fallback
-// quad's tessellation, the 3×3 grid toggle, and the displacement strength.
-// Changed only from the QUAD panel, which exists solely in the no-model state.
-let quadTessellation = 16;
-let quadGrid = false;
-let displacementStrength = 0.15;
-// Heightmap inversion (1 − height) — valleys become peaks and vice versa.
-// Module-level like the other quad-view settings, not persisted.
-let displacementFlip = false;
+// Fallback-quad configuration — persisted with the other settings: the quad
+// is the implicit model when none is loaded, so its tessellation, grid and
+// displacement parameters are saved (and restored) like any other setting.
+// The repeat-texture and navigation preferences below are view diagnostics
+// (not conversion parameters) and stay module-level.
 // Image-repeat diagnostic: tiles the texture 3×3 in the 2D panes so seams at
 // tile boundaries show. Fallback-quad view only, module-level like the other
 // quad-view settings — not persisted. Each pane tiles independently.
 let repeatTextureOriginal = false;
 let repeatTextureProcessed = false;
+// Left-drag camera action for the 3D viewports: orbit (default) or pan —
+// pan-left swaps the primary drag button over to the right. Applies with or
+// without a model, so it lives outside the QUAD panel (module-level, not
+// persisted, like the other view settings).
+let navigationPanLeft = false;
 
 function displacementSampler(): HeightSampler | null {
   const image = textures.displacement.image;
@@ -578,23 +599,34 @@ function displacementSampler(): HeightSampler | null {
   // flipped map, and no consumer needs to know about it.
   return (u, v) => {
     const height = sampleHeightmap(source, u, v);
-    return displacementFlip ? 1 - height : height;
+    return state.displacementFlip ? 1 - height : height;
   };
 }
 
 /** Rebuilds both viewport quads (tessellation + grid) and applies displacement. */
 function installViewportQuads(): void {
-  forEachViewport((viewport) => viewport.setModel(createFallbackQuadScene(quadTessellation, quadGrid), []));
+  forEachViewport((viewport) => viewport.setModel(createFallbackQuadScene(state.quadTessellation, state.quadGrid), []));
   const sampler = displacementSampler();
-  forEachViewport((viewport) => viewport.applyDisplacement(sampler, displacementStrength));
+  forEachViewport((viewport) => viewport.applyDisplacement(sampler, state.displacementStrength));
 }
 
 // Persistent bake quad — the middle tile alone outside grid mode, the full
 // 3×3 grid in grid mode (the neighbors are occluder-only: they cast shadows
-// on the middle tile's bake but never rasterize into it). Rebuilt only when
-// tessellation or grid changes; displacement applies in place so strength
-// drags don't reallocate geometry (and its pristine-base cache) per event.
-let bakeFallbackQuad: Object3D = createFallbackQuadScene();
+// on the middle tile's bake but never rasterize into it). Memoized by
+// (tessellation, grid) via getFallbackQuadScene — re-selecting a previously
+// visited combo reuses the same scene instance, so the bake-scene cache hits
+// without re-collecting the mesh. Rebuilt only when tessellation or grid
+// changes; displacement applies in place so strength drags don't reallocate
+// geometry (and its pristine-base cache) per event.
+let bakeFallbackQuad: Object3D = getFallbackQuadScene(1, false);
+
+// Displacement inputs at the last bake-scene invalidation. The collected bake
+// scene is a snapshot of the installed quad's geometry, so it goes stale only
+// when the quad instance changes (new geometry) or the displacement inputs
+// change (world positions move); a refresh that changes neither (a boot
+// re-install, a grid toggle back and forth, a redundant strength call) skips
+// the invalidation and the next bake reuses the cached collection.
+let bakeQuadDisplacement: { image: unknown; flip: boolean; strength: number } = { image: null, flip: false, strength: 0 };
 
 /** Refreshes every fallback-quad consumer after a quad-view setting changed.
  * In grid mode the bake quad is the full 3×3 grid — `collectBakeScene` marks
@@ -603,18 +635,42 @@ let bakeFallbackQuad: Object3D = createFallbackQuadScene();
  * (tessellation / grid changes, camera refits); otherwise the displacement is
  * applied in place so strength drags don't jump the camera. `keepCamera`
  * snapshots and restores both viewport cameras around the swap — the grid
- * toggle changes the scene extent but must not move the view. */
+ * toggle changes the scene extent but must not move the view.
+ * Quad-view tweaks never re-run the implicit lightmap bake — they are
+ * visualization adjustments, and a worker + GPU-fallback bake on every grid
+ * toggle or displacement drag is wasted work. The bake scene cache is still
+ * invalidated here, so the next bake (explicit, or a sun / resolution / model
+ * change) collects the updated geometry fresh. */
 function refreshFallbackQuads(rebuildViewport: boolean, keepCamera = false): void {
   // Quad-view settings are a no-op while a model is loaded: tessellation,
   // grid and displacement exist only for the fallback plane, and applying
   // them here would displace or outright replace the model's own meshes in
   // the viewports and the bake scene.
   if (modelBundle) return;
-  if (rebuildViewport) bakeFallbackQuad = createFallbackQuadScene(quadTessellation, quadGrid);
+  let quadInstanceChanged = false;
+  if (rebuildViewport) {
+    // Memoized by (tessellation, grid): re-selecting a previously visited
+    // combo returns the same scene instance (see getFallbackQuadScene).
+    const nextQuad = getFallbackQuadScene(state.quadTessellation, state.quadGrid);
+    if (nextQuad !== bakeFallbackQuad) {
+      bakeFallbackQuad = nextQuad;
+      quadInstanceChanged = true;
+    }
+  }
   const sampler = displacementSampler();
-  applyDisplacement(bakeFallbackQuad, sampler, displacementStrength);
+  applyDisplacement(bakeFallbackQuad, sampler, state.displacementStrength);
   renderer.setFallbackQuad(bakeFallbackQuad);
-  renderer.invalidateBakeScene();
+  // The bake scene cache is keyed by scene identity + the geometry it was
+  // collected with. It goes stale only when the installed quad's instance
+  // changed (new geometry) or the displacement inputs changed (world
+  // positions moved) — a refresh that changes neither (boot re-installs, grid
+  // toggles back and forth, redundant strength calls) skips the invalidation,
+  // so the next bake reuses the cached collection of the tessellated mesh.
+  const displacementChanged = bakeQuadDisplacement.image !== textures.displacement.image
+    || bakeQuadDisplacement.flip !== state.displacementFlip
+    || bakeQuadDisplacement.strength !== state.displacementStrength;
+  bakeQuadDisplacement = { image: textures.displacement.image, flip: state.displacementFlip, strength: state.displacementStrength };
+  if (quadInstanceChanged || displacementChanged) renderer.invalidateBakeScene();
   if (rebuildViewport) {
     // The grid toggle changes the scene extent (1 tile ↔ 9), so the rebuild's
     // refit would zoom the camera in or out — snapshot both viewport cameras
@@ -623,6 +679,10 @@ function refreshFallbackQuads(rebuildViewport: boolean, keepCamera = false): voi
       ? [originalViewport?.captureCamera() ?? null, processedViewport?.captureCamera() ?? null]
       : null;
     installViewportQuads();
+    // The swap installed fresh quads whose materials carry no map — re-apply
+    // the last rendered frames synchronously so the viewport never shows
+    // white while waiting for the next (debounced) pipeline render.
+    applyViewportImages();
     if (snapshots) {
       if (originalViewport && snapshots[0]) originalViewport.restoreCamera(snapshots[0]);
       if (processedViewport && snapshots[1]) processedViewport.restoreCamera(snapshots[1]);
@@ -631,9 +691,8 @@ function refreshFallbackQuads(rebuildViewport: boolean, keepCamera = false): voi
       renderOrientationReadout();
     }
   } else {
-    forEachViewport((viewport) => viewport.applyDisplacement(sampler, displacementStrength));
+    forEachViewport((viewport) => viewport.applyDisplacement(sampler, state.displacementStrength));
   }
-  scheduleImplicitLightmapBake();
 }
 
 /** Re-applies displacement in place after the map or strength changed.
@@ -648,10 +707,10 @@ function applyDisplacementChange(): void {
 
 function renderQuadControl(): void {
   quadPanel.hidden = modelBundle !== null;
-  syncRangeValue(quadTessellationInput, quadTessellationValue, quadTessellation, (value) => `${value} × ${value}`);
-  quadGridInput.checked = quadGrid;
-  syncRangeValue(displacementStrengthInput, displacementStrengthValue, displacementStrength, formatFixed2);
-  displacementFlipInput.checked = displacementFlip;
+  syncRangeValue(quadTessellationInput, quadTessellationValue, state.quadTessellation, (value) => `${value} × ${value}`);
+  quadGridInput.checked = state.quadGrid;
+  syncRangeValue(displacementStrengthInput, displacementStrengthValue, state.displacementStrength, formatFixed2);
+  displacementFlipInput.checked = state.displacementFlip;
 }
 let modelUVChannels: string[] = [];
 let modelLodLevels: number[] = [];
@@ -848,8 +907,9 @@ function applyViewNormals(): void {
 // green-flip decode) into the 3D viewports, so the Normals view showcases the
 // actual map rather than the mesh's vertex normals. The original viewport gets
 // the native-resolution map; the dithered viewport gets a nearest-neighbor
-// pixelized copy at the target resolution — normals can't be palette-dithered,
-// so pixelization is the processed analogue of the quantized base texture.
+// copy at the target resolution with the pixelation amount applied —
+// normals can't be palette-dithered, so downscale/upscale pixelization is the
+// processed analogue of the quantized base texture.
 function applyViewportNormalMap(): void {
   const image = textures.normal.image;
   const strength = state.normalStrength;
@@ -857,7 +917,10 @@ function applyViewportNormalMap(): void {
   originalViewport?.setNormalMap(image, strength, flipY);
   if (processedViewport) {
     const { width, height } = dimensions();
-    processedViewport.setNormalMap(image ? resizeNearest(image, width, height) : null, strength, flipY);
+    // The processed viewport's Normals view follows the pixelation amount:
+    // downscale/upscale applies on top of the target-resolution resample,
+    // mirroring the processed 2D normals inspection and the dithered base.
+    processedViewport.setNormalMap(image ? resampleAndPixelate(image, width, height, state.pixelation) : null, strength, flipY);
   }
 }
 
@@ -926,9 +989,10 @@ function renderLodControl(): void {
 }
 
 function renderWorldAxisControl(): void {
+  // Y-up is a 3D-view concept (mirrors the Alt-controls pill) and only
+  // applies to FBX/OBJ models: Blender/Z-up is the default, Maya/Y-up is on.
   const supportsAxis = modelBundle !== null && (modelBundle.format === 'fbx' || modelBundle.format === 'obj');
-  worldAxisToggle.hidden = !supportsAxis;
-  syncActiveButton(worldAxisToggle, '[data-world-axis]', (button) => button.dataset.worldAxis === state.worldAxis);
+  syncCheckboxControl(worldAxisToggle, worldAxisYUpInput, supportsAxis && originalPreviewMode === '3d', state.worldAxis === 'maya');
 }
 
 // Shared sync for every model-dependent control. The model load/close and reset
@@ -981,21 +1045,44 @@ function syncLightControls(
   intensityValue.textContent = light.intensity.toFixed(2);
 }
 
+// Orient Sun with Camera re-bakes the lightmap, which on a heavy grid can take
+// long enough that a second click would start a redundant bake. While it runs
+// the button is held disabled with a throbber (see .orient-sun-button.busy);
+// the flag clears when the bake settles — the explicit bake resolves its own
+// promise, the implicit path settles via the renderer's onImplicitBakeSettled.
+let orientSunBusy = false;
+function setOrientSunBusy(busy: boolean): void {
+  orientSunBusy = busy;
+  renderSunControl();
+}
+
 function renderSunControl(): void {
   // Hidden only when a model is loaded and neither pane shows the 3D view.
   // Without a model the bake scene falls back to the flat quad (see the bake
   // layer), so the lighting controls stay live to drive that bake.
   sunControlElements.control.hidden = modelBundle !== null && originalPreviewMode !== '3d' && processedPreviewMode !== '3d';
-  sunControlElements.orientWithCamera.disabled = orientCameraPreviewMode() !== '3d' || orientCameraViewport() === null;
+  sunControlElements.orientWithCamera.disabled = orientSunBusy || orientCameraPreviewMode() !== '3d' || orientCameraViewport() === null;
+  sunControlElements.orientWithCamera.classList.toggle('busy', orientSunBusy);
   syncLightControls(state.sun, sunControlElements.color, sunControlElements.intensity, sunControlElements.intensityValue);
   syncLightControls(state.ambient, sunControlElements.ambientColor, sunControlElements.ambientIntensity, sunControlElements.ambientIntensityValue);
   syncRangeValue(sunControlElements.normalStrength, sunControlElements.normalStrengthValue, state.normalStrength, formatFixed2);
+  renderNavigationControl();
 }
+
+function renderNavigationControl(): void {
+  const toggle = document.querySelector<HTMLInputElement>('#navigationPan')!;
+  toggle.checked = navigationPanLeft;
+}
+document.querySelector<HTMLInputElement>('#navigationPan')!.addEventListener('change', (event) => {
+  navigationPanLeft = (event.target as HTMLInputElement).checked;
+  forEachViewport((viewport) => viewport.setNavigationDragMode(navigationPanLeft));
+});
 
 function updatePatternControls(): void {
   stripeAngleControl.hidden = state.mode !== 'stripes';
   noiseScaleControl.hidden = state.mode !== 'noise';
   halftoneScaleControl.hidden = state.mode !== 'halftone';
+  ditherScaleControl.hidden = !isPatternMode(state.mode);
 }
 
 function updateAOControls(): void {
@@ -1131,6 +1218,10 @@ function applyPreviewMode(): void {
   };
   applyPane(originalPreviewMode, originalCanvas, originalModelHost, originalPreviewToggle, originalZoomBadge);
   applyPane(processedPreviewMode, previewCanvas, processedModelHost, processedPreviewToggle, processedZoomBadge);
+  // The camera-controls pill lives on the Original pane and is a 3D-only
+  // control: it swaps which mouse button orbits vs pans in both viewports.
+  navigationToggle.hidden = originalPreviewMode !== '3d';
+  renderWorldAxisControl();
   renderSunControl();
   renderQuadControl();
   renderUVOverlapControl();
@@ -1316,7 +1407,7 @@ function renderPalettes(): void {
 function rangeControl(key: string, label: string, min: number, max: number, step: number | 'any', value: number, display: string = String(value), hint = ''): string {
   return `
     <div class="control-row">
-      <label for="${key}"><span><strong>${label}</strong>${hint ? `<small>${hint}</small>` : ''}</span><output id="${key}Value">${display}</output></label>
+      <label for="${key}"><span><strong>${label}</strong>${hint ? `<small>${hint}</small>` : ''}</span><output id="${key}Value" title="Click to type a value">${display}</output><input class="range-value-edit" id="${key}Edit" type="number" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label} value" hidden /></label>
       <input class="range" id="${key}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label}" />
     </div>
   `;
@@ -1341,6 +1432,12 @@ function toggleControl(id: string, ariaLabel: string, checked = false, wrapper: 
 }
 
 function renderAdjustments(): void {
+  // The pixel grid controls lead the panel: the pixelization slider sits above
+  // the resolution block, with the tone adjustments below it. Both grid
+  // controls go through the same rangeControl generator as every other slider
+  // (same label / output / click-to-edit markup), so they stay DRY with them.
+  document.querySelector('#pixelationControl')!.innerHTML = rangeControl('pixelation', 'Pixelation', 0, 99, 1, state.pixelation, formatPercent(state.pixelation));
+  document.querySelector('#resolutionControl')!.innerHTML = rangeControl('resolution', 'Resolution', 24, 1024, 8, state.resolution, formatPixels(state.resolution));
   const controls: Array<[keyof Pick<State, 'brightness' | 'contrast' | 'saturation'>, string]> = [
     ['brightness', 'Brightness'], ['contrast', 'Contrast'], ['saturation', 'Saturation'],
   ];
@@ -1382,14 +1479,56 @@ function persistCustomDraft(): void {
     const palette = existing
       ? updateCustomPalette(existing, draftName, currentColors())
       : createCustomPalette(draftName, currentColors(), new Date(), editingCustomKey ?? undefined);
-    savedCustomPalettes = upsertCustomPalette(localStorage, palette);
-    setPaletteKey(palette.key);
-    hydrateEditorForSelection(palette.key, palette);
-    renderPalettes();
-    render();
+    if (tauriStore) {
+      // Desktop: one .hex file per palette — the file name IS the palette
+      // name. Renaming deletes the old file; identity (key) follows the name.
+      const filePalette = persistPaletteFile(palette, existing?.name);
+      commitPaletteSelection(filePalette.key, filePalette);
+    } else {
+      persistCustomPaletteWeb(palette);
+      commitPaletteSelection(palette.key, palette);
+    }
   } catch (error) {
     console.error('Could not save custom palette.', error);
   }
+}
+
+// Serializes palette file writes so a quick rename/delete/edit can't
+// interleave on disk: each operation runs only after the previous one
+// completes, keeping the folder converged with the in-memory library.
+let paletteFileQueue: Promise<void> = Promise.resolve();
+
+/** Queues one palette file operation (write/delete); failures are logged and
+ * the queue keeps running, like the web build's localStorage writes. */
+function enqueuePaletteFileWrite(operation: () => Promise<void>): void {
+  paletteFileQueue = paletteFileQueue.then(operation).catch((error) => {
+    console.error('Could not save palette file.', error);
+  });
+}
+
+/** Desktop: replaces the palette's file (removing the old one when renamed)
+ * and updates the in-memory library synchronously. The new file is written
+ * before the old one is deleted, so a crash can only leave a stale duplicate
+ * (harmless on next boot), never lose the palette. */
+function persistPaletteFile(palette: CustomPalette, previousName?: string): CustomPalette {
+  const filePalette = filePaletteFor(palette);
+  savedCustomPalettes = savedCustomPalettes
+    .filter((entry) => entry.key !== filePalette.key && entry.name !== filePalette.name && entry.name !== previousName)
+    .concat(filePalette);
+  enqueuePaletteFileWrite(async () => {
+    await saveCustomPaletteFile(tauriStore!, filePalette);
+    if (previousName && previousName !== filePalette.name) {
+      await deleteCustomPaletteFile(tauriStore!, previousName);
+    }
+  });
+  return filePalette;
+}
+
+function commitPaletteSelection(key: string, palette: CustomPalette): void {
+  setPaletteKey(key);
+  hydrateEditorForSelection(key, palette);
+  renderPalettes();
+  render();
 }
 
 function createNewPalette(): void {
@@ -1424,8 +1563,9 @@ function exportPaletteByKey(key: string): void {
   try {
     const palette = customPaletteByKey(key);
     if (!palette) return;
-    const safeName = safeFileName(palette.name, 'custom-palette');
-    downloadText(serializeCustomPalette(palette), `${safeName}.palette.json`);
+    // The .hex file is named after the palette — importing it back derives
+    // the palette name from the file name.
+    downloadText(serializePaletteHex(palette), paletteFileName(palette.name), 'text/plain');
   } catch (error) {
     console.error('Could not export custom palette.', error);
   }
@@ -1447,9 +1587,26 @@ function selectPalette(key: string): void {
   render();
 }
 
+paletteEditorToggle.addEventListener('click', () => {
+  const collapsed = customPaletteSection.classList.toggle('collapsed');
+  paletteEditorToggle.setAttribute('aria-expanded', String(!collapsed));
+});
+
 function removeCustomPalette(key: string): void {
   try {
-    savedCustomPalettes = deleteCustomPalette(localStorage, key);
+    if (tauriStore) {
+      const palette = customPaletteByKey(key);
+      savedCustomPalettes = savedCustomPalettes.filter((entry) => entry.key !== key);
+      if (palette) {
+        // Queued behind pending writes so a delete can't be undone by an
+        // earlier edit still landing on disk.
+        enqueuePaletteFileWrite(async () => {
+          await deleteCustomPaletteFile(tauriStore!, palette.name);
+        });
+      }
+    } else {
+      savedCustomPalettes = deleteCustomPalette(appStorage, key);
+    }
     if (editingCustomKey === key) editingCustomKey = null;
     if (state.paletteKey === key) {
       setPaletteKey('desert');
@@ -1476,6 +1633,10 @@ type RangeBinding = {
   output: HTMLElement;
   format: (value: number) => string;
   apply: (value: number) => void;
+  /** Trailing debounce for the apply — the readout updates live while the
+   * value changes, but the (possibly heavy) apply runs once at rest. Used by
+   * the quad-tessellation slider, which rebuilds geometry per change. */
+  debounce?: number;
 };
 
 // Shared render-side sync for a range input + its value output — the mirror of
@@ -1484,16 +1645,93 @@ type RangeBinding = {
 function syncRangeValue(input: HTMLInputElement, output: HTMLElement, value: number, format: (value: number) => string): void {
   input.value = String(value);
   output.textContent = format(value);
+  // The click-to-edit number field mirrors the raw value, so opening it after
+  // any programmatic change shows the live value, not a stale one.
+  const edit = document.querySelector<HTMLInputElement>(`#${output.id.replace(/Value$/, '')}Edit`);
+  if (edit) edit.value = String(value);
 }
 
-function bindRange({ input, output, format, apply }: RangeBinding): void {
-  input.addEventListener('input', (event) => {
-    const value = Number((event.target as HTMLInputElement).value);
+function bindRange({ input, output, format, apply, debounce }: RangeBinding): void {
+  let timer = 0;
+  const sync = (value: number): void => {
     apply(value);
     output.textContent = format(value);
     renderScheduler.request();
+  };
+  input.addEventListener('input', (event) => {
+    const value = Number((event.target as HTMLInputElement).value);
+    if (debounce) {
+      // The readout keeps pace with the drag; the apply fires once at rest.
+      output.textContent = format(value);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => { timer = 0; apply(value); renderScheduler.request(); }, debounce);
+    } else {
+      sync(value);
+    }
   });
-  input.addEventListener('change', renderScheduler.flush);
+  input.addEventListener('change', () => {
+    // Release flushes a still-pending debounced apply with the final value.
+    if (debounce && timer) {
+      window.clearTimeout(timer);
+      timer = 0;
+      apply(input.valueAsNumber);
+      renderScheduler.request();
+    }
+    renderScheduler.flush();
+  });
+  // Direct numeric entry — every generated slider gets click-to-edit for free.
+  bindRangeValueEdit(input, output, apply, format);
+}
+
+/** Direct numeric entry for a generated slider: clicking the formatted value
+ * swaps it for a number input pre-filled with the raw value; Enter/blur
+ * commits (clamped to the slider's min/max and snapped to its step), Esc
+ * cancels and restores the readout. The edit input id is derived from the
+ * output's `${key}Value` id, so every rangeControl slider gains this without
+ * extra wiring. */
+function bindRangeValueEdit(input: HTMLInputElement, output: HTMLElement, apply: (value: number) => void, format: (value: number) => string): void {
+  const edit = document.querySelector<HTMLInputElement>(`#${output.id.replace(/Value$/, '')}Edit`);
+  if (!edit) return;
+  const commit = (): void => {
+    // 'change' and 'blur' both fire when the input loses focus — the hidden
+    // flag makes the second arrival a no-op.
+    if (edit.hidden) return;
+    edit.hidden = true;
+    output.hidden = false;
+    const min = edit.min !== '' ? Number(edit.min) : -Infinity;
+    const max = edit.max !== '' ? Number(edit.max) : Infinity;
+    const step = edit.step !== '' && edit.step !== 'any' ? Number(edit.step) : 0;
+    let value = Number(edit.value);
+    if (!Number.isFinite(value)) value = input.valueAsNumber;
+    value = Math.min(max, Math.max(min, value));
+    if (step > 0) value = Number((Math.round(value / step) * step).toFixed(6));
+    input.value = String(value);
+    apply(value);
+    output.textContent = format(value);
+    renderScheduler.request();
+  };
+  output.addEventListener('click', (event) => {
+    // preventDefault stops the wrapping <label for> from forwarding the click
+    // to the range input — the edit field takes focus instead.
+    event.preventDefault();
+    edit.value = String(input.valueAsNumber);
+    edit.hidden = false;
+    output.hidden = true;
+    edit.focus();
+    edit.select();
+  });
+  edit.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      commit();
+    } else if (event.key === 'Escape') {
+      edit.hidden = true;
+      output.hidden = false;
+      edit.value = String(input.valueAsNumber);
+    }
+  });
+  edit.addEventListener('blur', commit);
+  edit.addEventListener('change', commit);
 }
 
 function syncControlsFromState(): void {
@@ -1501,6 +1739,7 @@ function syncControlsFromState(): void {
   syncRangeValue(stripeAngleInput, stripeAngleValue, state.stripeAngle, formatDegrees);
   syncRangeValue(noiseScaleInput, noiseScaleValue, state.noiseScale, formatPixels);
   syncRangeValue(halftoneScaleInput, halftoneScaleValue, state.halftoneScale, formatTimes2);
+  syncRangeValue(ditherScaleInput, ditherScaleValue, state.ditherScale, formatFixed2);
   syncRangeValue(seedInput, seedValue, state.seed, formatPlain);
   setActiveMode(state.mode);
   updatePatternControls();
@@ -1524,67 +1763,105 @@ async function applyConfigFile(file: File): Promise<void> {
   await applyPreset(parsePreset(await file.text()));
 }
 
+/** Captures an orbit viewport's camera as a serializable view: world position
+ * plus the orbit target — together they determine both the camera angle and
+ * its position (the up axis is fixed, so the quaternion is implied). */
+function savedCameraOf(viewport: ModelViewport | null | undefined): SavedCamera | undefined {
+  if (!viewport) return undefined;
+  const snapshot = viewport.captureCamera();
+  return {
+    position: { x: snapshot.position.x, y: snapshot.position.y, z: snapshot.position.z },
+    target: { x: snapshot.target.x, y: snapshot.target.y, z: snapshot.target.z },
+  };
+}
+
 function currentConfig() {
   return {
     ...collectConfigValues(state),
     paletteKey: state.paletteKey,
     palette: activePaletteSnapshot(),
-    uvMap: state.uvMap,
-    cameraDirection: originalViewport ? originalViewport.getCameraForward() : state.cameraDirection,
+    originalCamera: savedCameraOf(originalViewport),
+    processedCamera: savedCameraOf(processedViewport),
   };
 }
 
 async function saveConfig(): Promise<void> {
   const content = serializeConfig();
-  try {
-    if (typeof window.showSaveFilePicker === 'function') {
+  if (typeof window.showSaveFilePicker === 'function') {
+    try {
       const handle = await window.showSaveFilePicker({ suggestedName: CONFIG_FILE_NAME, types: [CONFIG_FILE_TYPE] });
       const writable = await handle.createWritable();
       await writable.write(content);
       await writable.close();
-    } else {
-      downloadText(content, CONFIG_FILE_NAME);
+      return;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return; // user cancelled
+      // The system dialog can be blocked even where the API exists
+      // (NotAllowedError / SecurityError in restricted or embedded contexts):
+      // fall back to the plain download so the browser keeps working.
+      console.warn('The system save dialog could not be used; downloading the settings file instead.', error);
     }
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') return;
-    console.error('Could not save settings.', error);
   }
+  await downloadText(content, CONFIG_FILE_NAME);
 }
 
 async function loadConfig(): Promise<void> {
-  try {
-    if (typeof window.showOpenFilePicker === 'function') {
+  if (typeof window.showOpenFilePicker === 'function') {
+    try {
       const [handle] = await window.showOpenFilePicker({ types: [CONFIG_FILE_TYPE], multiple: false });
       await applyConfigFile(await handle.getFile());
-    } else {
-      loadConfigInput.click();
+      return;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return; // user cancelled
+      // Same fallback as saveConfig: a blocked picker drops back to the
+      // plain hidden file input so loading keeps working.
+      console.warn('The system file picker could not be used; falling back to the plain file input.', error);
     }
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') return;
-    console.error('Could not load settings.', error);
   }
+  loadConfigInput.click();
 }
 
 async function applyPreset(preset: ConversionPreset): Promise<void> {
   renderScheduler.cancel();
-  const paletteSelection = selectOrCreatePalette(localStorage, paletteCatalog(), preset.palette, preset.paletteKey);
+  let paletteSelection: { key: string; customPalettes: CustomPalette[]; created: boolean };
+  if (tauriStore) {
+    // Desktop: embedded palettes persist as .hex files named after the palette.
+    const match = matchingPaletteKey(paletteCatalog(), preset.palette.colors, preset.paletteKey);
+    if (match) {
+      paletteSelection = { key: match, customPalettes: savedCustomPalettes, created: false };
+    } else {
+      const filePalette = persistPaletteFile(createCustomPalette(preset.palette.name.slice(0, 60), preset.palette.colors));
+      paletteSelection = { key: filePalette.key, customPalettes: savedCustomPalettes, created: true };
+    }
+  } else {
+    paletteSelection = selectOrCreatePalette(appStorage, paletteCatalog(), preset.palette, preset.paletteKey);
+  }
   const paletteKey = paletteSelection.key;
   savedCustomPalettes = paletteSelection.customPalettes;
   applyConfigValues(state, preset as unknown as Readonly<Record<string, unknown>>);
   setPaletteKey(paletteKey);
-  state.uvMap = preset.uvMap;
   const selectedPalette = paletteCatalog()[paletteKey];
   hydrateEditorForSelection(paletteKey, selectedPalette);
   syncControlsFromState();
   applyViewportNormalMap();
   applySun();
-  if (modelBundle) {
-    forEachViewport((viewport) => viewport.setCameraForward(state.cameraDirection));
-  }
   updateResolution(preset.resolution, true);
-  if (modelUVChannels.includes(preset.uvMap)) {
-    uvMapSelect.value = preset.uvMap;
-    applyModelUV(preset.uvMap);
+  // The UV-channel selection is model-specific (like LOD and the model up
+  // axis) and intentionally not part of the saved settings — it is left
+  // untouched when a settings file loads.
+  // The fallback quad is the implicit model when none is loaded: sync its
+  // panel and rebuild the installed quad with the loaded settings (both are
+  // no-ops while a model is loaded).
+  renderQuadControl();
+  refreshFallbackQuads(true, true);
+  // Saved orbit-camera views (angle + position) for both viewports, restored
+  // only when the file carries them — files saved before camera capture
+  // existed leave the current view alone.
+  if (preset.originalCamera && originalViewport) {
+    originalViewport.restoreCameraView(preset.originalCamera.position, preset.originalCamera.target);
+  }
+  if (preset.processedCamera && processedViewport) {
+    processedViewport.restoreCameraView(preset.processedCamera.position, preset.processedCamera.target);
   }
 }
 
@@ -1611,12 +1888,16 @@ const renderer = createRenderer({
   renderTextureRibbon,
   applySun,
   onAoProgress: setAoBakeProgress,
+  // Orient Sun with Camera re-bakes the lightmap; end its busy state when the
+  // implicit bake pipeline settles (landed, failed, skipped, or cancelled).
+  onImplicitBakeSettled: () => setOrientSunBusy(false),
   repeatTextureOriginal: () => repeatTextureOriginal,
   repeatTextureProcessed: () => repeatTextureProcessed,
 });
 
 const {
-  render,
+  render: renderPipeline,
+  applyViewportImages,
   generateAo,
   bakeLighting,
   clearLightmap,
@@ -1630,6 +1911,15 @@ const {
   syncWireframeOverlays,
   resetPreview,
 } = renderer;
+
+// Every state change funnels through `render` (sync) or the render scheduler
+// (debounced, wrapping the same function), so this single wrapper catches all
+// of them. The desktop build piggybacks a debounced settings auto-save on it;
+// the web build saves nothing (manual Save/Load only).
+function render(): void {
+  renderPipeline();
+  scheduleSettingsSave();
+}
 
 // AO bakes rasterize the texture in worker bands — a centered progress card
 // keeps the wait visible while bands finish. The wrapper guarantees the
@@ -1828,6 +2118,23 @@ function bindAdjustmentEvents(): void {
       apply: (value) => { state[key] = value; },
     });
   });
+
+  const pixelationInput = document.querySelector<HTMLInputElement>('#pixelation');
+  const pixelationOutput = document.querySelector<HTMLElement>('#pixelationValue');
+  if (pixelationInput && pixelationOutput) {
+    bindRange({
+      input: pixelationInput,
+      output: pixelationOutput,
+      format: formatPercent,
+      // 0% is off; higher values downscale the source more before the
+      // nearest-neighbor upscale back to full resolution. Snap any typed
+      // decimal and keep the viewport normals map in sync with the amount.
+      apply: (value) => {
+        state.pixelation = Math.max(0, Math.min(99, Math.round(value)));
+        applyViewportNormalMap();
+      },
+    });
+  }
 }
 
 async function fetchExampleFile(url: string, name: string, type: string): Promise<File> {
@@ -1849,6 +2156,127 @@ async function loadExampleAssets(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Desktop install-folder persistence: settings auto-save + palette store
+// ---------------------------------------------------------------------------
+
+const SETTINGS_FILE = `${CONFIG_FOLDER}/settings.json`;
+const SETTINGS_SAVE_DELAY = 800;
+let settingsSaveTimer = 0;
+
+function showStorageNotice(message: string): void {
+  storageNotice.textContent = message;
+  storageNotice.hidden = false;
+}
+
+/** Web build: saves a palette to localStorage; when storage is full or
+ * blocked it stays in the in-memory library for the session and the existing
+ * notice says so loudly, instead of the save failing silently. The palette
+ * works now, it just won't survive a reload. Desktop writes go through the
+ * file queue and never reach here. */
+function persistCustomPaletteWeb(palette: CustomPalette): void {
+  try {
+    savedCustomPalettes = upsertCustomPalette(appStorage, palette);
+  } catch (error) {
+    console.error('Could not save custom palette.', error);
+    showStorageNotice('Palettes could not be saved: browser storage is full or blocked. They will not persist after this session.');
+    const index = savedCustomPalettes.findIndex((existing) => existing.key === palette.key);
+    if (index >= 0) savedCustomPalettes[index] = palette;
+    else savedCustomPalettes.push(palette);
+  }
+}
+
+/** Trailing debounce: settings save ~800ms after the last change. */
+function scheduleSettingsSave(): void {
+  if (!tauriStore) return; // web build: manual Save/Load only
+  window.clearTimeout(settingsSaveTimer);
+  settingsSaveTimer = window.setTimeout(() => {
+    settingsSaveTimer = 0;
+    void persistSettings();
+  }, SETTINGS_SAVE_DELAY);
+}
+
+async function persistSettings(): Promise<void> {
+  if (!tauriStore) return;
+  try {
+    await tauriStore.write(SETTINGS_FILE, serializeConfig());
+  } catch (error) {
+    console.error('Could not save settings.', error);
+  }
+}
+
+/** Moves palettes from the webview's localStorage (pre-file-store versions)
+ * into the palettes folder once, then drops the old copy. Idempotent: skipped
+ * when the folder already holds palettes. */
+async function migrateLocalStoragePalettes(): Promise<number> {
+  const legacy = loadCustomPalettes(localStorage);
+  if (legacy.length === 0 || savedCustomPalettes.length > 0) return 0;
+  for (const palette of legacy) await saveCustomPaletteFile(tauriStore!, palette);
+  localStorage.removeItem(CUSTOM_PALETTE_STORAGE_KEY);
+  return legacy.length;
+}
+
+/** One-time migration from the pre-folder layout (flat files at the data
+ * root): `settings.json` moves into `config/`, and the single
+ * `custom-palettes.json` array is split into per-palette `.hex` files. */
+async function migrateLegacyDataFiles(store: TauriFileStore): Promise<void> {
+  const legacySettings = await store.preload('settings.json');
+  if (legacySettings !== null) {
+    await store.write(SETTINGS_FILE, legacySettings);
+    await store.remove('settings.json');
+  }
+  const legacyPalettes = await store.preload('custom-palettes.json');
+  if (legacyPalettes === null) return;
+  try {
+    const parsed: unknown = JSON.parse(legacyPalettes);
+    if (!Array.isArray(parsed)) return;
+    for (const entry of parsed) {
+      if (!isCustomPalette(entry)) continue;
+      await saveCustomPaletteFile(store, entry);
+    }
+    await store.remove('custom-palettes.json');
+  } catch {
+    // Not our format — leave the file for manual inspection.
+  }
+}
+
+async function restoreSettings(): Promise<void> {
+  if (!tauriStore) return;
+  try {
+    const raw = await tauriStore.preload(SETTINGS_FILE);
+    if (raw) await applyPreset(parsePreset(raw));
+  } catch (error) {
+    console.error('Could not restore settings.', error);
+  }
+}
+
+/** Desktop boot: load the palette library from the palettes folder (one .hex
+ * file per palette), migrate any legacy flat files and localStorage palettes,
+ * and restore the last-saved settings. Falls back (loudly) to the per-user
+ * app-data dir when the installation folder isn't writable — Program Files
+ * MSI installs, macOS bundles, AppImage. */
+async function bootDesktopStorage(): Promise<void> {
+  const store = await initTauriFileStore();
+  if (!store) return; // web build keeps localStorage
+  tauriStore = store;
+  if (store.location !== 'install') {
+    showStorageNotice(
+      `The installation folder is not writable on this system (Program Files, app bundle or AppImage install). Settings and palettes are stored in ${store.dir} instead.`,
+    );
+  }
+  try {
+    await migrateLegacyDataFiles(store);
+    savedCustomPalettes = await loadCustomPalettesFromFiles(store);
+    const migrated = await migrateLocalStoragePalettes();
+    if (migrated > 0) savedCustomPalettes = await loadCustomPalettesFromFiles(store);
+    renderPalettes();
+    console.info(`Palette library stored in ${store.dir}${migrated > 0 ? ` (${migrated} migrated from browser storage)` : ''}.`);
+  } catch (error) {
+    console.error('Custom palettes could not be loaded from the data store.', error);
+  }
+  await restoreSettings();
+}
+
 syncControlsFromState();
 ensureViewports();
 // Install the configured fallback quad (tessellation / grid / displacement)
@@ -1865,10 +2293,27 @@ updateTexelDensity();
 // If the example model loads shortly after, setModel's applySun re-schedules
 // the bake against the real mesh.
 scheduleImplicitLightmapBake();
+// Desktop: the webview's native browser context menu (Back/Refresh/Save
+// As/Print) has no place in an app window — suppress it (the web build keeps
+// the browser's own menu). Registered before boot so no right-click can slip
+// through while desktop storage initializes.
+disableWebviewContextMenu();
+// Desktop: install-folder persistence — the palette library reloads from the
+// data files, legacy palettes migrate, and the last-saved settings restore
+// (web build: no-op). Kicked off before the example assets so the restored
+// config is usually applied before the example model finishes loading.
+void bootDesktopStorage();
 void loadExampleAssets();
 
 document.querySelector('#resolution')!.addEventListener('input', (event) => updateResolution(Number((event.target as HTMLInputElement).value)));
 document.querySelector('#resolution')!.addEventListener('change', renderScheduler.flush);
+// Click-to-edit numeric entry, same as every other slider's value output.
+bindRangeValueEdit(
+  document.querySelector<HTMLInputElement>('#resolution')!,
+  document.querySelector<HTMLElement>('#resolutionValue')!,
+  (value) => updateResolution(value),
+  formatPixels,
+);
 document.querySelectorAll<HTMLButtonElement>('[data-resolution]').forEach((button) => button.addEventListener('click', () => updateResolution(Number(button.dataset.resolution), true)));
 bindRange({
   input: strengthInput,
@@ -1895,6 +2340,12 @@ bindRange({
   apply: (value) => { state.halftoneScale = value; },
 });
 bindRange({
+  input: ditherScaleInput,
+  output: ditherScaleValue,
+  format: formatFixed2,
+  apply: (value) => { state.ditherScale = value; },
+});
+bindRange({
   input: seedInput,
   output: seedValue,
   format: formatPlain,
@@ -1917,29 +2368,42 @@ bindRange({
   output: quadTessellationValue,
   format: (value) => `${value} × ${value}`,
   apply: (value) => {
-    quadTessellation = value;
+    state.quadTessellation = value;
     // Tessellation changes the vertex count and — with a displacement map —
     // the geometry bounds, so a refit would nudge the camera; keep it put.
     refreshFallbackQuads(true, true);
   },
+  debounce: 150,
 });
 quadGridInput.addEventListener('change', () => {
-  quadGrid = quadGridInput.checked;
+  state.quadGrid = quadGridInput.checked;
   // The grid changes the scene extent (1 tile ↔ 9) — keep the camera put.
+  // refreshFallbackQuads re-applies the current texture to the swapped quads
+  // synchronously (applyViewportImages), so no render is needed here. The
+  // quad settings are persisted, so the debounced settings save still fires.
   refreshFallbackQuads(true, true);
+  scheduleSettingsSave();
 });
 displacementFlipInput.addEventListener('change', () => {
-  displacementFlip = displacementFlipInput.checked;
+  state.displacementFlip = displacementFlipInput.checked;
   // In-place displacement re-apply — flipping inverts the surface but not its
-  // extent, so no camera refit (same as the strength slider).
+  // extent, so no camera refit (same as the strength slider). Persist the
+  // change without re-rendering the pipeline (see the grid toggle).
   applyDisplacementChange();
+  scheduleSettingsSave();
 });
 bindRange({
   input: displacementStrengthInput,
   output: displacementStrengthValue,
   format: formatFixed2,
+  // At high tessellation (e.g. 128×128) a single apply re-runs the full
+  // displacement pass — per-vertex height sampling, normal recompute, sphere
+  // refit — across the bake quad and both viewports, so applying on every
+  // input event janks the drag. Debounce like the tessellation slider: the
+  // readout tracks live, the mesh catches up at rest.
+  debounce: 150,
   apply: (value) => {
-    displacementStrength = value;
+    state.displacementStrength = value;
     applyDisplacementChange();
   },
 });
@@ -2025,8 +2489,16 @@ paletteGrid.addEventListener('change', (event) => {
     input.value = palette.name;
     return;
   }
-  savedCustomPalettes = upsertCustomPalette(localStorage, updateCustomPalette(palette, name, palette.colors));
-  if (state.paletteKey === key) draftName = name;
+  const updated = updateCustomPalette(palette, name, palette.colors);
+  if (tauriStore) {
+    // Renaming renames the palette's .hex file: identity follows the name.
+    const filePalette = persistPaletteFile(updated, palette.name);
+    if (editingCustomKey === key) editingCustomKey = filePalette.key;
+    if (state.paletteKey === key) draftName = filePalette.name;
+  } else {
+    persistCustomPaletteWeb(updated);
+    if (state.paletteKey === key) draftName = name;
+  }
   renderPalettes();
   render();
 });
@@ -2232,9 +2704,16 @@ importCustomPaletteInput.addEventListener('change', async () => {
   try {
     if (file.size > 100_000) throw new Error('Palette file is too large.');
     const palette = paletteFromImport(await file.text(), file.name);
-    savedCustomPalettes = upsertCustomPalette(localStorage, palette);
-    state.paletteKey = palette.key;
-    beginCustomDraft(palette.name, palette.colors, palette.key);
+    if (tauriStore) {
+      // Imported palettes persist as .hex files named after the palette.
+      const filePalette = persistPaletteFile(palette);
+      state.paletteKey = filePalette.key;
+      beginCustomDraft(filePalette.name, filePalette.colors, filePalette.key);
+    } else {
+      persistCustomPaletteWeb(palette);
+      state.paletteKey = palette.key;
+      beginCustomDraft(palette.name, palette.colors, palette.key);
+    }
   } catch (error) {
     console.error('Could not import palette.', error);
   } finally {
@@ -2432,11 +2911,8 @@ bindPreviewToggle(originalPreviewToggle, (mode) => { originalPreviewMode = mode;
 bindPreviewToggle(processedPreviewToggle, (mode) => { processedPreviewMode = mode; });
 uvMapSelect.addEventListener('change', () => applyModelUV(uvMapSelect.value));
 lodMapSelect.addEventListener('change', () => applyModelLod(Number(lodMapSelect.value)));
-worldAxisToggle.addEventListener('click', (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-world-axis]');
-  if (!button?.dataset.worldAxis) return;
-  state.worldAxis = button.dataset.worldAxis as WorldAxis;
-  syncActiveButton(worldAxisToggle, '[data-world-axis]', (candidate) => candidate.dataset.worldAxis === state.worldAxis);
+worldAxisYUpInput.addEventListener('change', () => {
+  state.worldAxis = worldAxisYUpInput.checked ? 'maya' : 'blender';
   applyWorldAxis();
 });
 // The 2D-view toggles are per-pane: each pane's control writes only its own
@@ -2479,13 +2955,18 @@ processedUVWireframeInput.addEventListener('change', () => {
 function bindSunControl(): void {
   sunControlElements.orientWithCamera.addEventListener('click', () => {
     const viewport = orientCameraViewport();
-    if (!viewport || orientCameraPreviewMode() !== '3d') return;
+    if (!viewport || orientCameraPreviewMode() !== '3d' || orientSunBusy) return;
     state.sun.direction = viewport.getCameraForward();
     // Orient-with-camera always (re)generates a lightmap: re-engage the live
     // implicit bake after a slot clear, or re-bake an explicit lightmap so it
     // follows the new direction.
+    // Hold the button busy (grayed out, throbber, unclickable) until the
+    // re-bake settles: the explicit bake resolves its own promise, the
+    // implicit path stays busy until the scheduled bake lands or is cancelled
+    // (see onImplicitBakeSettled).
+    setOrientSunBusy(true);
     if (lightmapIsActive(textures)) {
-      void bakeLighting();
+      void bakeLighting().finally(() => setOrientSunBusy(false));
     } else {
       reengageImplicitLightmap();
       applySun();

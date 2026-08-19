@@ -4,20 +4,58 @@ import {
   rasterizeAOBand,
   serializeBakeScene,
   type AOBandRequest,
+  type AOBandTimings,
   type SerializedBakeScene,
+  type SerializedNormalMap,
 } from './aoRaster';
+import { bakeAOWithGpu } from './aoGpu';
+import type { NormalMapSource } from './normal';
 // The worker is inlined into the bundle (blob URL) rather than fetched as a
 // module file: desktop shells (Tauri's custom protocol, Electron's file://)
 // and restricted CSPs can reject module workers loaded from a URL, whereas a
 // blob-backed worker is protocol-agnostic. The browser behavior is identical.
 import AOWorker from './aoWorker.worker?worker&inline';
 
+/**
+ * Logs an AO bake stage with its elapsed milliseconds, prefixed `[AO bake]` so
+ * per-stage timings (and therefore the bottleneck) are greppable in the
+ * console. Always-on diagnostics for the bake pipeline.
+ */
+export function logAOBakeStage(stage: string, start: number): void {
+  console.log(`[AO bake] ${stage}: ${(performance.now() - start).toFixed(1)}ms`);
+}
+
+/** Logs an AO bake stage with an already-computed millisecond duration. */
+function logAOBakeDuration(stage: string, ms: number): void {
+  console.log(`[AO bake] ${stage}: ${ms.toFixed(1)}ms`);
+}
+
 export type BakeAOMLOptions = {
   /** Hemisphere samples per texel. Odd counts round up for paired symmetry. Default 128. */
   samples?: number;
   /** Occlusion reach as a multiple of the mesh bounding-sphere radius. Default 2. */
   distance?: number;
+  /** Tangent-space normal map (pixels at the bake resolution) — the AO
+   * hemisphere follows the mapped normals, so normal-map crevices and ridges
+   * influence occlusion. */
+  normalMap?: NormalMapSource;
+  /** Perturbation scale; 0 ignores the map entirely. */
+  normalStrength?: number;
+  normalFlipY?: boolean;
 };
+
+/** Bundles the normal map for the band rasterizer — the mapped normal
+ * reorients the AO hemisphere. The per-triangle tangent bases are part of the
+ * collected bake scene (computed once, reused across re-bakes), so only the
+ * pixels and the decode flags need to travel. */
+function serializedNormalMap(options: BakeAOMLOptions): SerializedNormalMap | undefined {
+  if (!options.normalMap) return undefined;
+  return {
+    map: options.normalMap,
+    strength: options.normalStrength ?? 1,
+    flipY: options.normalFlipY ?? false,
+  };
+}
 
 /** Cap on simultaneous workers — beyond ~8 the bake is memory- and BVH-build bound. */
 const MAX_AO_WORKERS = 8;
@@ -45,7 +83,7 @@ function roundedSamples(requested?: number): number {
  */
 export function bakeMeshAO(scene: Object3D, width: number, height: number, options: BakeAOMLOptions = {}, bakeSceneOverride?: BakeScene): Uint8ClampedArray {
   const bakeScene = bakeSceneOverride ?? collectBakeScene(scene, options.distance ?? 2);
-  const input = serializeBakeScene(bakeScene, roundedSamples(options.samples));
+  const input = serializeBakeScene(bakeScene, roundedSamples(options.samples), serializedNormalMap(options));
   return bakeSingleThreaded(bakeScene, input, width, height);
 }
 
@@ -64,16 +102,40 @@ export async function bakeMeshAOAsync(
   onProgress?: (percent: number) => void,
   bakeSceneOverride?: BakeScene,
 ): Promise<Uint8ClampedArray> {
+  const start = performance.now();
+  const collectStart = performance.now();
   const bakeScene = bakeSceneOverride ?? collectBakeScene(scene, options.distance ?? 2);
-  const input = serializeBakeScene(bakeScene, roundedSamples(options.samples));
+  if (!bakeSceneOverride) logAOBakeStage('scene collection', collectStart);
+  const serializeStart = performance.now();
+  const input = serializeBakeScene(bakeScene, roundedSamples(options.samples), serializedNormalMap(options));
+  logAOBakeStage('serialize', serializeStart);
+  // Only await the GPU path when WebGPU is actually present: the synchronous
+  // check keeps the worker dispatch below synchronous for non-WebGPU callers.
+  if (typeof navigator !== 'undefined' && navigator.gpu) {
+    try {
+      const factors = await bakeAOWithGpu(input, width, height, onProgress);
+      logAOBakeStage('gpu bake total', start);
+      return factors;
+    } catch (error) {
+      // The GPU bake failed: log why, then continue to the worker /
+      // single-threaded path below. The CPU rasterizer is unaffected.
+      console.error('AO GPU bake failed, falling back to the CPU path.', error);
+    }
+  }
   if (typeof Worker === 'undefined') {
-    return bakeSingleThreaded(bakeScene, input, width, height);
+    const factors = bakeSingleThreaded(bakeScene, input, width, height);
+    logAOBakeStage('single-threaded bake', start);
+    return factors;
   }
   try {
-    return await bakeWithWorkers(input, width, height, onProgress);
+    const factors = await bakeWithWorkers(input, width, height, onProgress);
+    logAOBakeStage('worker bake total', start);
+    return factors;
   } catch (error) {
     console.error('AO worker bake failed, falling back to the main thread.', error);
-    return bakeSingleThreaded(bakeScene, input, width, height);
+    const factors = bakeSingleThreaded(bakeScene, input, width, height);
+    logAOBakeStage('fallback single-threaded bake', start);
+    return factors;
   }
 }
 
@@ -100,6 +162,7 @@ function bakeWithWorkers(
   onProgress?: (percent: number) => void,
 ): Promise<Uint8ClampedArray> {
   return new Promise((resolve, reject) => {
+    const start = performance.now();
     const cores = navigator.hardwareConcurrency || 1;
     const workerCount = Math.min(cores, MAX_AO_WORKERS, Math.max(1, Math.floor(height / MIN_BAND_ROWS)));
     const rowsPerWorker = Math.ceil(height / workerCount);
@@ -113,6 +176,9 @@ function bakeWithWorkers(
     const written = new Uint8Array(width * height);
     const workers: Worker[] = [];
     const rowsByBand = new Array<number>(bands.length).fill(0);
+    const timingsTotal: AOBandTimings = { deserializeMs: 0, rayMs: 0, shadeMs: 0, rasterMs: 0 };
+    let firstProgressAt = 0;
+    let firstResultAt = 0;
     let pending = bands.length;
     let failed = false;
     let lastReportedPercent = -1;
@@ -140,17 +206,34 @@ function bakeWithWorkers(
       worker.onmessage = (event) => {
         const message = event.data;
         if (message.type === 'progress') {
+          if (!firstProgressAt) firstProgressAt = performance.now();
           rowsByBand[bandIndex] = message.rowsDone;
           reportProgress();
         } else if (message.type === 'result') {
           if (failed) return;
+          if (!firstResultAt) firstResultAt = performance.now();
           const bandOffset = band.yStart * width;
           factors.set(message.factors, bandOffset);
           written.set(message.written, bandOffset);
+          if (message.timings) {
+            timingsTotal.deserializeMs += message.timings.deserializeMs;
+            timingsTotal.rayMs += message.timings.rayMs;
+            timingsTotal.shadeMs += message.timings.shadeMs;
+            timingsTotal.rasterMs += message.timings.rasterMs;
+          }
           pending -= 1;
           if (pending === 0) {
+            logAOBakeStage('rasterize', dispatchedAt);
+            logAOBakeDuration('first progress (from dispatch)', firstProgressAt - dispatchedAt);
+            logAOBakeDuration('first result (from dispatch)', firstResultAt - dispatchedAt);
+            logAOBakeDuration(`BVH deserialize (sum, ${bands.length} workers)`, timingsTotal.deserializeMs);
+            logAOBakeDuration(`occlusion sampling (sum, ${bands.length} workers)`, timingsTotal.rayMs);
+            logAOBakeDuration(`shading setup (sum, ${bands.length} workers)`, timingsTotal.shadeMs - timingsTotal.rayMs);
+            logAOBakeDuration(`raster loop (sum, ${bands.length} workers)`, timingsTotal.rasterMs - timingsTotal.shadeMs);
+            const dilateStart = performance.now();
             for (const done of workers) done.terminate();
             dilateUVBake(factors, written, width, height, 1);
+            logAOBakeStage('dilate', dilateStart);
             resolve(factors);
           }
         } else {
@@ -169,5 +252,7 @@ function bakeWithWorkers(
       };
       worker.postMessage(request);
     });
+    const dispatchedAt = performance.now();
+    logAOBakeStage(`dispatch ${bands.length} workers`, start);
   });
 }

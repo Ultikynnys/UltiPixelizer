@@ -1,15 +1,18 @@
-import { bakeMeshAOAsync } from '../aoBake';
+import { bakeMeshAOAsync, logAOBakeStage } from '../aoBake';
 import { getBakeScene, invalidateBakeSceneCache } from '../bakeSceneCache';
-import { factorsToCanvas, pixelsToCanvas } from '../canvas';
-import { bakeMeshLightmap, type BakeLightmapOptions } from '../lightmapBake';
-import { createFallbackQuadScene } from '../modelScene';
+import { factorsToCanvas, pixelsToCanvas, resampleAndPixelate } from '../canvas';
+import { bakeLightmapAsync, type BakeLightmapOptions } from '../lightmapBake';
+import { getFallbackQuadScene } from '../modelScene';
 import { imageNormalMapPixels } from '../normal';
 import { lightmapIsActive, type SourceImage } from '../state';
 import { Object3D } from 'three';
 import type { Render2DApi } from './render2d';
 import type { RendererDeps, RenderShared } from './types';
 
-const AO_BAKE_SAMPLES = 128;
+// Hemisphere samples per texel. 64 cosine-weighted symmetric samples is
+// visually near-identical to 128 at a fraction of the bake time — the AO bake
+// cost scales linearly with this count (and with texel count, i.e. resolution).
+const AO_BAKE_SAMPLES = 64;
 
 // When no model is loaded the AO scene is null and every bake would otherwise
 // no-op. Substitute a flat quad facing up (see createFallbackQuadScene): the
@@ -20,7 +23,9 @@ const AO_BAKE_SAMPLES = 128;
 // displacement settings change. In grid mode the bake scene is the full 3×3
 // grid — the neighbors are occluder-only (see collectBakeScene), so they cast
 // shadows on the middle tile's bake without rasterizing over its texture.
-let fallbackQuad: Object3D = createFallbackQuadScene();
+// Memoized (see getFallbackQuadScene) so the default quad is generated once
+// and shares its bake-scene cache entry with main.ts's default instance.
+let fallbackQuad: Object3D = getFallbackQuadScene(1, false);
 function fallbackQuadScene(): Object3D {
   return fallbackQuad;
 }
@@ -60,17 +65,38 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     return getAOScene() ?? fallbackQuadScene();
   }
 
-  // The AO scene geometry is static between UV/LOD/world-axis/model changes, so
-  // the decoded normal-map pixels are memoized per image — re-baking on a sun
-  // or strength tweak shouldn't re-read the whole map off the canvas.
-  let cachedNormalMap: { image: SourceImage; source: ReturnType<typeof imageNormalMapPixels> } | null = null;
+  // The processed normal map — resampled to the output resolution and pixelized
+  // with the downscale/upscale amount — is what the bakes sample, so lighting
+  // and AO follow the same chunky normals the processed viewports display. The
+  // decoded pixels are memoized per (image, bake size, pixelation): re-baking
+  // on a sun or strength tweak shouldn't re-read the whole map off the canvas.
+  let cachedNormalMap: {
+    image: SourceImage;
+    width: number;
+    height: number;
+    pixelation: number;
+    source: ReturnType<typeof imageNormalMapPixels>;
+  } | null = null;
 
   function normalMapOptions() {
     const normalFlipY = state.normalFormat === 'directx';
     const image = textures.normal.image;
     if (!image) return { normalStrength: state.normalStrength, normalFlipY };
-    if (!cachedNormalMap || cachedNormalMap.image !== image) {
-      cachedNormalMap = { image, source: imageNormalMapPixels(image) };
+    const { width, height } = dimensions();
+    if (
+      !cachedNormalMap
+      || cachedNormalMap.image !== image
+      || cachedNormalMap.width !== width
+      || cachedNormalMap.height !== height
+      || cachedNormalMap.pixelation !== state.pixelation
+    ) {
+      cachedNormalMap = {
+        image,
+        width,
+        height,
+        pixelation: state.pixelation,
+        source: imageNormalMapPixels(resampleAndPixelate(image, width, height, state.pixelation)),
+      };
     }
     return {
       normalMap: cachedNormalMap.source,
@@ -90,30 +116,40 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     };
   }
 
-  function bakeLightmapCanvas(): HTMLCanvasElement | null {
+  async function bakeLightmapCanvas(): Promise<HTMLCanvasElement | null> {
     if (!textures.base.image) return null;
     const scene = bakeSceneSource();
     // Baked maps render at the dithered texture resolution — identical to the
     // processed output — so lighting and occlusion align 1:1 with the texture.
     const { width, height } = dimensions();
     const bakeScene = getBakeScene(scene);
-    const pixels = bakeMeshLightmap(scene, width, height, currentLightmapBakeOptions(), bakeScene ?? undefined);
+    const pixels = await bakeLightmapAsync(scene, width, height, currentLightmapBakeOptions(), bakeScene ?? undefined);
     return pixelsToCanvas(pixels, width, height);
   }
 
   async function computeAO(): Promise<boolean> {
+    const start = performance.now();
     const scene = bakeSceneSource();
     const { width, height } = dimensions();
+    const normalStart = performance.now();
+    const normalOptions = normalMapOptions();
+    logAOBakeStage('normal map prep', normalStart);
+    const collectStart = performance.now();
+    const bakeScene = getBakeScene(scene, state.aoDistance) ?? undefined;
+    logAOBakeStage('scene collection', collectStart);
     const factors = await bakeMeshAOAsync(
       scene,
       width,
       height,
-      { samples: AO_BAKE_SAMPLES, distance: state.aoDistance },
+      { samples: AO_BAKE_SAMPLES, distance: state.aoDistance, ...normalOptions },
       onAoProgress,
-      getBakeScene(scene, state.aoDistance) ?? undefined,
+      bakeScene,
     );
+    const canvasStart = performance.now();
     textures.ao.image = factorsToCanvas(factors, width, height);
     textures.ao.name = 'Generated AO';
+    logAOBakeStage('canvas', canvasStart);
+    logAOBakeStage('total', start);
     return true;
   }
 
@@ -147,8 +183,8 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   }
 
   function bakeLighting(): Promise<boolean> {
-    return runBakeTask('Could not bake lighting.', () => {
-      const canvas = bakeLightmapCanvas();
+    return runBakeTask('Could not bake lighting.', async () => {
+      const canvas = await bakeLightmapCanvas();
       if (!canvas) return false;
       textures.lightmap.image = canvas;
       textures.lightmap.name = 'Baked lighting';
@@ -183,6 +219,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     renderTextureRibbon();
     applySun();
     render2d.render();
+    deps.onImplicitBakeSettled?.();
   }
 
   /** Re-engages the live implicit bake after the user cleared the lightmap
@@ -192,22 +229,34 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     shared.lightmapCleared = false;
   }
 
-  function bakeImplicitLightmap(): void {
+  // The implicit bake re-fires on every sun / quad / resolution change. A bake
+  // at 1024² on a heavily tessellated grid runs in a worker and can outlive
+  // the next change — the token discards a superseded bake's result so the
+  // ribbon and preview never land lighting for stale geometry.
+  let implicitBakeToken = 0;
+  async function bakeImplicitLightmap(): Promise<void> {
     if (!textures.base.image || lightmapIsActive(textures) || shared.lightmapCleared) {
       shared.implicitLightmapCanvas = null;
       renderTextureRibbon();
+      deps.onImplicitBakeSettled?.();
       return;
     }
+    const token = ++implicitBakeToken;
     try {
-      shared.implicitLightmapCanvas = bakeLightmapCanvas();
+      const canvas = await bakeLightmapCanvas();
+      if (token !== implicitBakeToken) return;
+      shared.implicitLightmapCanvas = canvas;
       render2d.render();
       // The lightmap slot previews the implicit bake, so the ribbon needs a
       // refresh when the canvas lands (or disappears on failure).
       renderTextureRibbon();
+      deps.onImplicitBakeSettled?.();
     } catch (error) {
+      if (token !== implicitBakeToken) return;
       shared.implicitLightmapCanvas = null;
       console.error('Implicit lightmap bake failed.', error);
       renderTextureRibbon();
+      deps.onImplicitBakeSettled?.();
     }
   }
 
@@ -217,7 +266,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     if (lightmapIsActive(textures) || shared.lightmapCleared) return;
     shared.implicitLightmapTimer = window.setTimeout(() => {
       shared.implicitLightmapTimer = 0;
-      bakeImplicitLightmap();
+      void bakeImplicitLightmap();
     }, 200);
   }
 
@@ -232,6 +281,10 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     // Fresh state (model close / full reset) re-engages the live preview.
     shared.lightmapCleared = false;
     cachedNormalMap = null;
+    // Invalidate any in-flight worker bake — its result must not land after
+    // the reset.
+    implicitBakeToken += 1;
+    deps.onImplicitBakeSettled?.();
   }
 
   return {

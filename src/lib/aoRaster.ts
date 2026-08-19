@@ -1,6 +1,7 @@
-import type { MeshBVH } from 'three-mesh-bvh';
+import { MeshBVH } from 'three-mesh-bvh';
 import { Vector3 } from 'three';
 import { castBakeRay, type BakeScene } from './bakeGeometry';
+import { sampleNormalMap, type NormalMapSource } from './normal';
 
 /**
  * Symmetric cosine-weighted hemisphere kernel for AO sampling, flattened to
@@ -36,6 +37,10 @@ export function symmetricHemisphereKernel(samples: number): Float64Array {
   return kernel;
 }
 
+/** Snapshot of a `MeshBVH` produced by `MeshBVH.serialize` (node buffers + index),
+ * safe to structured-clone to workers and reconstruct via `MeshBVH.deserialize`. */
+export type SerializedBVH = ReturnType<typeof MeshBVH.serialize>;
+
 /** Plain-typed-array snapshot of a bake scene, safe to post to a worker. */
 export type SerializedBakeScene = {
   /** Interleaved [x, y, z, nx, ny, nz] per vertex. */
@@ -53,6 +58,29 @@ export type SerializedBakeScene = {
   /** Flat hemisphere kernel, 3 floats per sample. */
   kernel: Float64Array;
   samples: number;
+  /** Tangent-space normal map sampled by the AO hemisphere when present —
+   * pixels at the bake's output resolution, transferred with the scene. */
+  normalMap: Uint8ClampedArray | null;
+  normalWidth: number;
+  normalHeight: number;
+  normalStrength: number;
+  normalFlipY: boolean;
+  /** Per-triangle [tangent.xyz, bitangent.xyz], computed once at scene
+   * collection; null only for hand-built scenes that skipped collection. */
+  tangentBases: Float32Array | null;
+  /** Serialized occluder BVH so workers deserialize instead of rebuilding the
+   * same tree. Null when the scene has no occluders (empty scene). */
+  bvh: SerializedBVH | null;
+};
+
+/** Normal-map payload for the AO rasterizer: the decoded pixels plus the
+ * strength / flipY decode flags. The per-triangle tangent bases ride in the
+ * serialized bake scene itself (computed once at collection, shared by the
+ * lightmap and AO bakes). */
+export type SerializedNormalMap = {
+  map: NormalMapSource;
+  strength: number;
+  flipY: boolean;
 };
 
 /**
@@ -60,7 +88,7 @@ export type SerializedBakeScene = {
  * rasterizer (and the workers) consume. The kernel is built here so every band
  * and every worker shares byte-identical sample directions.
  */
-export function serializeBakeScene(scene: BakeScene, samples: number): SerializedBakeScene {
+export function serializeBakeScene(scene: BakeScene, samples: number, normal?: SerializedNormalMap): SerializedBakeScene {
   const { vertices, triangles, occluderPositions, epsilon, maxDistance } = scene;
   const vertexData = new Float32Array(vertices.length * 6);
   for (let i = 0; i < vertices.length; i += 1) {
@@ -93,13 +121,37 @@ export function serializeBakeScene(scene: BakeScene, samples: number): Serialize
     vertices: vertexData,
     triangleUVs,
     triangleVerts,
-    occluderPositions,
+    // Copy the occluder positions: `bakeLightmapAsync` transfers this buffer
+    // (zero-copy) to its worker, and transferring the cached scene's own buffer
+    // would detach it and break every later bake that reuses the cache.
+    occluderPositions: occluderPositions.slice(),
     epsilon,
     maxDistance,
     kernel: symmetricHemisphereKernel(samples),
     samples,
+    normalMap: normal ? normal.map.data : null,
+    normalWidth: normal ? normal.map.width : 0,
+    normalHeight: normal ? normal.map.height : 0,
+    normalStrength: normal ? normal.strength : 1,
+    normalFlipY: normal ? normal.flipY : false,
+    tangentBases: scene.tangentBases,
+    bvh: scene.bvh ? MeshBVH.serialize(scene.bvh) : null,
   };
 }
+
+/** Per-band CPU timings accumulated by `rasterizeAOBand` so the caller can
+ * split the rasterization cost into its parts. All fields are milliseconds,
+ * summed within one band. */
+export type AOBandTimings = {
+  /** BVH deserialize (set by the worker before rasterizing). */
+  deserializeMs: number;
+  /** Occlusion-sampling kernel loop — direction transform + castBakeRay. */
+  rayMs: number;
+  /** `shadeAOTexel` total — interpolation, normal-map decode, basis, plus rayMs. */
+  shadeMs: number;
+  /** Whole `rasterizeAOBand` — triangle loop plus per-texel shading. */
+  rasterMs: number;
+};
 
 /** Row-band description for a rasterization slice. */
 export type AOBandContext = {
@@ -109,6 +161,8 @@ export type AOBandContext = {
   yEnd: number;
   /** Invoked with the cumulative rows completed inside this band, for progress reporting. */
   onRowsComplete?: (rows: number) => void;
+  /** Optional accumulator the caller reads back for per-stage CPU timing. */
+  timings?: AOBandTimings;
 };
 
 const _origin = new Vector3();
@@ -131,8 +185,9 @@ export function rasterizeAOBand(
   input: SerializedBakeScene,
   context: AOBandContext,
 ): void {
-  const { width, height, yStart, yEnd, onRowsComplete } = context;
+  const { width, height, yStart, yEnd, onRowsComplete, timings } = context;
   const { vertices, triangleUVs, triangleVerts, kernel, samples, epsilon, maxDistance } = input;
+  const rasterStart = timings ? performance.now() : 0;
   const triangleCount = triangleVerts.length / 3;
   const bandHeight = yEnd - yStart;
   // Progress counts UNIQUE rows touched in this band, not (triangle, row)
@@ -189,18 +244,113 @@ export function rasterizeAOBand(
         if (w0 < 0 || w1 < 0 || w2 < 0) continue;
         const index = rowOffset + px;
         written[index] = 1;
-        factors[index] = shadeAOTexel(vertices, v0, v1, v2, w0, w1, w2, kernel, samples, bvh, epsilon, maxDistance);
+        const shadeStart = timings ? performance.now() : 0;
+        factors[index] = shadeAOTexel(
+          vertices, v0, v1, v2, w0, w1, w2,
+          kernel, samples, bvh, epsilon, maxDistance,
+          input, triangleIndex, uvOffset,
+          timings,
+        );
+        if (timings) timings.shadeMs += performance.now() - shadeStart;
       }
     }
   }
   if (onRowsComplete && rowsDone > lastReported) onRowsComplete(rowsDone);
+  if (timings) timings.rasterMs = performance.now() - rasterStart;
+}
+
+/** Interpolated per-texel shading inputs shared by the CPU ray cast and the
+ * WebGPU occlusion pass: the world-space sample origin, the geometric shading
+ * normal (used to offset the ray origin for self-intersection clearance), and
+ * the final shading normal the hemisphere follows (perturbed by a tangent-space
+ * normal map when present). */
+export type AOTexelShading = {
+  originX: number;
+  originY: number;
+  originZ: number;
+  gNormalX: number;
+  gNormalY: number;
+  gNormalZ: number;
+  sNormalX: number;
+  sNormalY: number;
+  sNormalZ: number;
+};
+
+/**
+ * Interpolates the world-space sample origin and smooth shading normal from a
+ * triangle's vertices at the given barycentric weights, applying the normal-map
+ * perturbation when the scene carries a tangent-space normal map. The geometric
+ * normal is kept separate from the (possibly perturbed) shading normal: the
+ * former offsets the ray origin off the surface, the latter orients the
+ * hemisphere basis. Shared by `shadeAOTexel` (CPU) and `rasterizeAOShading`
+ * (GPU data) so both paths use identical interpolation.
+ */
+export function computeAOTexelShading(
+  vertices: Float32Array,
+  v0: number,
+  v1: number,
+  v2: number,
+  w0: number,
+  w1: number,
+  w2: number,
+  input: SerializedBakeScene,
+  triangleIndex: number,
+  uvOffset: number,
+): AOTexelShading {
+  const ox = w0 * vertices[v0] + w1 * vertices[v1] + w2 * vertices[v2];
+  const oy = w0 * vertices[v0 + 1] + w1 * vertices[v1 + 1] + w2 * vertices[v2 + 1];
+  const oz = w0 * vertices[v0 + 2] + w1 * vertices[v1 + 2] + w2 * vertices[v2 + 2];
+  const nx = w0 * vertices[v0 + 3] + w1 * vertices[v1 + 3] + w2 * vertices[v2 + 3];
+  const ny = w0 * vertices[v0 + 4] + w1 * vertices[v1 + 4] + w2 * vertices[v2 + 4];
+  const nz = w0 * vertices[v0 + 5] + w1 * vertices[v1 + 5] + w2 * vertices[v2 + 5];
+  const length = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+  const gxn = nx / length;
+  const gyn = ny / length;
+  const gzn = nz / length;
+  let nxn = gxn;
+  let nyn = gyn;
+  let nzn = gzn;
+
+  if (input.normalMap && input.tangentBases) {
+    const u = w0 * input.triangleUVs[uvOffset] + w1 * input.triangleUVs[uvOffset + 2] + w2 * input.triangleUVs[uvOffset + 4];
+    const v = w0 * input.triangleUVs[uvOffset + 1] + w1 * input.triangleUVs[uvOffset + 3] + w2 * input.triangleUVs[uvOffset + 5];
+    const [sx, sy, sz] = sampleNormalMap(
+      { data: input.normalMap, width: input.normalWidth, height: input.normalHeight },
+      u, v, input.normalStrength, input.normalFlipY,
+    );
+    const basisOffset = triangleIndex * 6;
+    const basis = input.tangentBases;
+    const mx = basis[basisOffset] * sx + basis[basisOffset + 3] * sy + nxn * sz;
+    const my = basis[basisOffset + 1] * sx + basis[basisOffset + 4] * sy + nyn * sz;
+    const mz = basis[basisOffset + 2] * sx + basis[basisOffset + 5] * sy + nzn * sz;
+    const mappedLength = Math.sqrt(mx * mx + my * my + mz * mz) || 1;
+    nxn = mx / mappedLength;
+    nyn = my / mappedLength;
+    nzn = mz / mappedLength;
+  }
+
+  return {
+    originX: ox,
+    originY: oy,
+    originZ: oz,
+    gNormalX: gxn,
+    gNormalY: gyn,
+    gNormalZ: gzn,
+    sNormalX: nxn,
+    sNormalY: nyn,
+    sNormalZ: nzn,
+  };
 }
 
 /**
  * One texel of hemisphere occlusion. Interpolates the world-space sample origin
  * and the smooth shading normal from the triangle's vertices, builds an
  * orthonormal tangent basis around that normal, and counts kernel directions
- * that hit the occluder BVH. Returns the 0–255 visibility factor.
+ * that hit the occluder BVH. With a tangent-space normal map the shading normal
+ * is perturbed first (sampled at the texel's UV, mapped through the triangle's
+ * precomputed tangent basis) and the hemisphere follows the mapped normal, so
+ * normal-map crevices and ridges influence occlusion. Returns the 0–255
+ * visibility factor.
  */
 function shadeAOTexel(
   vertices: Float32Array,
@@ -215,17 +365,15 @@ function shadeAOTexel(
   bvh: MeshBVH,
   epsilon: number,
   maxDistance: number,
+  input: SerializedBakeScene,
+  triangleIndex: number,
+  uvOffset: number,
+  timings?: AOBandTimings,
 ): number {
-  const ox = w0 * vertices[v0] + w1 * vertices[v1] + w2 * vertices[v2];
-  const oy = w0 * vertices[v0 + 1] + w1 * vertices[v1 + 1] + w2 * vertices[v2 + 1];
-  const oz = w0 * vertices[v0 + 2] + w1 * vertices[v1 + 2] + w2 * vertices[v2 + 2];
-  const nx = w0 * vertices[v0 + 3] + w1 * vertices[v1 + 3] + w2 * vertices[v2 + 3];
-  const ny = w0 * vertices[v0 + 4] + w1 * vertices[v1 + 4] + w2 * vertices[v2 + 4];
-  const nz = w0 * vertices[v0 + 5] + w1 * vertices[v1 + 5] + w2 * vertices[v2 + 5];
-  const length = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-  const nxn = nx / length;
-  const nyn = ny / length;
-  const nzn = nz / length;
+  const shading = computeAOTexelShading(vertices, v0, v1, v2, w0, w1, w2, input, triangleIndex, uvOffset);
+  const nxn = shading.sNormalX;
+  const nyn = shading.sNormalY;
+  const nzn = shading.sNormalZ;
 
   // Orthonormal basis around the shading normal for the hemisphere kernel.
   // Reference axis flips away from the normal to keep the tangent well-defined.
@@ -251,21 +399,111 @@ function shadeAOTexel(
   by /= bitangentLength;
   bz /= bitangentLength;
 
-  _origin.set(ox, oy, oz);
-  _normal.set(nxn, nyn, nzn);
+  _origin.set(shading.originX, shading.originY, shading.originZ);
+  _normal.set(shading.gNormalX, shading.gNormalY, shading.gNormalZ);
   let occluded = 0;
+  const rayStart = timings ? performance.now() : 0;
   for (let s = 0; s < samples; s += 1) {
     const kx = kernel[s * 3];
     const ky = kernel[s * 3 + 1];
     const kz = kernel[s * 3 + 2];
-    const dx = tx * kx + bx * ky + nxn * kz;
-    const dy = ty * kx + by * ky + nyn * kz;
-    const dz = tz * kx + bz * ky + nzn * kz;
-    const directionLength = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
-    _direction.set(dx / directionLength, dy / directionLength, dz / directionLength);
+    // The kernel is unit length and (tangent, bitangent, normal) is an
+    // orthonormal basis, so the transformed direction is already normalized —
+    // the per-sample sqrt/divide is a no-op that costs a sqrt per sample.
+    _direction.set(
+      tx * kx + bx * ky + nxn * kz,
+      ty * kx + by * ky + nyn * kz,
+      tz * kx + bz * ky + nzn * kz,
+    );
     if (castBakeRay(bvh, _origin, _normal, _direction, epsilon, 0, maxDistance)) occluded += 1;
   }
+  if (timings) timings.rayMs += performance.now() - rayStart;
   return Math.round(((samples - occluded) / samples) * 255);
+}
+
+/**
+ * Rasterizes the UV islands and records each covered texel's shading inputs for
+ * the WebGPU occlusion pass instead of casting rays: `texelData` receives
+ * `[rayOrigin.xyz, shadingNormal.xyz]` per texel (6 floats), where the ray
+ * origin is the interpolated position offset along the geometric normal by
+ * `epsilon` (self-intersection clearance, applied here so the shader only needs
+ * the origin and the shading normal). `written` marks covered texels exactly as
+ * `rasterizeAOBand` does; unwritten texels keep `texelData` at zero, which the
+ * shader reads as "emit 255". The caller owns full-map arrays and should call
+ * this over the whole map (`yStart: 0, yEnd: height`).
+ */
+export function rasterizeAOShading(
+  written: Uint8Array,
+  texelData: Float32Array,
+  input: SerializedBakeScene,
+  context: AOBandContext,
+): void {
+  const { width, height, yStart, yEnd, onRowsComplete } = context;
+  const { vertices, triangleUVs, triangleVerts, epsilon } = input;
+  const triangleCount = triangleVerts.length / 3;
+  const bandHeight = yEnd - yStart;
+  const rowTouched = new Uint8Array(bandHeight);
+  const reportEvery = Math.max(1, Math.floor(bandHeight / 128));
+  let rowsDone = 0;
+  let lastReported = 0;
+  const reportProgress = (): void => {
+    if (!onRowsComplete) return;
+    if (rowsDone - lastReported >= reportEvery) {
+      lastReported = rowsDone;
+      onRowsComplete(rowsDone);
+    }
+  };
+
+  for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex += 1) {
+    const uvOffset = triangleIndex * 6;
+    const ax = triangleUVs[uvOffset] * width;
+    const ay = (1 - triangleUVs[uvOffset + 1]) * height;
+    const bx = triangleUVs[uvOffset + 2] * width;
+    const by = (1 - triangleUVs[uvOffset + 3]) * height;
+    const cx = triangleUVs[uvOffset + 4] * width;
+    const cy = (1 - triangleUVs[uvOffset + 5]) * height;
+
+    const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
+    const maxX = Math.min(width - 1, Math.ceil(Math.max(ax, bx, cx)));
+    const minY = Math.max(yStart, Math.floor(Math.min(ay, by, cy)));
+    const maxY = Math.min(yEnd - 1, Math.ceil(Math.max(ay, by, cy)));
+    const denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+    if (denominator === 0) continue;
+
+    const vertOffset = triangleIndex * 3;
+    const v0 = triangleVerts[vertOffset] * 6;
+    const v1 = triangleVerts[vertOffset + 1] * 6;
+    const v2 = triangleVerts[vertOffset + 2] * 6;
+
+    for (let py = minY; py <= maxY; py += 1) {
+      const bandRow = py - yStart;
+      if (!rowTouched[bandRow]) {
+        rowTouched[bandRow] = 1;
+        rowsDone += 1;
+        reportProgress();
+      }
+      const rowOffset = bandRow * width;
+      for (let px = minX; px <= maxX; px += 1) {
+        const x = px + 0.5;
+        const y = py + 0.5;
+        const w0 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / denominator;
+        const w1 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denominator;
+        const w2 = 1 - w0 - w1;
+        if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+        const index = rowOffset + px;
+        written[index] = 1;
+        const shading = computeAOTexelShading(vertices, v0, v1, v2, w0, w1, w2, input, triangleIndex, uvOffset);
+        const dataOffset = index * 6;
+        texelData[dataOffset] = shading.originX + epsilon * shading.gNormalX;
+        texelData[dataOffset + 1] = shading.originY + epsilon * shading.gNormalY;
+        texelData[dataOffset + 2] = shading.originZ + epsilon * shading.gNormalZ;
+        texelData[dataOffset + 3] = shading.sNormalX;
+        texelData[dataOffset + 4] = shading.sNormalY;
+        texelData[dataOffset + 5] = shading.sNormalZ;
+      }
+    }
+  }
+  if (onRowsComplete && rowsDone > lastReported) onRowsComplete(rowsDone);
 }
 
 /** Worker message: rasterize one row band. */
@@ -291,6 +529,8 @@ export type AOBandResult = {
   jobId: number;
   factors: Uint8ClampedArray;
   written: Uint8Array;
+  /** Per-band CPU timings (ray / shading / rasterization), summed by the caller. */
+  timings: AOBandTimings;
 };
 
 /** Worker message: the band failed to rasterize. */

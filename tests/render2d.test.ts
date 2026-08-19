@@ -1,12 +1,29 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRender2D } from '../src/lib/render/render2d';
 import type { RenderShared } from '../src/lib/render/types';
 import type { ModelViewport } from '../src/lib/modelPreview';
 import { createRendererDeps } from './helpers/rendererDeps';
 import { asSourceImage, FakeCanvas, installDomStubs, stubDocument } from './helpers/domStubs';
 
+// The pixelization filter must downscale the source before the dither pass
+// consumes it; spy on both stages to pin the call order.
+vi.mock('../src/lib/canvas', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/canvas')>();
+  return { ...actual, pixelateCanvas: vi.fn(actual.pixelateCanvas) };
+});
+vi.mock('../src/lib/dither', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/dither')>();
+  return { ...actual, processImageData: vi.fn(actual.processImageData) };
+});
+import { pixelateCanvas } from '../src/lib/canvas';
+import { processImageData } from '../src/lib/dither';
+
 beforeAll(() => {
   installDomStubs();
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
 });
 
 function baseTexture() {
@@ -53,6 +70,45 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255, 40, 40, 40, 255]);
     expect(shared.renderedCanvas).toBeDefined();
     expect(deps.updatePreviewBadge).toHaveBeenCalledWith(2, 2);
+  });
+
+  it('applies pixelization to the source before the dither pass', () => {
+    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    const shared = sharedState();
+    createRender2D(deps, shared).render();
+
+    // Pixelation (downscale/upscale) runs first, then the dither consumes the
+    // pixelated image, not the other way around.
+    expect(vi.mocked(pixelateCanvas)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(processImageData)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(pixelateCanvas).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(processImageData).mock.invocationCallOrder[0]);
+  });
+
+  it('quantizes the source into pixel blocks at the full output resolution', () => {
+    const canvas = new FakeCanvas();
+    canvas.width = 4;
+    canvas.height = 4;
+    canvas.context.pixels.set([
+      10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255, 40, 40, 40, 255,
+      11, 11, 11, 255, 21, 21, 21, 255, 31, 31, 31, 255, 41, 41, 41, 255,
+      12, 12, 12, 255, 22, 22, 22, 255, 32, 32, 32, 255, 42, 42, 42, 255,
+      13, 13, 13, 255, 23, 23, 23, 255, 33, 33, 33, 255, 43, 43, 43, 255,
+    ]);
+    const deps = createRendererDeps({ textures: { base: { image: asSourceImage(canvas), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.mode = 'none'; // dither is pass-through; output shows the pixelation alone
+    deps.state.resolution = 4;
+    deps.state.pixelation = 50; // downscale to half, then upscale back = 2×2 blocks
+    const shared = sharedState();
+    createRender2D(deps, shared).render();
+
+    // The 4×4 output keeps its resolution, but reads from 2×2 blocks: each
+    // block carries its top-left pixel.
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual([
+      10, 10, 10, 255, 10, 10, 10, 255, 30, 30, 30, 255, 30, 30, 30, 255,
+      10, 10, 10, 255, 10, 10, 10, 255, 30, 30, 30, 255, 30, 30, 30, 255,
+      12, 12, 12, 255, 12, 12, 12, 255, 32, 32, 32, 255, 32, 32, 32, 255,
+      12, 12, 12, 255, 12, 12, 12, 255, 32, 32, 32, 255, 32, 32, 32, 255,
+    ]);
   });
 
   it('tiles both 2D panes 3×3 when image repeat is enabled, leaving the export buffers single-tile', () => {
@@ -182,6 +238,33 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual([
       128, 128, 255, 255, 128, 128, 255, 255,
       128, 128, 255, 255, 128, 128, 255, 255,
+    ]);
+  });
+
+  it('applies the pixelation percentage to the processed normals inspection', () => {
+    const normal = new FakeCanvas();
+    normal.width = 4;
+    normal.height = 4;
+    normal.context.pixels.set([
+      10, 10, 10, 255, 11, 11, 11, 255, 20, 20, 20, 255, 21, 21, 21, 255,
+      12, 12, 12, 255, 13, 13, 13, 255, 22, 22, 22, 255, 23, 23, 23, 255,
+      30, 30, 30, 255, 31, 31, 31, 255, 40, 40, 40, 255, 41, 41, 41, 255,
+      32, 32, 32, 255, 33, 33, 33, 255, 42, 42, 42, 255, 43, 43, 43, 255,
+    ]);
+    const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: asSourceImage(normal), name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.viewModeProcessed = 'normals';
+    deps.state.resolution = 4;
+    deps.state.pixelation = 50; // downscale to half, then upscale back = 2×2 blocks
+    const shared = sharedState();
+    createRender2D(deps, shared).render();
+
+    // The normals inspection shows the same chunky blocks as the dithered
+    // base: 2×2 blocks of the top-left normal at full output resolution.
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual([
+      10, 10, 10, 255, 10, 10, 10, 255, 20, 20, 20, 255, 20, 20, 20, 255,
+      10, 10, 10, 255, 10, 10, 10, 255, 20, 20, 20, 255, 20, 20, 20, 255,
+      30, 30, 30, 255, 30, 30, 30, 255, 40, 40, 40, 255, 40, 40, 40, 255,
+      30, 30, 30, 255, 30, 30, 30, 255, 40, 40, 40, 255, 40, 40, 40, 255,
     ]);
   });
 

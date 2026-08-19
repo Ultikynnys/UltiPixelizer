@@ -25,6 +25,7 @@ export function createRenderer(deps: RendererDeps): RendererApi {
       // size, which only changes in render — keep the overlays aligned.
       overlay.syncWireframeOverlays();
     },
+    applyViewportImages: render2d.applyViewportImages,
     generateAo: bake.generateAo,
     bakeLighting: bake.bakeLighting,
     clearLightmap: bake.clearLightmap,

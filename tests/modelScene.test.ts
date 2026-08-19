@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshPhongMaterial, MeshStandardMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture, Vector3 } from 'three';
-import { applyDisplacement, applyUVChannel, cloneModelScene, computeSmoothNormals, convertToLambertShading, createFallbackQuadScene, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
+import { applyDisplacement, applyUVChannel, cloneModelScene, computeSmoothNormals, convertToLambertShading, createFallbackQuadScene, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, getFallbackQuadScene, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
 
 function mesh(channels: string[], materials = 1): Mesh {
   const geometry = new BufferGeometry();
@@ -283,6 +283,18 @@ describe('createFallbackQuadScene', () => {
     expect(middle.geometry.getAttribute('normal').getY(0)).toBeCloseTo(1);
   });
 
+  it('shares one geometry across the grid tiles', () => {
+    // The tiles differ only by position — grid mode builds the plane once and
+    // reuses it for all nine meshes instead of allocating nine copies.
+    const grid = createFallbackQuadScene(3, true);
+    const meshes = grid.children.filter((child): child is Mesh => child instanceof Mesh);
+    expect(meshes).toHaveLength(9);
+    const shared = meshes[0].geometry;
+    for (const mesh of meshes) {
+      expect(mesh.geometry).toBe(shared);
+    }
+  });
+
   it('renders both sides so displaced cliffs never read as gaps', () => {
     const quad = createFallbackQuadScene() as Mesh;
     expect((quad.material as MeshBasicMaterial).side).toBe(DoubleSide);
@@ -336,6 +348,37 @@ describe('createFallbackQuadScene', () => {
     const grid = createFallbackQuadScene(16, true);
     applyDisplacement(grid, step, 0.15);
     expect(boundaryGap(grid)).toBeGreaterThan(0.2);
+  });
+
+  describe('getFallbackQuadScene', () => {
+    it('returns the same scene instance for the same settings', () => {
+      const a = getFallbackQuadScene(8, false);
+      const b = getFallbackQuadScene(8, false);
+      expect(b).toBe(a);
+    });
+
+    it('returns distinct scenes for distinct settings', () => {
+      expect(getFallbackQuadScene(4, false)).not.toBe(getFallbackQuadScene(4, true));
+      expect(getFallbackQuadScene(4, false)).not.toBe(getFallbackQuadScene(8, false));
+    });
+
+    it('is independent of fresh instances — viewport clones still get their own scene', () => {
+      // The memoized accessor is for the single-consumer bake quad; callers
+      // that need per-scene instances (the viewports) keep using the fresh
+      // constructor, whose result must never equal the cached instance.
+      expect(createFallbackQuadScene(8, false)).not.toBe(getFallbackQuadScene(8, false));
+    });
+
+    it('evicts the least-recently-used entry beyond the capacity', () => {
+      const first = getFallbackQuadScene(3, false);
+      getFallbackQuadScene(5, false);
+      getFallbackQuadScene(7, false);
+      getFallbackQuadScene(9, false);
+      // (3,false) is now the LRU — a fifth distinct key evicts it.
+      expect(getFallbackQuadScene(11, false)).not.toBe(first);
+      // Evicted entries regenerate on the next request instead of resurrecting.
+      expect(getFallbackQuadScene(3, false)).not.toBe(first);
+    });
   });
 });
 

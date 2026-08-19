@@ -311,6 +311,34 @@ describe('ModelViewport', () => {
     viewport.dispose();
   });
 
+  it('strips Ctrl/Cmd/Shift from pointerdown so the drag action always follows the navigation toggle', () => {
+    const hostElement = host();
+    const viewport = new ModelViewport(hostElement);
+    const install = vi.mocked(hostElement.addEventListener).mock.calls.find((call) => call[0] === 'pointerdown');
+    expect(install).toBeDefined();
+    expect(install?.[2]).toBe(true); // capture on the host; runs before the canvas listener
+    const handler = install?.[1] as unknown as (event: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) => void;
+    // three would map ctrl+drag to the other action; the strip must zero the
+    // flags so the navigation toggle alone picks orbit vs pan.
+    const dragged = { ctrlKey: true, metaKey: true, shiftKey: false };
+    handler(dragged);
+    expect(dragged.ctrlKey).toBe(false);
+    expect(dragged.metaKey).toBe(false);
+    expect(dragged.shiftKey).toBe(false);
+    // A plain drag passes through untouched.
+    const clean = { ctrlKey: false, metaKey: false, shiftKey: false };
+    handler(clean);
+    expect(clean).toEqual({ ctrlKey: false, metaKey: false, shiftKey: false });
+    viewport.dispose();
+  });
+
+  it('removes the pointerdown stripper on dispose', () => {
+    const hostElement = host();
+    const viewport = new ModelViewport(hostElement);
+    viewport.dispose();
+    expect(vi.mocked(hostElement.removeEventListener).mock.calls.some((call) => call[0] === 'pointerdown' && call[2] === true)).toBe(true);
+  });
+
   it('setModel plays the first animation and refits the camera', () => {
     const viewport = new ModelViewport(host());
     viewport.onCameraChange = vi.fn();

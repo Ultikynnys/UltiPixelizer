@@ -1,22 +1,29 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { palettes } from '../src/lib/palettes';
 import {
   CUSTOM_PALETTE_STORAGE_KEY,
   createCustomPalette,
   deleteCustomPalette,
+  deleteCustomPaletteFile,
   duplicatePalette,
   extractHexColors,
+  filePaletteFor,
   isCustomPalette,
   loadCustomPalettes,
+  loadCustomPalettesFromFiles,
   matchingPaletteKey,
+  paletteFileName,
+  paletteFromHexFile,
   paletteFromImport,
-  parseCustomPalette,
+  paletteKeyFromFileName,
+  saveCustomPaletteFile,
   selectOrCreatePalette,
-  serializeCustomPalette,
+  serializePaletteHex,
   updateCustomPalette,
   upsertCustomPalette,
   type StorageLike,
 } from '../src/lib/customPalettes';
+import type { TauriFileStore, TauriStorageLocation } from '../src/lib/tauri';
 
 class MemoryStorage implements StorageLike {
   data = new Map<string, string>();
@@ -29,11 +36,13 @@ let storage: MemoryStorage;
 beforeEach(() => { storage = new MemoryStorage(); });
 
 describe('custom palettes', () => {
-  it('creates and round-trips complete portable palettes', () => {
+  it('creates complete portable palettes and round-trips them as .hex text', () => {
     const palette = createCustomPalette('My Colors', ['#000000', '#ffffff'], new Date('2026-01-02T03:04:05Z'));
-    expect(parseCustomPalette(serializeCustomPalette(palette))).toEqual(palette);
     expect(palette.key).toBe('custom-1767323045000-my-colors');
     expect(isCustomPalette(palette)).toBe(true);
+    // The .hex file is a plain hex list, one color per line (Lospec-style).
+    expect(serializePaletteHex(palette)).toBe('000000\nffffff\n');
+    expect(extractHexColors(serializePaletteHex(palette))).toEqual(['#000000', '#FFFFFF']);
   });
 
   it('duplicates built-ins independently and updates while preserving identity', () => {
@@ -46,14 +55,11 @@ describe('custom palettes', () => {
     expect(updated.name).toBe('Edited');
   });
 
-  it('rejects invalid names, color counts, malformed JSON, and invalid exports', () => {
+  it('rejects invalid names and color counts', () => {
     expect(() => createCustomPalette('', ['#000000', '#ffffff'])).toThrow('2–256');
     expect(() => createCustomPalette('Bad', ['#000000'])).toThrow('2–256');
     expect(() => createCustomPalette('Bad', Array(257).fill('#000000'))).toThrow('2–256');
-    expect(() => parseCustomPalette('{bad')).toThrow('not valid JSON');
-    expect(() => parseCustomPalette('{}')).toThrow('invalid or unsupported');
     expect(() => createCustomPalette('x'.repeat(61), ['#000000', '#ffffff'])).toThrow('2–256');
-    expect(() => serializeCustomPalette({} as never)).toThrow('invalid');
   });
 
   it('finds equivalent palettes by ordered colors and prefers the requested key', () => {
@@ -180,21 +186,119 @@ a18a64
     expect(isCustomPalette(palette)).toBe(true);
   });
 
-  it('imports a Lospec .json payload with name and author', () => {
-    expect(paletteFromImport('{"name":"Sweetie 16","author":"","colors":["1a1c2c","5d275d"]}').name).toBe('Sweetie 16');
-    expect(paletteFromImport('{"name":"Apollo","author":"AdamCYounis","colors":["172038","253a5e"]}').name).toBe('Apollo');
-  });
-
-  it('round-trips the app own .palette.json format', () => {
-    const original = createCustomPalette('My Colors', ['#000000', '#ffffff'], new Date('2026-01-02T03:04:05Z'));
-    expect(paletteFromImport(serializeCustomPalette(original))).toEqual(original);
-  });
-
   it('rejects invalid, empty, and unsupported imports', () => {
     expect(() => paletteFromImport('', 'empty.hex')).toThrow('no valid colors');
     expect(() => paletteFromImport('#ffffff', 'one.hex')).toThrow('no valid colors');
-    expect(() => paletteFromImport('{bad', 'bad.json')).toThrow('not valid JSON');
-    expect(() => paletteFromImport('{}', 'empty.json')).toThrow('invalid or unsupported');
+    // JSON payloads are not a palette format anymore — they yield no hex colors.
+    expect(() => paletteFromImport('{bad', 'bad.json')).toThrow('no valid colors');
+    expect(() => paletteFromImport('{}', 'empty.json')).toThrow('no valid colors');
     expect(() => paletteFromImport('{"colors":["nothex"]}', 'bad.json')).toThrow('no valid colors');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Desktop .hex file store: one file per palette, named after the palette
+// ---------------------------------------------------------------------------
+
+class FakeFileStore implements TauriFileStore {
+  location: TauriStorageLocation = 'install';
+  dir = 'C:/Program Files/UltiPixelizer';
+  files = new Map<string, string>();
+
+  async preload(file: string): Promise<string | null> {
+    return this.files.get(file) ?? null;
+  }
+
+  async write(file: string, contents: string): Promise<void> {
+    this.files.set(file, contents);
+  }
+
+  async remove(file: string): Promise<void> {
+    this.files.delete(file);
+  }
+
+  async list(folder: string): Promise<string[]> {
+    const prefix = `${folder}/`;
+    return [...this.files.keys()]
+      .filter((file) => file.startsWith(prefix))
+      .map((file) => file.slice(prefix.length))
+      .sort();
+  }
+}
+
+describe('desktop .hex file store', () => {
+  it('names palette files after the palette, Windows-safe', () => {
+    expect(paletteFileName('My Colors')).toBe('My Colors.hex');
+    expect(paletteFileName('A:B*C?')).toBe('A-B-C-.hex');
+    expect(paletteFileName('Name. ')).toBe('Name.hex');
+    expect(paletteFileName('.hidden')).toBe('hidden.hex'); // Rust rejects leading dots
+    expect(paletteFileName('')).toBe('custom-palette.hex');
+    expect(paletteFileName('   ')).toBe('custom-palette.hex');
+  });
+
+  it('derives the palette key from the file name', () => {
+    expect(paletteKeyFromFileName('My Colors.hex')).toBe('custom-my-colors');
+    expect(paletteKeyFromFileName('sweetie-16.HEX')).toBe('custom-sweetie-16');
+    expect(paletteKeyFromFileName('123.hex')).toBe('custom-123');
+  });
+
+  it('builds a palette from a .hex file, naming it from the file name', () => {
+    const palette = paletteFromHexFile('sweetie-16.hex', '1a1c2c\n5d275d\nb13e53\n', new Date('2026-01-02T03:04:05Z'));
+    expect(palette.name).toBe('sweetie-16');
+    expect(palette.key).toBe('custom-sweetie-16');
+    expect(palette.colors).toEqual(['#1A1C2C', '#5D275D', '#B13E53']);
+    expect(isCustomPalette(palette)).toBe(true);
+  });
+
+  it('round-trips a palette through its .hex file', async () => {
+    const store = new FakeFileStore();
+    const filePalette = filePaletteFor(createCustomPalette('My Colors', ['#000000', '#ffffff'], new Date('2026-01-02T03:04:05Z')));
+    await saveCustomPaletteFile(store, filePalette);
+    expect(store.files.get('palettes/My Colors.hex')).toBe('000000\nffffff\n');
+
+    const [loaded] = await loadCustomPalettesFromFiles(store);
+    expect(loaded.name).toBe('My Colors');
+    expect(loaded.key).toBe('custom-my-colors');
+    expect(loaded.colors).toEqual(['#000000', '#FFFFFF']);
+    expect(isCustomPalette(loaded)).toBe(true);
+  });
+
+  it('loads every .hex file in the palettes folder, skipping non-palette files', async () => {
+    const store = new FakeFileStore();
+    store.files.set('palettes/One.hex', '000000\nffffff\n');
+    store.files.set('palettes/Two.hex', '112233\n445566\n');
+    store.files.set('palettes/README.txt', 'not a palette');
+    store.files.set('config/settings.json', '{}');
+    const palettes = await loadCustomPalettesFromFiles(store);
+    expect(palettes.map((palette) => palette.name)).toEqual(['One', 'Two']);
+  });
+
+  it('drops invalid .hex files with a warning instead of failing the load', async () => {
+    const store = new FakeFileStore();
+    store.files.set('palettes/Bad.hex', 'no colors here');
+    store.files.set('palettes/Good.hex', '000000\nffffff\n');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const palettes = await loadCustomPalettesFromFiles(store);
+    expect(palettes).toHaveLength(1);
+    expect(palettes[0].name).toBe('Good');
+    warn.mockRestore();
+  });
+
+  it('keeps the first palette when two file names sanitize to the same key', async () => {
+    const store = new FakeFileStore();
+    store.files.set('palettes/My Palette.hex', '000000\nffffff\n');
+    store.files.set('palettes/my-palette.hex', '111111\neeeeee\n');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const palettes = await loadCustomPalettesFromFiles(store);
+    expect(palettes).toHaveLength(1);
+    expect(palettes[0].name).toBe('My Palette');
+    warn.mockRestore();
+  });
+
+  it('deletes a palette file by name', async () => {
+    const store = new FakeFileStore();
+    store.files.set('palettes/My Colors.hex', '000000\nffffff\n');
+    await deleteCustomPaletteFile(store, 'My Colors');
+    expect(store.files.has('palettes/My Colors.hex')).toBe(false);
   });
 });

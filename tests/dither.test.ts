@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { adjustColor, nearestColor, patternThreshold, processImageData, type DitherMode } from '../src/lib/dither';
+import { adjustColor, ditherImageData, nearestColor, patternThreshold, processImageData, type DitherMode } from '../src/lib/dither';
 import { hexToRgb, hslToRgb, hsvToRgb, palettes, paletteCategories, rgbToHex, rgbToHsl, rgbToHsv } from '../src/lib/palettes';
 import { FakeImageData, installDomStubs } from './helpers/domStubs';
 
@@ -96,7 +96,7 @@ describe('dithering engine', () => {
     [64, 64, 64, 255], [128, 128, 128, 255], [224, 224, 224, 255],
   ];
 
-  it.each<DitherMode>(['none', 'ordered', 'halftone', 'floyd', 'atkinson', 'cross', 'stripes', 'noise', 'checker'])('processes %s mode into palette colors', (mode) => {
+  it.each<DitherMode>(['ordered', 'halftone', 'floyd', 'atkinson', 'cross', 'stripes', 'noise', 'checker'])('processes %s mode into palette colors', (mode) => {
     const source = imageData(sourcePixels, 3);
     const result = processImageData(source, options(mode));
     expect(result.width).toBe(3);
@@ -182,11 +182,21 @@ describe('dithering engine', () => {
   });
 
   it('applies tone controls before palette mapping', () => {
+    // 'checker' quantizes without error diffusion, so tone changes show up as
+    // pure palette transitions (the empty 'none' mode now passes through).
     const source = imageData([[110, 110, 110, 255]], 1);
-    const dark = processImageData(source, options('none'));
-    const bright = processImageData(source, { ...options('none'), brightness: 20 });
+    const dark = processImageData(source, options('checker'));
+    const bright = processImageData(source, { ...options('checker'), brightness: 20 });
     expect([...dark.data]).toEqual([0, 0, 0, 255]);
     expect([...bright.data]).toEqual([255, 255, 255, 255]);
+  });
+
+  it('the empty pattern passes the source through — lighting only', () => {
+    const source = imageData(sourcePixels, 3);
+    const result = processImageData(source, options('none'));
+    expect(result.width).toBe(3);
+    expect(result.height).toBe(2);
+    expect([...result.data]).toEqual([...source.data]);
   });
 });
 
@@ -240,6 +250,156 @@ describe('seamless error-diffusion padding', () => {
     const column: number[] = [];
     for (let y = 0; y < result.height; y += 1) column.push(result.data[y * result.width * 4]);
     expect(column).toEqual([0, 255, 0, 255, 0]);
+  });
+
+  /** The pre-optimization seamless path — a 3×3 grid of full tile copies,
+   * dither, crop the center — kept here as the reference the streaming scan
+   * must reproduce byte-for-byte. */
+  const referenceTiled = (source: ImageData): ImageData => {
+    const { width, height } = source;
+    const size = 3;
+    const padded = new ImageData(new Uint8ClampedArray(size * size * width * height * 4), size * width, size * height);
+    for (let py = 0; py < size * height; py += 1) {
+      const sy = py % height;
+      for (let px = 0; px < size * width; px += 1) {
+        const s = (sy * width + (px % width)) * 4;
+        const d = (py * size * width + px) * 4;
+        padded.data[d] = source.data[s];
+        padded.data[d + 1] = source.data[s + 1];
+        padded.data[d + 2] = source.data[s + 2];
+        padded.data[d + 3] = source.data[s + 3];
+      }
+    }
+    return padded;
+  };
+
+  /** Deterministic gradient + grain so the equivalence comparisons are stable. */
+  const textured = (width: number, height: number): ImageData => {
+    const pixels: number[][] = [];
+    let noise = 0x2f6e2b1;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        noise = Math.imul(noise ^ (noise >>> 13), 1274126177);
+        const grain = ((noise >>> 0) % 41) - 20;
+        pixels.push([x * 3 % 256 + grain, y * 3 % 256 + grain, ((x + y) * 2) % 256 + grain, 255]);
+      }
+    }
+    return imageData(pixels, width);
+  };
+
+  /** Crops the center tile of the 3×3 reference pad. */
+  const cropCenterOf = (padded: ImageData, width: number, height: number): ImageData => {
+    const output = new ImageData(new Uint8ClampedArray(width * height * 4), width, height);
+    const rowStride = padded.width;
+    const start = height * rowStride + width;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const s = (start + y * rowStride + x) * 4;
+        const d = (y * width + x) * 4;
+        output.data[d] = padded.data[s];
+        output.data[d + 1] = padded.data[s + 1];
+        output.data[d + 2] = padded.data[s + 2];
+        output.data[d + 3] = padded.data[s + 3];
+      }
+    }
+    return output;
+  };
+
+  const referencePipeline = (source: ImageData, mode: DitherMode): ImageData =>
+    cropCenterOf(ditherImageData(referenceTiled(source), options(mode)), source.width, source.height);
+
+  it.each(['floyd', 'atkinson'] as const)('the %s streaming scan reproduces the 3×3 pad byte-for-byte', (mode) => {
+    const source = textured(160, 128);
+    expect([...processImageData(source, options(mode)).data]).toEqual([...referencePipeline(source, mode).data]);
+  });
+
+  it.each(['floyd', 'atkinson'] as const)('the %s streaming scan matches a wide-flat image', (mode) => {
+    // Height 40 < the scan's two-row grid: the wrap cycles the short edge and
+    // the streaming output must still equal the 3×3 reference exactly.
+    const source = textured(160, 40);
+    expect([...processImageData(source, options(mode)).data]).toEqual([...referencePipeline(source, mode).data]);
+  });
+
+  it.each(['floyd', 'atkinson'] as const)('the %s streaming scan matches a tiny image', (mode) => {
+    const source = uniform(32, 128);
+    expect([...processImageData(source, options(mode)).data]).toEqual([...referencePipeline(source, mode).data]);
+  });
+
+  it.each(['floyd', 'atkinson'] as const)('the %s streaming scan preserves alpha', (mode) => {
+    const source = imageData(
+      [
+        [32, 32, 32, 80], [96, 96, 96, 180], [160, 160, 160, 255],
+        [64, 64, 64, 10], [128, 128, 128, 90], [224, 224, 224, 200],
+      ],
+      3,
+    );
+    const result = processImageData(source, options(mode));
+    for (let i = 3; i < result.data.length; i += 4) {
+      expect(result.data[i]).toBe(source.data[i]);
+    }
+  });
+
+  /** Clean ascending hex palette — 6-digit channels so hexToRgb round-trips. */
+  const paletteOf = (count: number): string[] => {
+    const colors: string[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const value = Math.round((i * 0xffffff) / (count - 1));
+      colors.push(`#${value.toString(16).padStart(6, '0')}`);
+    }
+    return colors;
+  };
+
+  /** Linear-scan oracle replicating `linearMatch` exactly — same expression,
+   * same float32 weights — so the k-d tree's output can be asserted
+   * byte-for-byte (the exported nearestColor uses double-precision weights
+   * and can differ from the matcher on near-ties). */
+  const linearMatchOracle = (r: number, g: number, b: number, palette: string[]): number => {
+    const weights = new Float32Array([0.299, 0.587, 0.114]);
+    const flat = new Float32Array(palette.length * 3);
+    const colors = palette.map(hexToRgb);
+    for (let i = 0; i < colors.length; i += 1) {
+      flat[i * 3] = colors[i][0];
+      flat[i * 3 + 1] = colors[i][1];
+      flat[i * 3 + 2] = colors[i][2];
+    }
+    let best = 0;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < colors.length; i += 1) {
+      const dr = r - flat[i * 3];
+      const dg = g - flat[i * 3 + 1];
+      const db = b - flat[i * 3 + 2];
+      const distance = dr * dr * weights[0] + dg * dg * weights[1] + db * db * weights[2];
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = i;
+      }
+    }
+    return best;
+  };
+
+  it('the k-d matcher resolves a 64-color palette exactly like the linear scan', () => {
+    // strength 0 removes the ordered pattern offset — the pipeline reduces to
+    // tone-adjust (identity at 0/0/0) + palette mapping, isolating the matcher.
+    const source = textured(48, 32);
+    const palette = paletteOf(64);
+    const result = processImageData(source, { ...options('ordered'), palette, strength: 0 });
+    const oracle = new ImageData(new Uint8ClampedArray(result.data), result.width, result.height);
+    for (let i = 0; i < result.data.length; i += 4) {
+      const [r, g, b] = hexToRgb(palette[linearMatchOracle(result.data[i], result.data[i + 1], result.data[i + 2], palette)]);
+      oracle.data[i] = r;
+      oracle.data[i + 1] = g;
+      oracle.data[i + 2] = b;
+    }
+    expect([...result.data]).toEqual([...oracle.data]);
+  });
+
+  it.each(['floyd', 'atkinson'] as const)('the %s streaming scan matches the 3×3 pad on a 64-color palette (k-d path)', (mode) => {
+    // Both sides route through the k-d matcher; this pins the streaming scan
+    // to the padded reference when palette sizes exceed the linear threshold.
+    const source = textured(96, 72);
+    const large = { ...options(mode), palette: paletteOf(64) };
+    const reference = cropCenterOf(ditherImageData(referenceTiled(source), large), source.width, source.height);
+    expect([...processImageData(source, large).data]).toEqual([...reference.data]);
   });
 });
 
@@ -325,5 +485,35 @@ describe('halftone dot rendering', () => {
     expect(inkCount(large)).toBeGreaterThan(inkCount(small));
     expect(inkCount(small)).toBe(4);
     expect(inkCount(large)).toBe(6);
+  });
+});
+
+describe('dither scale', () => {
+  const gray = Array.from({ length: 16 }, () => [128, 128, 128, 255]);
+
+  it('is the identity at scale 1 — output matches the unscaled default', () => {
+    const source = imageData(gray, 4);
+    const baseline = processImageData(source, { ...options('ordered'), strength: 0.75 });
+    const scaled = processImageData(source, { ...options('ordered'), strength: 0.75, ditherScale: 1 });
+    expect([...scaled.data]).toEqual([...baseline.data]);
+  });
+
+  it('magnifies the pattern below 1 — the 4×4 ordered grid repeats every 8 px at 0.5', () => {
+    const source = imageData(gray, 4);
+    const atOne = processImageData(source, { ...options('ordered'), strength: 1 });
+    const atHalf = processImageData(source, { ...options('ordered'), strength: 1, ditherScale: 0.5 });
+    // (3, 0): at 1:1 the phase is BAYER[0][3] = 10/15 → offset +16 → white; at
+    // 0.5 the phase is BAYER[0][6 % 4 = 2] = 2/15 → offset −35 → black.
+    const rgbAt = (result: ImageData, px: number, py: number): number =>
+      result.data[(py * 4 + px) * 4];
+    expect(rgbAt(atOne, 3, 0)).toBe(255);
+    expect(rgbAt(atHalf, 3, 0)).toBe(0);
+  });
+
+  it('leaves error diffusion untouched — no pattern coordinates to scale', () => {
+    const source = imageData(gray, 4);
+    const baseline = processImageData(source, { ...options('floyd') });
+    const scaled = processImageData(source, { ...options('floyd'), ditherScale: 0.2 });
+    expect([...scaled.data]).toEqual([...baseline.data]);
   });
 });

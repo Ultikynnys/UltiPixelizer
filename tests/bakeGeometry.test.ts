@@ -345,4 +345,25 @@ describe('castBakeRay', () => {
     expect(castBakeRay(bvh, new Vector3(0, 2, 0), new Vector3(0, 1, 0), new Vector3(0, -1, 0), 1e-3)).toBe(true);
     expect(castBakeRay(bvh, new Vector3(0, 2, 0), new Vector3(0, 1, 0), new Vector3(0, 1, 0), 1e-3)).toBe(false);
   });
+
+  it('collects one orthonormal tangent basis per triangle, computed once per scene', () => {
+    const scene = new Object3D();
+    scene.add(new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial()));
+    const collected = collectBakeScene(scene);
+    const { tangentBases, triangles } = collected;
+    expect(tangentBases).not.toBeNull();
+    expect(tangentBases!.length).toBe(triangles.length * 6);
+    for (let i = 0; i < triangles.length; i += 1) {
+      const offset = i * 6;
+      const tx = tangentBases![offset], ty = tangentBases![offset + 1], tz = tangentBases![offset + 2];
+      const bx = tangentBases![offset + 3], by = tangentBases![offset + 4], bz = tangentBases![offset + 5];
+      expect(Math.hypot(tx, ty, tz)).toBeCloseTo(1, 6);
+      expect(Math.hypot(bx, by, bz)).toBeCloseTo(1, 6);
+      expect(tx * bx + ty * by + tz * bz).toBeCloseTo(0, 6);
+    }
+    // The plane's tangent follows +X (its first UV edge).
+    expect(tangentBases![0]).toBeCloseTo(1, 6);
+    expect(tangentBases![1]).toBeCloseTo(0, 6);
+    expect(tangentBases![2]).toBeCloseTo(0, 6);
+  });
 });

@@ -5,7 +5,7 @@ import { parseJsonFile, serializeJsonFile } from './storage';
 import { slugify } from './strings';
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY } from './defaults';
 import type { NormalFormat } from './normal';
-import { DEFAULT_CAMERA_DIRECTION, DEFAULT_SUN_DIRECTION, type DirectionVector } from './sunDirection';
+import { DEFAULT_SUN_DIRECTION, type DirectionVector } from './sunDirection';
 import type { State } from './state';
 
 export const PRESET_VERSION = 7;
@@ -19,11 +19,12 @@ export type ConversionConfig = {
   brightness: number;
   contrast: number;
   saturation: number;
+  pixelation: number;
   paletteKey: string;
   palette: Palette;
-  uvMap: string;
   stripeAngle: number;
   noiseScale: number;
+  ditherScale: number;
   halftoneScale: number;
   seed: number;
   aoBias: number;
@@ -36,7 +37,14 @@ export type ConversionConfig = {
   normalStrength: number;
   normalFormat: NormalFormat;
   sunDirection: DirectionVector;
-  cameraDirection: DirectionVector;
+  quadTessellation: number;
+  quadGrid: boolean;
+  displacementStrength: number;
+  displacementFlip: boolean;
+  /** Saved orbit-camera views for the two viewports — viewport state, not
+   * State fields, so they're handled by dedicated code like paletteKey. */
+  originalCamera?: SavedCamera;
+  processedCamera?: SavedCamera;
 };
 
 export type ConversionPreset = ConversionConfig & {
@@ -68,6 +76,7 @@ const inRange = (min: number, max: number) => (value: unknown): value is number 
 const isEnum = (options: readonly string[]) => (value: unknown): value is string =>
   typeof value === 'string' && options.includes(value);
 const isHex = (value: unknown): value is string => typeof value === 'string' && isHexColor(value);
+const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
 const isDirectionVector = (value: unknown): value is DirectionVector => {
   if (typeof value !== 'object' || value === null) return false;
   const vector = value as DirectionVector;
@@ -77,10 +86,36 @@ const isDirectionVector = (value: unknown): value is DirectionVector => {
     && Math.hypot(vector.x, vector.y, vector.z) > 0;
 };
 
+/** A finite 3D point — like a direction vector, but allowed to sit at the
+ * origin (the orbit target is a point and defaults there). */
+const isVector3 = (value: unknown): value is DirectionVector => {
+  if (typeof value !== 'object' || value === null) return false;
+  const vector = value as DirectionVector;
+  return typeof vector.x === 'number' && Number.isFinite(vector.x)
+    && typeof vector.y === 'number' && Number.isFinite(vector.y)
+    && typeof vector.z === 'number' && Number.isFinite(vector.z);
+};
+
+/** Saved orbit-camera view for one viewport. Position plus the orbit target
+ * fully determine the view (the up axis is fixed), so both the camera angle
+ * and its position survive the round-trip. */
+export type SavedCamera = {
+  /** World position of the orbit camera. */
+  position: DirectionVector;
+  /** Orbit target — where the camera looks. */
+  target: DirectionVector;
+};
+
+const isSavedCamera = (value: unknown): value is SavedCamera => {
+  if (typeof value !== 'object' || value === null) return false;
+  const camera = value as SavedCamera;
+  return isDirectionVector(camera.position) && isVector3(camera.target);
+};
+
 /**
  * Single source of truth for every serializable conversion setting: validation
  * bounds, initial defaults, migration backfills, and the state <-> config
- * mapping all derive from this table. `paletteKey`, `uvMap` and `palette` are
+ * mapping all derive from this table. `paletteKey` and `palette` are
  * deliberately excluded — they carry catalog/structural semantics handled by
  * dedicated code.
  */
@@ -91,8 +126,10 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'brightness', path: ['brightness'], default: 0, validate: inRange(-100, 100) },
   { key: 'contrast', path: ['contrast'], default: 8, validate: inRange(-100, 100) },
   { key: 'saturation', path: ['saturation'], default: 5, validate: inRange(-100, 100) },
+  { key: 'pixelation', path: ['pixelation'], default: 0, migrateDefault: 0, validate: inRange(0, 99) },
   { key: 'stripeAngle', path: ['stripeAngle'], default: 45, migrateDefault: 45, validate: inRange(0, 135) },
   { key: 'noiseScale', path: ['noiseScale'], default: 1, migrateDefault: 1, validate: inRange(1, 32) },
+  { key: 'ditherScale', path: ['ditherScale'], default: 1, migrateDefault: 1, validate: inRange(0.08, 1) },
   { key: 'halftoneScale', path: ['halftoneScale'], default: 1, migrateDefault: 1, validate: inRange(0.5, 4) },
   { key: 'seed', path: ['seed'], default: 1, migrateDefault: 1, validate: inRange(0, 9999) },
   { key: 'aoBias', path: ['aoBias'], default: 0, migrateDefault: 0, validate: inRange(-1, 1) },
@@ -105,7 +142,12 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'normalStrength', path: ['normalStrength'], default: DEFAULT_NORMAL_STRENGTH, migrateDefault: DEFAULT_NORMAL_STRENGTH, validate: inRange(0, 1) },
   { key: 'normalFormat', path: ['normalFormat'], default: 'opengl', migrateDefault: 'opengl', validate: isEnum(['opengl', 'directx']) },
   { key: 'sunDirection', path: ['sun', 'direction'], default: DEFAULT_SUN_DIRECTION, migrateDefault: DEFAULT_SUN_DIRECTION, validate: isDirectionVector },
-  { key: 'cameraDirection', path: ['cameraDirection'], default: DEFAULT_CAMERA_DIRECTION, migrateDefault: DEFAULT_CAMERA_DIRECTION, validate: isDirectionVector },
+  // Fallback-quad parameters — the quad is the implicit model when none is
+  // loaded, so its panel settings are saved like any other setting.
+  { key: 'quadTessellation', path: ['quadTessellation'], default: 16, migrateDefault: 16, validate: inRange(2, 128) },
+  { key: 'quadGrid', path: ['quadGrid'], default: false, migrateDefault: false, validate: isBoolean },
+  { key: 'displacementStrength', path: ['displacementStrength'], default: 0.15, migrateDefault: 0.15, validate: inRange(0, 1) },
+  { key: 'displacementFlip', path: ['displacementFlip'], default: false, migrateDefault: false, validate: isBoolean },
 ];
 
 function readPath(state: State, path: readonly string[]): unknown {
@@ -155,8 +197,9 @@ export function isConversionPreset(value: unknown): value is ConversionPreset {
     && typeof preset.description === 'string' && preset.description.length <= 160
     && typeof preset.createdAt === 'string' && !Number.isNaN(Date.parse(preset.createdAt))
     && typeof preset.paletteKey === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/i.test(preset.paletteKey)
-    && typeof preset.uvMap === 'string' && /^uv\d*$/.test(preset.uvMap)
     && isPalette(preset.palette)
+    && (preset.originalCamera === undefined || isSavedCamera(preset.originalCamera))
+    && (preset.processedCamera === undefined || isSavedCamera(preset.processedCamera))
     && CONFIG_FIELDS.every((field) => field.validate(preset[field.key]));
 }
 
@@ -227,7 +270,13 @@ function migratePreset(value: unknown): unknown {
   // to the current version may still carry aoScale — convert and drop it.
   if (migrated.aoPower === undefined && typeof migrated.aoScale === 'number') migrated.aoPower = migrated.aoScale;
   delete migrated.aoScale;
-  if (migrated.uvMap === undefined) migrated.uvMap = 'uv';
+  // v7 and earlier stored the model-specific UV-channel selection; it no
+  // longer belongs in the saved format, so strip it from legacy files.
+  delete migrated.uvMap;
+  // v7 and earlier also stored the 3D camera angle. It is view state — the
+  // Orient Sun with Camera button derives the saved sun direction from it —
+  // so it never belonged in the saved format either.
+  delete migrated.cameraDirection;
   for (const field of CONFIG_FIELDS) {
     if (field.migrateDefault !== undefined && migrated[field.key] === undefined) migrated[field.key] = field.migrateDefault;
   }

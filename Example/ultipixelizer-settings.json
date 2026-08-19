@@ -1,17 +1,19 @@
 {
   "version": 7,
-  "id": "1786930255202-saved",
+  "id": "1787016996295-saved",
   "name": "saved",
   "description": "",
-  "createdAt": "2026-08-17T01:30:55.202Z",
+  "createdAt": "2026-08-18T01:36:36.295Z",
   "resolution": 128,
   "mode": "floyd",
   "strength": 0.85,
   "brightness": 0,
   "contrast": 8,
   "saturation": 5,
+  "pixelation": 0,
   "stripeAngle": 45,
   "noiseScale": 1,
+  "halftoneScale": 1,
   "seed": 1,
   "aoBias": 0,
   "aoPower": 1,
@@ -23,15 +25,14 @@
   "normalStrength": 1,
   "normalFormat": "opengl",
   "sunDirection": {
-    "x": 0.022485174080617124,
-    "y": -0.5661548513999342,
-    "z": -0.8239921730106924
+    "x": -0.9954765537438138,
+    "y": 0.06722285524923398,
+    "z": 0.0671380568566
   },
-  "cameraDirection": {
-    "x": -8.026579970989156e-9,
-    "y": -0.9999999999995001,
-    "z": -9.999677865746293e-7
-  },
+  "quadTessellation": 16,
+  "quadGrid": false,
+  "displacementStrength": 0.15,
+  "displacementFlip": false,
   "paletteKey": "desert",
   "palette": {
     "name": "Desert Bloom",
@@ -51,5 +52,12 @@
       "#d97569"
     ]
   },
-  "uvMap": "uv"
+  "originalCamera": {
+    "position": { "x": 2.5, "y": 2, "z": 2.5 },
+    "target": { "x": 0, "y": 0, "z": 0 }
+  },
+  "processedCamera": {
+    "position": { "x": -2.5, "y": 1.5, "z": -2.5 },
+    "target": { "x": 0, "y": 0, "z": 0 }
+  }
 }

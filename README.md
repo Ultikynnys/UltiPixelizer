@@ -32,7 +32,7 @@ Posterize ramps adapt their colors to your texture's tones:
 
 ![Dynamic posterize palettes](https://tf2stats.r60d.xyz/UltiPixelizerWeb/DynamicPosterizePalette.png)
 
-Build your own palettes with the custom palette editor, save them in the app, and export any palette to an external file (`.palette.json`). Import palettes back from JSON, hex, or plain-text files:
+Build your own palettes with the custom palette editor, save them in the app, and export any palette as a `.hex` color list. Import palettes back from `.hex` or plain-text files — the palette name comes from the file name:
 
 ![Custom palettes](https://tf2stats.r60d.xyz/UltiPixelizerWeb/CustomPalettes.png)
 

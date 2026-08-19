@@ -196,9 +196,23 @@ export class ModelViewport {
   private readonly originalMaterials = new WeakMap<Mesh, Material | Material[]>();
   private normalsView = false;
   private frame = 0;
+  // Strips Ctrl/Cmd/Shift from pointerdown so three's built-in modifier swap
+  // (orbit-left becomes pan, pan-left becomes orbit) can never fire. The
+  // navigation toggle is the only thing that picks the drag action.
+  private readonly modifierStripper: (event: PointerEvent) => void;
 
   /** Invoked whenever the orbit camera moves (drag, damping, or programmatic fit). */
   onCameraChange?: () => void;
+
+  /** Swaps the primary drag button between orbit and pan: orbit-left /
+   * pan-right (the default) or pan-left / orbit-right. The middle button
+   * always zooms. Orbit drags rotate around the target; pan drags move the
+   * camera sideways. */
+  setNavigationDragMode(panLeft: boolean): void {
+    this.controls.mouseButtons = panLeft
+      ? { LEFT: MOUSE.PAN, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE }
+      : { LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN };
+  }
 
   constructor(private readonly host: HTMLElement) {
     this.renderer = new WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
@@ -210,6 +224,18 @@ export class ModelViewport {
     this.controls.enableDamping = true;
     this.controls.mouseButtons = { LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN };
     this.controls.addEventListener('change', () => this.onCameraChange?.());
+    // three's OrbitControls swaps the drag action while Ctrl/Cmd/Shift is held
+    // (orbit-left becomes pan, pan-left becomes orbit). The navigation toggle
+    // already fixes the action, so a held modifier must not override it: zero
+    // the flags on the event before the control's own pointerdown handler runs
+    // (capture on the host precedes the canvas listeners).
+    this.modifierStripper = (event) => {
+      if (!event.ctrlKey && !event.metaKey && !event.shiftKey) return;
+      for (const key of ['ctrlKey', 'metaKey', 'shiftKey'] as const) {
+        Object.defineProperty(event, key, { value: false });
+      }
+    };
+    host.addEventListener('pointerdown', this.modifierStripper, true);
     this.scene.add(this.ambient);
     this.axes.renderOrder = 1;
     // The gizmo lives in its own scene — rendered last, scissored into the
@@ -466,6 +492,20 @@ export class ModelViewport {
     this.controls.update();
   }
 
+  /** Re-aims the orbit camera from a saved view (world position + orbit
+   * target). The viewport up axis is fixed, so position + target fully
+   * determine the orientation — angle and position survive the round-trip
+   * without storing the camera quaternion. Fires the camera-change callback
+   * so the orientation readout follows. Used when loading saved settings. */
+  restoreCameraView(position: DirectionVector, target: DirectionVector): void {
+    this.camera.position.set(position.x, position.y, position.z);
+    const targetVector = new Vector3(target.x, target.y, target.z);
+    this.camera.lookAt(targetVector);
+    this.controls.target.copy(targetVector);
+    this.controls.update();
+    this.onCameraChange?.();
+  }
+
   /** Recenters the orbit camera on the model and notifies camera-change
    * listeners. Shared by model load and world-axis changes. */
   private refitCamera(): void {
@@ -504,12 +544,7 @@ export class ModelViewport {
     const height = this.host.clientHeight;
     if (width <= 0 || height <= 0) return;
     const size = Math.max(48, Math.min(72, Math.round(Math.min(width, height) * 0.16)));
-    // The world-axis toggle is pinned to the same corner below the gizmo — keep
-    // the gizmo's bottom edge clear of it (fall back to the corner margin when
-    // no toggle is present or hidden).
-    const toggle = this.host.parentElement?.querySelector<HTMLElement>('.world-axis-toggle');
-    const toggleHeight = toggle && !toggle.hidden ? toggle.offsetHeight : 0;
-    const bottom = toggleHeight > 0 ? toggleHeight + 16 : 12;
+    const bottom = 12;
     this.gizmoCamera.quaternion.copy(this.camera.quaternion);
     this.gizmoCamera.position.copy(this.gizmoCamera.getWorldDirection(new Vector3())).multiplyScalar(-3.5);
     // Viewport and scissor values are logical pixels: the renderer scales them
@@ -536,6 +571,7 @@ export class ModelViewport {
     cancelAnimationFrame(this.frame);
     this.resizeObserver.disconnect();
     this.controls.dispose();
+    this.host.removeEventListener('pointerdown', this.modifierStripper, true);
     this.timer.dispose();
     this.removeOverlapOverlay();
     this.setNormalsView(false);

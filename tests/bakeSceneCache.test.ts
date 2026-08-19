@@ -3,6 +3,7 @@ import { BufferAttribute, BufferGeometry, Mesh, MeshBasicMaterial, Object3D } fr
 import { collectBakeScene } from '../src/lib/bakeGeometry';
 import { getBakeScene, invalidateBakeSceneCache } from '../src/lib/bakeSceneCache';
 import { bakeMeshLightmap } from '../src/lib/lightmapBake';
+import { getFallbackQuadScene } from '../src/lib/modelScene';
 
 function triangleScene(): Object3D {
   const geometry = new BufferGeometry();
@@ -28,6 +29,11 @@ describe('bakeSceneCache', () => {
     const first = getBakeScene(scene, 2);
     expect(getBakeScene(scene, 2)).toBe(first);
     expect(getBakeScene(scene)).toBe(first); // default distance is 2
+    // The per-triangle tangent bases live on the collected scene, so re-bakes
+    // share the exact same array — the map's geometric mapping is prepared
+    // once, never recomputed per bake.
+    expect(first!.tangentBases).not.toBeNull();
+    expect(getBakeScene(scene, 2)!.tangentBases).toBe(first!.tangentBases);
   });
 
   it('keyed by scene identity and distance', () => {
@@ -59,6 +65,17 @@ describe('bakeSceneCache', () => {
 
   it('returns null for a null scene', () => {
     expect(getBakeScene(null)).toBeNull();
+  });
+
+  it('hits when the memoized fallback quad is revisited', () => {
+    // getFallbackQuadScene returns the SAME scene instance for a previously
+    // visited (tessellation, grid), so the collected bake scene is reused
+    // without re-walking the tessellated mesh.
+    const first = getBakeScene(getFallbackQuadScene(4, false), 2);
+    expect(getBakeScene(getFallbackQuadScene(4, false), 2)).toBe(first);
+    // And it still responds to an explicit invalidation.
+    invalidateBakeSceneCache();
+    expect(getBakeScene(getFallbackQuadScene(4, false), 2)).not.toBe(first);
   });
 
   it('lets a cached scene drive an identical lightmap bake', () => {

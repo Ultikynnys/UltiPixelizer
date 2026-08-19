@@ -26,7 +26,57 @@ export type BakeScene = {
   maxDistance: number;
   /** Flat world-space occluder triangle positions, 9 floats per triangle. */
   occluderPositions: Float32Array;
+  /** Per-triangle MikkTSpace tangent bases, [tangent.xyz, bitangent.xyz] per
+   * triangle — a pure function of the collected geometry, computed once here
+   * and shared by the lightmap and AO bakes (which reuse the cached scene
+   * instead of rebuilding the bases on every sun/strength re-bake). */
+  tangentBases: Float32Array | null;
 };
+
+/**
+ * Builds an orthonormal tangent/bitangent basis for a triangle from its
+ * world-space positions and UVs (MikkTSpace-style). Tangent and bitangent follow
+ * the UV gradients and are re-orthogonalized against the triangle face normal;
+ * the shading normal is interpolated from per-vertex normals by the caller, so
+ * light (and AO hemispheres) respect source / smoothed normals rather than the
+ * flat face normal. Throws for degenerate triangles — callers skip those before
+ * reaching here.
+ */
+export function computeTangentBasis(
+  p0: Vector3,
+  p1: Vector3,
+  p2: Vector3,
+  uv0: UvPair,
+  uv1: UvPair,
+  uv2: UvPair,
+): [Vector3, Vector3] {
+  const e1 = new Vector3().subVectors(p1, p0);
+  const e2 = new Vector3().subVectors(p2, p0);
+  const normal = triangleNormal(p0, p1, p2, new Vector3());
+  const du1 = uv1[0] - uv0[0];
+  const dv1 = uv1[1] - uv0[1];
+  const du2 = uv2[0] - uv0[0];
+  const dv2 = uv2[1] - uv0[1];
+  const det = du1 * dv2 - du2 * dv1;
+  if (normal.lengthSq() === 0 || Math.abs(det) <= 1e-12) {
+    throw new Error('Cannot build a tangent basis for a degenerate triangle.');
+  }
+  normal.normalize();
+  const f = 1 / det;
+  const tangent = new Vector3(
+    f * (dv2 * e1.x - dv1 * e2.x),
+    f * (dv2 * e1.y - dv1 * e2.y),
+    f * (dv2 * e1.z - dv1 * e2.z),
+  );
+  const bitangent = new Vector3(
+    f * (-du2 * e1.x + du1 * e2.x),
+    f * (-du2 * e1.y + du1 * e2.y),
+    f * (-du2 * e1.z + du1 * e2.z),
+  );
+  tangent.addScaledVector(normal, -tangent.dot(normal)).normalize();
+  bitangent.addScaledVector(normal, -bitangent.dot(normal)).normalize();
+  return [tangent, bitangent];
+}
 
 /**
  * Walks the scene and collects everything a UV-space bake needs:
@@ -125,6 +175,30 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
     });
   });
 
+  // Per-triangle MikkTSpace tangent bases — a pure function of the world
+  // positions and UVs, so they're computed once per collected scene and shared
+  // by the lightmap and AO bakes (each re-bake reuses the cached scene rather
+  // than rebuilding the bases on every sun/strength tweak). The collection
+  // loop above already skipped degenerate triangles (zero world area or
+  // collapsed UVs), so computeTangentBasis cannot throw here.
+  const tangentBases = new Float32Array(triangles.length * 6);
+  for (let i = 0; i < triangles.length; i += 1) {
+    const triangle = triangles[i];
+    const [tangent, bitangent] = computeTangentBasis(
+      vertices[triangle.verts[0]].position,
+      vertices[triangle.verts[1]].position,
+      vertices[triangle.verts[2]].position,
+      triangle.uv[0], triangle.uv[1], triangle.uv[2],
+    );
+    const offset = i * 6;
+    tangentBases[offset] = tangent.x;
+    tangentBases[offset + 1] = tangent.y;
+    tangentBases[offset + 2] = tangent.z;
+    tangentBases[offset + 3] = bitangent.x;
+    tangentBases[offset + 4] = bitangent.y;
+    tangentBases[offset + 5] = bitangent.z;
+  }
+
   const occluderPositions = new Float32Array(worldPositions);
   const occluder = new BufferGeometry();
   occluder.setAttribute('position', new BufferAttribute(occluderPositions, 3));
@@ -134,20 +208,50 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
   const epsilon = Math.max(radius * 1e-3, 1e-4);
   const bvh = worldPositions.length ? new MeshBVH(occluder) : null;
 
-  return { vertices, triangles, bvh, epsilon, radius, maxDistance, occluderPositions };
+  return { vertices, triangles, bvh, epsilon, radius, maxDistance, occluderPositions, tangentBases };
 }
 
 const _occlusionRay = new Ray();
 const _hitPoint = new Vector3();
-const _triA = new Vector3();
-const _triB = new Vector3();
-const _triC = new Vector3();
+
+// Module-level state + callbacks for the occlusion shapecast. The AO bake fires
+// one occlusion test per sample (hundreds of millions at 1k resolution), so the
+// callbacks are hoisted here instead of allocating a closure pair per ray. The
+// shared ray, near/far bounds, and hit scratch are set per cast.
+let _castRay: Ray = _occlusionRay;
+let _castNear = 0;
+let _castFar = Number.POSITIVE_INFINITY;
+
+function _occlusionBounds(box: Box3): boolean {
+  return rayBoxIntersects(_castRay, box, _castNear, _castFar);
+}
+
+/** Boolean triangle test within [near, far]. three-mesh-bvh pre-populates a
+ * pooled `ExtendedTriangle` for each leaf triangle (its `.a/.b/.c` are plain
+ * Vector3s), so no `fromBufferAttribute` copies are needed here. */
+function _occlusionTriangle(triangle: { a: Vector3; b: Vector3; c: Vector3 }): boolean {
+  if (_castRay.intersectTriangle(triangle.a, triangle.b, triangle.c, false, _hitPoint) === null) return false;
+  const distance = _castRay.origin.distanceTo(_hitPoint);
+  return distance >= _castNear && distance <= _castFar;
+}
+
+const _occlusionCallbacks = {
+  intersectsBounds: _occlusionBounds,
+  intersectsTriangle: _occlusionTriangle,
+};
 
 /**
  * Occluder raycast shared by the AO and lightmap bakes: offsets the ray origin
  * along the surface normal by `epsilon` (avoiding self-intersection) and tests
  * against the bake BVH. Reuses a module-level Ray so hot bake loops don't
  * allocate. `near`/`far` keep each caller's intersection bounds.
+ *
+ * First-hit traversal: boolean occlusion never needs the closest hit, so this
+ * uses shapecast to stop at the first triangle intersection instead of
+ * raycastFirst's closest-hit search (which tests every candidate triangle). The
+ * node-bound slab test and the triangle test mirror three-mesh-bvh's own
+ * near/far and DoubleSide semantics, so the answer matches
+ * `raycastFirst(ray, DoubleSide, near, far)`.
  */
 export function castBakeRay(
   bvh: MeshBVH,
@@ -160,44 +264,10 @@ export function castBakeRay(
 ): boolean {
   _occlusionRay.origin.copy(position).addScaledVector(normal, epsilon);
   _occlusionRay.direction.copy(direction);
-  return rayHitsOccluders(bvh, _occlusionRay, near, far);
-}
-
-/**
- * First-hit ray test over the bake BVH. Boolean occlusion never needs the
- * closest hit, so this uses shapecast to stop the traversal at the first
- * triangle intersection instead of raycastFirst's closest-hit search (which
- * has to test every candidate triangle). The node-bound slab test and the
- * triangle test mirror three-mesh-bvh's own near/far and DoubleSide semantics,
- * so the answer matches `raycastFirst(ray, DoubleSide, near, far)`.
- */
-function rayHitsOccluders(bvh: MeshBVH, ray: Ray, near: number, far: number): boolean {
-  const position = bvh.geometry.getAttribute('position') as BufferAttribute;
-  const index = bvh.geometry.index as BufferAttribute | null;
-  return bvh.shapecast({
-    intersectsBounds: (box) => rayBoxIntersects(ray, box, near, far),
-    intersectsRange: (offset, count) => {
-      for (let triangle = offset; triangle < offset + count; triangle += 1) {
-        let a = triangle * 3;
-        let b = a + 1;
-        let c = a + 2;
-        if (index) {
-          a = index.getX(a);
-          b = index.getX(b);
-          c = index.getX(c);
-        }
-        _triA.fromBufferAttribute(position, a);
-        _triB.fromBufferAttribute(position, b);
-        _triC.fromBufferAttribute(position, c);
-        // DoubleSide semantics: both faces occlude (backfaceCulling = false).
-        if (ray.intersectTriangle(_triA, _triB, _triC, false, _hitPoint) === null) continue;
-        const distance = ray.origin.distanceTo(_hitPoint);
-        if (distance < near || distance > far) continue;
-        return true;
-      }
-      return false;
-    },
-  });
+  _castRay = _occlusionRay;
+  _castNear = near;
+  _castFar = far;
+  return bvh.shapecast(_occlusionCallbacks);
 }
 
 /**
@@ -260,9 +330,10 @@ export function rasterizeBake<T extends { uv: [UvPair, UvPair, UvPair] }>(
   width: number,
   height: number,
   triangles: readonly T[],
-  writePixel: (px: number, py: number, w0: number, w1: number, w2: number, triangle: T) => void,
+  writePixel: (px: number, py: number, w0: number, w1: number, w2: number, triangle: T, triangleIndex: number) => void,
 ): void {
-  for (const triangle of triangles) {
+  for (let triangleIndex = 0; triangleIndex < triangles.length; triangleIndex += 1) {
+    const triangle = triangles[triangleIndex];
     const [uva, uvb, uvc] = triangle.uv;
     const ax = uva[0] * width;
     const ay = (1 - uva[1]) * height;
@@ -286,7 +357,7 @@ export function rasterizeBake<T extends { uv: [UvPair, UvPair, UvPair] }>(
         const w1 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denominator;
         const w2 = 1 - w0 - w1;
         if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-        writePixel(px, py, w0, w1, w2, triangle);
+        writePixel(px, py, w0, w1, w2, triangle, triangleIndex);
       }
     }
   }
@@ -312,14 +383,15 @@ export function rasterizeBakedPixels(
     w1: number,
     w2: number,
     triangle: BakeTriangle,
+    triangleIndex: number,
     pixelOffset: number,
   ) => void,
 ): Uint8ClampedArray {
   const pixels = new Uint8ClampedArray(width * height * channels).fill(255);
   const written = new Uint8Array(width * height);
-  rasterizeBake(width, height, triangles, (px, py, w0, w1, w2, triangle) => {
+  rasterizeBake(width, height, triangles, (px, py, w0, w1, w2, triangle, triangleIndex) => {
     written[py * width + px] = 1;
-    writePixel(pixels, px, py, w0, w1, w2, triangle, (py * width + px) * channels);
+    writePixel(pixels, px, py, w0, w1, w2, triangle, triangleIndex, (py * width + px) * channels);
   });
   dilateUVBake(pixels, written, width, height, channels);
   return pixels;

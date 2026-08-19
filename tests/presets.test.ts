@@ -20,11 +20,18 @@ const config: ConversionConfig = {
   brightness: 12,
   contrast: -8,
   saturation: 25,
+  pixelation: 1,
+  quadTessellation: 64,
+  quadGrid: true,
+  displacementStrength: 0.4,
+  displacementFlip: true,
+  originalCamera: { position: { x: 2, y: 3, z: 4 }, target: { x: 0, y: 0.5, z: 0 } },
+  processedCamera: { position: { x: -2, y: 1.5, z: -3 }, target: { x: 0, y: 0, z: 0 } },
   paletteKey: 'pico8',
   palette: palettes.pico8,
-  uvMap: 'uv2',
   stripeAngle: 45,
   noiseScale: 1,
+  ditherScale: 1,
   halftoneScale: 1,
   seed: 1,
   aoBias: 0,
@@ -37,7 +44,6 @@ const config: ConversionConfig = {
   normalStrength: 0.6,
   normalFormat: 'opengl',
   sunDirection: { x: -0.5, y: -0.7071067811865476, z: -0.5 },
-  cameraDirection: { x: 0, y: 0, z: -1 },
 };
 
 describe('conversion presets', () => {
@@ -47,14 +53,18 @@ describe('conversion presets', () => {
     expect(parsed).toEqual(preset);
     expect(parsed.palette.colors).toEqual(palettes.pico8.colors);
     expect(parsed.palette.name).toBe('PICO-8');
-    expect(parsed.uvMap).toBe('uv2');
+    expect('uvMap' in parsed).toBe(false); // UV selection is model-specific, never saved
+    expect(parsed.originalCamera).toEqual({ position: { x: 2, y: 3, z: 4 }, target: { x: 0, y: 0.5, z: 0 } });
+    expect(parsed.processedCamera).toEqual({ position: { x: -2, y: 1.5, z: -3 }, target: { x: 0, y: 0, z: 0 } });
     expect(parsed.id).toBe('1767323045000-my-texture');
   });
 
-  it('migrates presets saved before UV-map selection existed', () => {
-    const oldPreset = createPreset('Legacy', '', config);
-    const { uvMap: _removed, ...legacy } = oldPreset;
-    expect(parsePreset(JSON.stringify(legacy)).uvMap).toBe('uv');
+  it('strips the removed uvMap field from legacy preset files', () => {
+    const legacy = JSON.parse(serializePreset(createPreset('Legacy', '', config))) as Record<string, unknown>;
+    legacy.uvMap = 'uv2'; // v7 and earlier stored the model-specific UV selection
+    const parsed = parsePreset(JSON.stringify(legacy));
+    expect(parsed.name).toBe('Legacy');
+    expect('uvMap' in parsed).toBe(false);
   });
 
   it('migrates presets saved before seed selection existed', () => {
@@ -96,6 +106,14 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...base, stripeAngle: 0 })).toBe(true);
     expect(isConversionPreset({ ...base, stripeAngle: 135 })).toBe(true);
     expect(isConversionPreset({ ...base, stripeAngle: 136 })).toBe(false);
+  });
+
+  it('accepts pixelation percentages from 0 to 99', () => {
+    const base = createPreset('Boundary', '', config);
+    expect(isConversionPreset({ ...base, pixelation: 0 })).toBe(true);
+    expect(isConversionPreset({ ...base, pixelation: 99 })).toBe(true);
+    expect(isConversionPreset({ ...base, pixelation: 100 })).toBe(false);
+    expect(isConversionPreset({ ...base, pixelation: -1 })).toBe(false);
   });
 
   it('accepts halftone dot scales from 0.5 to 4', () => {
@@ -157,16 +175,40 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...base, normalFormat: 'vulkan' })).toBe(false);
   });
 
-  it('migrates presets saved before sun direction and camera existed', () => {
+  it('validates saved camera views (angle + position)', () => {
+    const base = createPreset('Cameras', '', config);
+    expect(isConversionPreset({
+      ...base,
+      originalCamera: { position: { x: 1, y: 0, z: 0 }, target: { x: 0, y: 0, z: 0 } },
+      processedCamera: { position: { x: 0, y: 0, z: 1 }, target: { x: 0, y: 0, z: 0 } },
+    })).toBe(true);
+    // Missing axis, missing target, and zero-length vectors are all rejected.
+    expect(isConversionPreset({ ...base, originalCamera: { position: { x: 1 }, target: { x: 0, y: 0, z: 0 } } })).toBe(false);
+    expect(isConversionPreset({ ...base, originalCamera: { position: { x: 1, y: 0, z: 0 } } })).toBe(false);
+    expect(isConversionPreset({ ...base, processedCamera: { position: { x: 0, y: 0, z: 0 }, target: { x: 0, y: 0, z: 0 } } })).toBe(false);
+  });
+
+  it('migrates presets saved before sun direction existed', () => {
     const current = createPreset('Legacy', '', config);
-    const {
-      sunDirection: _sunDirection,
-      cameraDirection: _cameraDirection,
-      ...legacy
-    } = current;
+    const { sunDirection: _sunDirection, ...legacy } = current;
     const parsed = parsePreset(JSON.stringify(legacy));
     expect(parsed.sunDirection).toEqual(DEFAULT_SUN_DIRECTION);
-    expect(parsed.cameraDirection).toEqual(DEFAULT_CAMERA_DIRECTION);
+  });
+
+  it('strips the removed cameraDirection field from legacy preset files', () => {
+    const legacy = JSON.parse(serializePreset(createPreset('Legacy', '', config))) as Record<string, unknown>;
+    legacy.cameraDirection = DEFAULT_CAMERA_DIRECTION; // v7 and earlier stored the view angle
+    const parsed = parsePreset(JSON.stringify(legacy));
+    expect(parsed.name).toBe('Legacy');
+    expect('cameraDirection' in parsed).toBe(false);
+  });
+
+  it('accepts settings files saved before camera capture existed (no camera fields)', () => {
+    const current = createPreset('Legacy', '', config);
+    const { originalCamera: _original, processedCamera: _processed, ...legacy } = current;
+    const parsed = parsePreset(JSON.stringify(legacy));
+    expect(parsed.originalCamera).toBeUndefined();
+    expect(parsed.processedCamera).toBeUndefined();
   });
 
   it('folds a disabled sun or ambient into zero intensity when migrating v5 presets', () => {
@@ -198,6 +240,11 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       brightness: 12,
       contrast: -8,
       saturation: 25,
+      pixelation: 1,
+      quadTessellation: 16,
+      quadGrid: false,
+      displacementStrength: 0.15,
+      displacementFlip: false,
       stripeAngle: 45,
       noiseScale: 1,
       halftoneScale: 1,
@@ -215,7 +262,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(21);
+    expect(Object.keys(defaults)).toHaveLength(26);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -223,8 +270,10 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       brightness: 0,
       contrast: 8,
       saturation: 5,
+      pixelation: 0,
       stripeAngle: 45,
       noiseScale: 1,
+      ditherScale: 1,
       halftoneScale: 1,
       seed: 1,
       aoBias: 0,
@@ -237,12 +286,17 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       normalStrength: 1,
       normalFormat: 'opengl',
       sunDirection: DEFAULT_SUN_DIRECTION,
-      cameraDirection: DEFAULT_CAMERA_DIRECTION,
+      quadTessellation: 16,
+      quadGrid: false,
+      displacementStrength: 0.15,
+      displacementFlip: false,
     });
     // Catalog/structural fields are deliberately not part of the table.
     expect('paletteKey' in defaults).toBe(false);
     expect('uvMap' in defaults).toBe(false);
     expect('palette' in defaults).toBe(false);
+    expect('originalCamera' in defaults).toBe(false);
+    expect('processedCamera' in defaults).toBe(false);
   });
 
   it('collects flat and nested settings out of a State object', () => {
@@ -253,6 +307,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       brightness: 12,
       contrast: -8,
       saturation: 25,
+      pixelation: 1,
       stripeAngle: 45,
       noiseScale: 1,
       halftoneScale: 1,
@@ -267,7 +322,10 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       normalStrength: 0.6,
       normalFormat: 'opengl',
       sunDirection: { x: -0.5, y: -0.7071067811865476, z: -0.5 },
-      cameraDirection: { x: 0, y: 0, z: -1 },
+      quadTessellation: 16,
+      quadGrid: false,
+      displacementStrength: 0.15,
+      displacementFlip: false,
     });
   });
 

@@ -432,8 +432,9 @@ export type HeightSampler = (u: number, v: number) => number;
  * 0..1. The bake layer substitutes it when no model is loaded so AO/lightmap
  * bakes still produce a result, and the viewports hold it so the 3D view has
  * geometry without a model. Each call returns a fresh instance — the bake
- * layer keeps one as a cache-identity singleton, the viewports need their own
- * per-scene instance (three.js parenting forbids sharing one Object3D).
+ * layer keeps one as a cache-identity singleton (see getFallbackQuadScene),
+ * the viewports need their own per-scene instance (three.js parenting forbids
+ * sharing one Object3D).
  * PlaneGeometry lies in the XY plane facing +Z; rotateX(-π/2) turns its
  * normal up to +Y, so the default sun (which travels downward) lights it.
  * `tessellation` subdivides the plane (segments per side) so displacement has
@@ -445,9 +446,11 @@ export type HeightSampler = (u: number, v: number) => number;
  * marker; every other consumer (viewports, displacement, texture application)
  * ignores it. */
 export function createFallbackQuadScene(tessellation = 1, grid = false): Object3D {
+  // One geometry per scene, shared by every tile — the tiles differ only by
+  // position, so grid mode's nine PlaneGeometry allocations collapse to one.
+  const geometry = new PlaneGeometry(1, 1, tessellation, tessellation);
+  geometry.rotateX(-Math.PI / 2);
   const tile = (x: number, z: number): Mesh => {
-    const geometry = new PlaneGeometry(1, 1, tessellation, tessellation);
-    geometry.rotateX(-Math.PI / 2);
     // DoubleSide: displacement raises cliffs whose far faces point away from
     // the viewport camera — with the default FrontSide those backfaces get
     // culled and the plane reads as having holes ("gaps") even though the
@@ -466,6 +469,37 @@ export function createFallbackQuadScene(tessellation = 1, grid = false): Object3
     }
   }
   return root;
+}
+
+/** Memoized fallback quad scenes for the bake layer, keyed by the
+ * (tessellation, grid) parameters. The bake quad is the one consumer that can
+ * hold a stable Object3D identity — the viewports need per-scene instances
+ * (three.js forbids sharing one Object3D across parents), so re-selecting a
+ * previous tessellation/grid returns the exact same scene and the bake-scene
+ * cache (keyed by scene identity, see bakeSceneCache) hits without
+ * re-collecting the tessellated mesh. Displacement mutates vertices in place
+ * and is idempotent, so the cached scene survives repeated displacement
+ * applications. Bounded LRU: dragging the tessellation slider can visit many
+ * densities, and each entry holds a full 3×3 grid's geometry at that density.
+ * Evicted scenes are simply dropped (no dispose) — they were never handed to
+ * the WebGL renderer, so their GPU buffers are released with them. */
+const FALLBACK_QUAD_CACHE_SIZE = 4;
+const fallbackQuadCache = new Map<string, Object3D>();
+export function getFallbackQuadScene(tessellation: number, grid: boolean): Object3D {
+  const key = `${tessellation}:${grid ? 'grid' : 'tile'}`;
+  const cached = fallbackQuadCache.get(key);
+  if (cached) {
+    // Bump recency — delete + re-set moves the entry to the Map's tail.
+    fallbackQuadCache.delete(key);
+    fallbackQuadCache.set(key, cached);
+    return cached;
+  }
+  const created = createFallbackQuadScene(tessellation, grid);
+  fallbackQuadCache.set(key, created);
+  if (fallbackQuadCache.size > FALLBACK_QUAD_CACHE_SIZE) {
+    fallbackQuadCache.delete(fallbackQuadCache.keys().next().value as string);
+  }
+  return created;
 }
 
 // Pristine vertex data per geometry, captured on first displacement so every

@@ -1,5 +1,5 @@
 import { applyAO, aoMultiplier, imageAOFactors } from '../ao';
-import { drawImageToCanvas, imagePixels, pixelsToCanvas, processLitImageData, resizeNearest } from '../canvas';
+import { drawImageToCanvas, imagePixels, pixelateCanvas, pixelsToCanvas, processLitImageData, resampleAndPixelate, resizeNearest } from '../canvas';
 import { processImageData } from '../dither';
 import { applyLightmap } from '../lightmap';
 import type { PreviewViewMode, SourceImage } from '../state';
@@ -7,6 +7,7 @@ import type { RendererDeps, RenderShared } from './types';
 
 export interface Render2DApi {
   render: () => void;
+  applyViewportImages: () => void;
 }
 
 export function createRender2D(deps: RendererDeps, shared: RenderShared): Render2DApi {
@@ -156,26 +157,23 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     const processedSource = processedOnlySource ?? textures.base.image!;
     const normalsInspection = state.viewModeProcessed === 'normals' && processedOnlySource !== null;
     let nextCanvas: HTMLCanvasElement;
-    let renderContext: CanvasRenderingContext2D | null;
     if (normalsInspection) {
-      nextCanvas = resizeNearest(processedSource, width, height);
-      renderContext = nextCanvas.getContext('2d');
-    } else {
+      // The normals inspection shows the same chunky blocks as the dithered
+      // base: the downscale/upscale pixelization applies on top of the
+      // target-resolution resample (normals can't be palette-dithered).
+      nextCanvas = resampleAndPixelate(processedSource, width, height, state.pixelation);
+    } else if (width > processedSource.width) {
       // Upscaling (grid finer than the source) must stay crisp — the browser's
       // smoothed resample would blur source pixels before dithering. Only
       // downscales keep the filtered drawImage path.
-      if (width > processedSource.width) {
-        nextCanvas = resizeNearest(processedSource, width, height);
-        renderContext = nextCanvas.getContext('2d');
-      } else {
-        const staged = drawImageToCanvas(processedSource, width, height);
-        nextCanvas = staged.canvas;
-        renderContext = staged.context;
-      }
+      nextCanvas = pixelateCanvas(resizeNearest(processedSource, width, height), state.pixelation);
+    } else {
+      nextCanvas = pixelateCanvas(drawImageToCanvas(processedSource, width, height).canvas, state.pixelation);
     }
     shared.renderedCanvas = nextCanvas;
+    const renderContext = nextCanvas.getContext('2d');
     if (!renderContext) return;
-    // The pixelized normals map is already final — the dither pass would
+    // The pixelized normals map is already final; the dither pass would
     // corrupt it.
     if (!normalsInspection) {
       const sourceData = renderContext.getImageData(0, 0, width, height);
@@ -184,7 +182,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
         palette: currentColors(), mode: state.mode, strength: state.strength,
         brightness: state.brightness, contrast: state.contrast, saturation: state.saturation,
         stripeAngle: state.stripeAngle, noiseScale: state.noiseScale, seed: state.seed,
-        halftoneScale: state.halftoneScale,
+        ditherScale: state.ditherScale, halftoneScale: state.halftoneScale,
       };
       let processedData: ImageData;
       if (state.mode === 'halftone') {
@@ -240,13 +238,22 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     // bitmaps, where antialiased lines would upscale into dithered speckles.
 
     updatePreviewBadge(width, height);
-    const originalViewport = getOriginalViewport();
-    const processedViewport = getProcessedViewport();
-    if (originalViewport && processedViewport) {
-      originalViewport.applyImage(litSourceNative);
-      processedViewport.applyImage(shared.renderedCanvas);
-    }
+    applyViewportImages();
   }
 
-  return { render };
+  /** Re-applies the last rendered frames to both 3D viewports. Runs at the
+   * end of every render, and is re-invoked by main.ts immediately after a
+   * fallback-quad swap — the freshly installed quads' materials carry no map
+   * yet, so without a synchronous re-apply the viewport would flash white
+   * until the next (debounced) render. No-op before the first render, while
+   * the shared canvases are still null. */
+  function applyViewportImages(): void {
+    const originalViewport = getOriginalViewport();
+    const processedViewport = getProcessedViewport();
+    if (!originalViewport || !processedViewport) return;
+    if (shared.originalBaseCanvas) originalViewport.applyImage(shared.originalBaseCanvas);
+    if (shared.renderedCanvas) processedViewport.applyImage(shared.renderedCanvas);
+  }
+
+  return { render, applyViewportImages };
 }
