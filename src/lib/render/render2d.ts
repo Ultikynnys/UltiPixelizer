@@ -2,6 +2,7 @@ import { applyAO, aoMultiplier, imageAOFactors, redChannelFactors } from '../ao'
 import { drawImageToCanvas, imagePixels, pixelateCanvas, pixelsToCanvas, processLitImageData, resampleAndPixelate, resizeImage } from '../canvas';
 import { processImageData } from '../dither';
 import { applyLightmap } from '../lightmap';
+import { LUMA } from '../math';
 import type { PreviewViewMode, SourceImage } from '../state';
 import type { RendererDeps, RenderShared } from './types';
 
@@ -79,7 +80,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       if (aoFactors) factor *= aoMultiplier(aoFactors[i], state.aoBias, state.aoPower);
       if (lightmapPixels) {
         const offset = i * 4;
-        factor *= (lightmapPixels[offset] * 0.299 + lightmapPixels[offset + 1] * 0.587 + lightmapPixels[offset + 2] * 0.114) / 255;
+        factor *= (lightmapPixels[offset] * LUMA.red + lightmapPixels[offset + 1] * LUMA.green + lightmapPixels[offset + 2] * LUMA.blue) / 255;
       }
       lighting[i] = factor;
     }

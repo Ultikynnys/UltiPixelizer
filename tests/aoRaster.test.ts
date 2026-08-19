@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, PlaneGeometry, Scene } from 'three';
+import { Mesh, MeshBasicMaterial, PlaneGeometry, Scene } from 'three';
 import { collectBakeScene } from '../src/lib/bakeGeometry';
 import { rasterizeAOBand, rasterizeAOShading, serializeBakeScene } from '../src/lib/aoRaster';
+import { uvIsland } from './helpers/bakeFixtures';
 
 describe('rasterizeAOShading', () => {
   it('marks the same covered texels as rasterizeAOBand', () => {
@@ -47,11 +48,8 @@ describe('rasterizeAOShading', () => {
   });
 
   it('leaves unwritten texels at zero so the shader emits the bright fill', () => {
-    const island = new BufferGeometry();
-    island.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
-    island.setAttribute('uv', new Float32BufferAttribute([0.4, 0.4, 0.6, 0.4, 0.4, 0.6], 2));
     const scene = new Scene();
-    scene.add(new Mesh(island, new MeshBasicMaterial()));
+    scene.add(new Mesh(uvIsland(), new MeshBasicMaterial()));
     const bakeScene = collectBakeScene(scene, 1);
     const input = serializeBakeScene(bakeScene, 8);
     const width = 8;

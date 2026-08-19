@@ -1,14 +1,14 @@
 import { Vector3 } from 'three';
 import type { MeshBVH } from 'three-mesh-bvh';
-import type { SerializedBakeScene } from './aoRaster';
+import { texelShadingNormal, type SerializedBakeScene } from './aoRaster';
 import { castBakeRay, rasterizeBakeBand } from './bakeGeometry';
-import { sampleNormalMap, type NormalMapSource } from './normal';
 import { clamp01, combineLight } from './math';
 
 /**
  * Lightmap bake options flattened for the worker — colors are pre-parsed to
- * 0..1 RGB tuples and the normal map travels as plain pixels, so the worker
- * never touches DOM/color-string parsing.
+ * 0..1 RGB tuples so the worker never touches DOM/color-string parsing. The
+ * normal map rides in the serialized bake scene (like the AO bake), not here,
+ * so every raster mirror reads the same pixel payload.
  */
 export type SerializedLightmapOptions = {
   sunDirection: [number, number, number];
@@ -16,9 +16,6 @@ export type SerializedLightmapOptions = {
   sunIntensity: number;
   ambientColor: [number, number, number];
   ambientIntensity: number;
-  normalMap: NormalMapSource | null;
-  normalStrength: number;
-  normalFlipY: boolean;
 };
 
 /** Worker message: bake the whole lightmap in one job (the implicit bake has
@@ -100,46 +97,20 @@ export function rasterizeLightmap(
   height: number,
   options: SerializedLightmapOptions,
 ): void {
-  const { vertices, triangleUVs, triangleVerts, tangentBases } = input;
+  const { vertices, triangleUVs, triangleVerts } = input;
   const towardSun = _sun.set(options.sunDirection[0], options.sunDirection[1], options.sunDirection[2]);
   const ambientScale = clamp01(options.ambientIntensity);
   const sunScale = options.sunIntensity;
-  const normalMap = options.normalMap;
-  const normalStrength = clamp01(options.normalStrength);
-  const normalFlipY = options.normalFlipY;
 
   rasterizeBakeBand(width, height, 0, height, triangleUVs, triangleVerts, written,
     (_px, _py, w0, w1, w2, index, _triangleIndex, uvOffset, vertOffset, v0, v1, v2) => {
       const pixelOffset = index * 4;
 
-      // Interpolate the smooth vertex normal at this texel, then light that
-      // shading normal per pixel so smoothed normals stay continuous.
-      const na = vertices[v0 + 3];
-      const nb = vertices[v1 + 3];
-      const nc = vertices[v2 + 3];
-      const nx = w0 * na + w1 * nb + w2 * nc;
-      const ny = w0 * vertices[v0 + 4] + w1 * vertices[v1 + 4] + w2 * vertices[v2 + 4];
-      const nz = w0 * vertices[v0 + 5] + w1 * vertices[v1 + 5] + w2 * vertices[v2 + 5];
-      const length = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-      const nxl = nx / length;
-      const nyl = ny / length;
-      const nzl = nz / length;
-
-      if (normalMap && tangentBases) {
-        // Per-triangle tangent bases were computed once at scene collection and
-        // ride in the serialized scene; uvOffset doubles as the basis offset
-        // (both are triangleIndex * 6).
-        const u = w0 * triangleUVs[uvOffset] + w1 * triangleUVs[uvOffset + 2] + w2 * triangleUVs[uvOffset + 4];
-        const v = w0 * triangleUVs[uvOffset + 1] + w1 * triangleUVs[uvOffset + 3] + w2 * triangleUVs[uvOffset + 5];
-        const [sx, sy, sz] = sampleNormalMap(normalMap, u, v, normalStrength, normalFlipY);
-        _mapped.set(
-          tangentBases[uvOffset] * sx + tangentBases[uvOffset + 3] * sy + nxl * sz,
-          tangentBases[uvOffset + 1] * sx + tangentBases[uvOffset + 4] * sy + nyl * sz,
-          tangentBases[uvOffset + 2] * sx + tangentBases[uvOffset + 5] * sy + nzl * sz,
-        ).normalize();
-      } else {
-        _mapped.set(nxl, nyl, nzl);
-      }
+      // The smooth vertex normal is interpolated at this texel and perturbed
+      // by the normal map (when the serialized scene carries one) — the same
+      // shared math the AO bake uses, so both pipelines shade identically.
+      const normal = texelShadingNormal(vertices, v0, v1, v2, w0, w1, w2, input, uvOffset);
+      _mapped.set(normal.sx, normal.sy, normal.sz);
 
       const lambert = Math.max(0, _mapped.dot(towardSun));
       const sunVisibility = w0 * visibility[triangleVerts[vertOffset]]

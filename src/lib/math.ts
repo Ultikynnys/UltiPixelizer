@@ -2,6 +2,10 @@
  * pipelines so the color-vector shape lives in one place. */
 export type RGB = [number, number, number];
 
+/** Rec. 601 luma weights (0.299 / 0.587 / 0.114) shared by every luminance
+ * computation in the dither and bake pipelines. */
+export const LUMA = { red: 0.299, green: 0.587, blue: 0.114 };
+
 /** Clamps a value into [min, max]. Shared by every color/lighting clamp in the renderer. */
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));

@@ -2,22 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, PlaneGeometry, Scene } from 'three';
 import { collectBakeScene } from '../src/lib/bakeGeometry';
 import { serializeBakeScene } from '../src/lib/aoRaster';
-
-type MessageListener = (event: { data: unknown }) => void;
-
-/** Captures the worker's message listener and postMessage calls via a stubbed
- * `self` global, so the module can be imported and driven from a node test. */
-function installWorkerScope(): { listeners: MessageListener[]; postMessage: ReturnType<typeof vi.fn> } {
-  const listeners: MessageListener[] = [];
-  const postMessage = vi.fn();
-  vi.stubGlobal('self', {
-    postMessage,
-    addEventListener: (_type: string, listener: MessageListener) => {
-      listeners.push(listener);
-    },
-  });
-  return { listeners, postMessage };
-}
+import { installWorkerScope } from './helpers/workerScope';
 
 /** A valid serialized band request backed by a real plane scene. */
 function bandRequest(width = 8, height = 8): Record<string, unknown> {

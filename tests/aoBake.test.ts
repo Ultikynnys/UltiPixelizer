@@ -9,16 +9,7 @@ import {
 } from 'three';
 import { bakeMeshAO } from '../src/lib/aoBake';
 import { createFallbackQuadScene } from '../src/lib/modelScene';
-
-/** Ceiling quad with no UVs so it occludes bake surfaces but is never baked itself. */
-function ceilingQuad(half = 2): Mesh {
-  const ceiling = new BufferGeometry();
-  ceiling.setAttribute('position', new Float32BufferAttribute([
-    -half, -half, 0.5,  half, -half, 0.5,  half, half, 0.5,
-    -half, -half, 0.5,  half, half, 0.5,  -half, half, 0.5,
-  ], 3));
-  return new Mesh(ceiling, new MeshBasicMaterial());
-}
+import { ceilingQuad, flatNormalMap, raisedNeighborScene, uvIsland } from './helpers/bakeFixtures';
 
 function mirroredHalfOccluderScene(direction: -1 | 1): Scene {
   const scene = new Scene();
@@ -62,9 +53,7 @@ describe('bakeMeshAO', () => {
     expect(Math.min(...Array.from(flat))).toBe(255);
     // Raising a neighbor (like displacement) puts its underside in the path of
     // the middle tile's shallow outward rays.
-    const scene = createFallbackQuadScene(4, true);
-    const neighbor = scene.children.find((child) => child.position.x === 0 && child.position.z === 1) as Mesh;
-    neighbor.position.y = 0.6;
+    const scene = raisedNeighborScene();
     const occluded = bakeMeshAO(scene, 16, 16, { samples: 32, distance: 1 });
     expect(Math.min(...Array.from(occluded))).toBeLessThan(255);
   });
@@ -109,10 +98,7 @@ describe('bakeMeshAO', () => {
 
   it('pads unwritten texels around a UV island with the island edge value instead of the bright background', () => {
     const scene = new Scene();
-    const island = new BufferGeometry();
-    island.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
-    island.setAttribute('uv', new Float32BufferAttribute([0.4, 0.4, 0.6, 0.4, 0.4, 0.6], 2));
-    scene.add(new Mesh(island, new MeshBasicMaterial()));
+    scene.add(new Mesh(uvIsland(), new MeshBasicMaterial()));
     scene.add(ceilingQuad());
 
     const factors = bakeMeshAO(scene, 8, 8, { samples: 16, distance: 1 });
@@ -129,7 +115,7 @@ describe('bakeMeshAO', () => {
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial()));
     scene.add(ceilingQuad(3));
-    const flat = { data: new Uint8ClampedArray([128, 128, 255, 255]), width: 1, height: 1 };
+    const flat = flatNormalMap();
     const mapped = bakeMeshAO(scene, 16, 16, { samples: 32, distance: 1, normalMap: flat, normalStrength: 0 });
     const unmapped = bakeMeshAO(scene, 16, 16, { samples: 32, distance: 1 });
     expect(mapped).toEqual(unmapped);

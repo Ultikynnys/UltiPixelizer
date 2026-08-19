@@ -189,12 +189,12 @@ export function rasterizeAOBand(
   const { vertices, kernel, samples, epsilon, maxDistance } = input;
   const rasterStart = timings ? performance.now() : 0;
   rasterizeBakeBand(width, height, yStart, yEnd, input.triangleUVs, input.triangleVerts, written,
-    (_px, _py, w0, w1, w2, index, triangleIndex, uvOffset, _vertOffset, v0, v1, v2) => {
+    (_px, _py, w0, w1, w2, index, _triangleIndex, uvOffset, _vertOffset, v0, v1, v2) => {
       const shadeStart = timings ? performance.now() : 0;
       factors[index] = shadeAOTexel(
         vertices, v0, v1, v2, w0, w1, w2,
         kernel, samples, bvh, epsilon, maxDistance,
-        input, triangleIndex, uvOffset,
+        input, uvOffset,
         timings,
       );
       if (timings) timings.shadeMs += performance.now() - shadeStart;
@@ -209,7 +209,7 @@ export function rasterizeAOBand(
  * normal (used to offset the ray origin for self-intersection clearance), and
  * the final shading normal the hemisphere follows (perturbed by a tangent-space
  * normal map when present). */
-export type AOTexelShading = {
+type AOTexelShading = {
   originX: number;
   originY: number;
   originZ: number;
@@ -221,16 +221,23 @@ export type AOTexelShading = {
   sNormalZ: number;
 };
 
+/** Scratch for `texelShadingNormal` — the bake loops run per texel, so the
+ * shared result is written here and read immediately (no per-texel
+ * allocation), the same pattern as the module-level Vector3s above. */
+const _shadingNormal = { gx: 0, gy: 0, gz: 0, sx: 0, sy: 0, sz: 0 };
+
 /**
- * Interpolates the world-space sample origin and smooth shading normal from a
- * triangle's vertices at the given barycentric weights, applying the normal-map
- * perturbation when the scene carries a tangent-space normal map. The geometric
- * normal is kept separate from the (possibly perturbed) shading normal: the
- * former offsets the ray origin off the surface, the latter orients the
- * hemisphere basis. Shared by `shadeAOTexel` (CPU) and `rasterizeAOShading`
- * (GPU data) so both paths use identical interpolation.
+ * Interpolates the smooth shading normal from a triangle's vertices at the
+ * given barycentric weights and applies the normal-map perturbation when the
+ * scene carries a tangent-space normal map. The geometric normal is kept
+ * separate from the (possibly perturbed) shading normal: the former offsets
+ * ray origins off the surface, the latter orients the AO hemisphere and the
+ * lightmap Lambert term. The result is written into the module scratch — read
+ * it before the next call. Shared by `computeAOTexelShading` (AO CPU/GPU) and
+ * `rasterizeLightmap` (lightmap CPU/worker) so both pipelines perturb shading
+ * normals through byte-identical math.
  */
-export function computeAOTexelShading(
+export function texelShadingNormal(
   vertices: Float32Array,
   v0: number,
   v1: number,
@@ -239,12 +246,9 @@ export function computeAOTexelShading(
   w1: number,
   w2: number,
   input: SerializedBakeScene,
-  triangleIndex: number,
+  /** triangleIndex * 6 — the triangle's UVs and tangent basis both start here. */
   uvOffset: number,
-): AOTexelShading {
-  const ox = w0 * vertices[v0] + w1 * vertices[v1] + w2 * vertices[v2];
-  const oy = w0 * vertices[v0 + 1] + w1 * vertices[v1 + 1] + w2 * vertices[v2 + 1];
-  const oz = w0 * vertices[v0 + 2] + w1 * vertices[v1 + 2] + w2 * vertices[v2 + 2];
+): { gx: number; gy: number; gz: number; sx: number; sy: number; sz: number } {
   const nx = w0 * vertices[v0 + 3] + w1 * vertices[v1 + 3] + w2 * vertices[v2 + 3];
   const ny = w0 * vertices[v0 + 4] + w1 * vertices[v1 + 4] + w2 * vertices[v2 + 4];
   const nz = w0 * vertices[v0 + 5] + w1 * vertices[v1 + 5] + w2 * vertices[v2 + 5];
@@ -263,27 +267,57 @@ export function computeAOTexelShading(
       { data: input.normalMap, width: input.normalWidth, height: input.normalHeight },
       u, v, input.normalStrength, input.normalFlipY,
     );
-    const basisOffset = triangleIndex * 6;
     const basis = input.tangentBases;
-    const mx = basis[basisOffset] * sx + basis[basisOffset + 3] * sy + nxn * sz;
-    const my = basis[basisOffset + 1] * sx + basis[basisOffset + 4] * sy + nyn * sz;
-    const mz = basis[basisOffset + 2] * sx + basis[basisOffset + 5] * sy + nzn * sz;
+    const mx = basis[uvOffset] * sx + basis[uvOffset + 3] * sy + nxn * sz;
+    const my = basis[uvOffset + 1] * sx + basis[uvOffset + 4] * sy + nyn * sz;
+    const mz = basis[uvOffset + 2] * sx + basis[uvOffset + 5] * sy + nzn * sz;
     const mappedLength = Math.sqrt(mx * mx + my * my + mz * mz) || 1;
     nxn = mx / mappedLength;
     nyn = my / mappedLength;
     nzn = mz / mappedLength;
   }
 
+  _shadingNormal.gx = gxn;
+  _shadingNormal.gy = gyn;
+  _shadingNormal.gz = gzn;
+  _shadingNormal.sx = nxn;
+  _shadingNormal.sy = nyn;
+  _shadingNormal.sz = nzn;
+  return _shadingNormal;
+}
+
+/**
+ * Interpolates the world-space sample origin and the smooth shading normal
+ * from a triangle's vertices at the given barycentric weights — the per-texel
+ * inputs the AO ray cast needs (see `texelShadingNormal` for the normal
+ * interpolation itself). Internal to this module: `shadeAOTexel` (CPU) and
+ * `rasterizeAOShading` (GPU data) are its only callers.
+ */
+function computeAOTexelShading(
+  vertices: Float32Array,
+  v0: number,
+  v1: number,
+  v2: number,
+  w0: number,
+  w1: number,
+  w2: number,
+  input: SerializedBakeScene,
+  uvOffset: number,
+): AOTexelShading {
+  const ox = w0 * vertices[v0] + w1 * vertices[v1] + w2 * vertices[v2];
+  const oy = w0 * vertices[v0 + 1] + w1 * vertices[v1 + 1] + w2 * vertices[v2 + 1];
+  const oz = w0 * vertices[v0 + 2] + w1 * vertices[v1 + 2] + w2 * vertices[v2 + 2];
+  const normal = texelShadingNormal(vertices, v0, v1, v2, w0, w1, w2, input, uvOffset);
   return {
     originX: ox,
     originY: oy,
     originZ: oz,
-    gNormalX: gxn,
-    gNormalY: gyn,
-    gNormalZ: gzn,
-    sNormalX: nxn,
-    sNormalY: nyn,
-    sNormalZ: nzn,
+    gNormalX: normal.gx,
+    gNormalY: normal.gy,
+    gNormalZ: normal.gz,
+    sNormalX: normal.sx,
+    sNormalY: normal.sy,
+    sNormalZ: normal.sz,
   };
 }
 
@@ -311,11 +345,10 @@ function shadeAOTexel(
   epsilon: number,
   maxDistance: number,
   input: SerializedBakeScene,
-  triangleIndex: number,
   uvOffset: number,
   timings?: AOBandTimings,
 ): number {
-  const shading = computeAOTexelShading(vertices, v0, v1, v2, w0, w1, w2, input, triangleIndex, uvOffset);
+  const shading = computeAOTexelShading(vertices, v0, v1, v2, w0, w1, w2, input, uvOffset);
   const nxn = shading.sNormalX;
   const nyn = shading.sNormalY;
   const nzn = shading.sNormalZ;
@@ -386,8 +419,8 @@ export function rasterizeAOShading(
   const { width, height, yStart, yEnd, onRowsComplete } = context;
   const { vertices, triangleUVs, triangleVerts, epsilon } = input;
   rasterizeBakeBand(width, height, yStart, yEnd, triangleUVs, triangleVerts, written,
-    (_px, _py, w0, w1, w2, index, triangleIndex, uvOffset, _vertOffset, v0, v1, v2) => {
-      const shading = computeAOTexelShading(vertices, v0, v1, v2, w0, w1, w2, input, triangleIndex, uvOffset);
+    (_px, _py, w0, w1, w2, index, _triangleIndex, uvOffset, _vertOffset, v0, v1, v2) => {
+      const shading = computeAOTexelShading(vertices, v0, v1, v2, w0, w1, w2, input, uvOffset);
       const dataOffset = index * 6;
       texelData[dataOffset] = shading.originX + epsilon * shading.gNormalX;
       texelData[dataOffset + 1] = shading.originY + epsilon * shading.gNormalY;

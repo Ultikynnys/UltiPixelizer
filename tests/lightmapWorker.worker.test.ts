@@ -4,22 +4,7 @@ import { collectBakeScene } from '../src/lib/bakeGeometry';
 import { serializeBakeScene } from '../src/lib/aoRaster';
 import { bakeMeshLightmap } from '../src/lib/lightmapBake';
 import type { NormalMapSource } from '../src/lib/normal';
-
-type MessageListener = (event: { data: unknown }) => void;
-
-/** Captures the worker's message listener and postMessage calls via a stubbed
- * `self` global, so the module can be imported and driven from a node test. */
-function installWorkerScope(): { listeners: MessageListener[]; postMessage: ReturnType<typeof vi.fn> } {
-  const listeners: MessageListener[] = [];
-  const postMessage = vi.fn();
-  vi.stubGlobal('self', {
-    postMessage,
-    addEventListener: (_type: string, listener: MessageListener) => {
-      listeners.push(listener);
-    },
-  });
-  return { listeners, postMessage };
-}
+import { installWorkerScope } from './helpers/workerScope';
 
 /** 2×2 map that perturbs every texel to tangent-space +X (sx = 1, sz = 0). */
 const xNormalMap: NormalMapSource = {
@@ -36,7 +21,7 @@ const xNormalMap: NormalMapSource = {
 function bakeRequest(): Record<string, unknown> {
   const scene = new Scene();
   scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
-  const serialized = serializeBakeScene(collectBakeScene(scene), 2);
+  const serialized = serializeBakeScene(collectBakeScene(scene), 2, { map: xNormalMap, strength: 1, flipY: false });
   return {
     ...serialized,
     type: 'bake',
@@ -49,9 +34,6 @@ function bakeRequest(): Record<string, unknown> {
       sunIntensity: 1,
       ambientColor: [0, 0, 0],
       ambientIntensity: 0,
-      normalMap: xNormalMap,
-      normalStrength: 1,
-      normalFlipY: false,
     },
   };
 }

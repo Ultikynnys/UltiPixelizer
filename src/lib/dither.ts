@@ -1,5 +1,5 @@
 import { hexToRgb } from './palettes';
-import { clamp, type RGB } from './math';
+import { clamp, LUMA, type RGB } from './math';
 
 export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'halftone' | 'cross' | 'stripes' | 'noise' | 'checker' | 'none';
 
@@ -31,7 +31,6 @@ const BAYER_4 = [
 
 
 const thresholdModes = new Set<DitherMode>(['ordered', 'cross', 'stripes', 'noise', 'checker']);
-const LUMA = { red: 0.299, green: 0.587, blue: 0.114 };
 
 /** True for the coordinate-pattern modes (ordered / cross / stripes / noise /
  * checker). Error diffusion, halftone and 'none' have no pattern coordinates. */
@@ -79,10 +78,7 @@ export function nearestColor(color: RGB, palette: RGB[]): RGB {
   let bestDistance = Number.POSITIVE_INFINITY;
 
   for (const candidate of palette) {
-    const red = color[0] - candidate[0];
-    const green = color[1] - candidate[1];
-    const blue = color[2] - candidate[2];
-    const distance = red * red * LUMA.red + green * green * LUMA.green + blue * blue * LUMA.blue;
+    const distance = lumaDistanceSquared(color[0], color[1], color[2], candidate[0], candidate[1], candidate[2], LUMA.red, LUMA.green, LUMA.blue);
     if (distance < bestDistance) {
       bestDistance = distance;
       best = candidate;
@@ -91,18 +87,40 @@ export function nearestColor(color: RGB, palette: RGB[]): RGB {
   return best;
 }
 
+/** Brightness/contrast/saturation tone parameters for `adjustColor` and the
+ * dithering hot loops — the loops inline the per-channel blend (no per-pixel
+ * allocation) but share the parameter derivation so the expression never
+ * drifts. */
+function toneAdjustParams(brightness: number, contrast: number, saturation: number): { brightnessOffset: number; contrastFactor: number; saturationFactor: number } {
+  return {
+    brightnessOffset: brightness * 2.55,
+    contrastFactor: (259 * (contrast + 255)) / (255 * (259 - contrast)),
+    saturationFactor: 1 + saturation / 100,
+  };
+}
+
+/** LUMA-weighted squared distance between a query color and a candidate.
+ * `wr/wg/wb` carry the weights so the linear scan and the k-d query use their
+ * f32-flattened matcher weights and `nearestColor` uses the double constants —
+ * each caller keeps its exact arithmetic. */
+function lumaDistanceSquared(r: number, g: number, b: number, cr: number, cg: number, cb: number, wr: number, wg: number, wb: number): number {
+  const dr = r - cr;
+  const dg = g - cg;
+  const db = b - cb;
+  return dr * dr * wr + dg * dg * wg + db * db * wb;
+}
+
 export function adjustColor(color: RGB, brightness: number, contrast: number, saturation: number): RGB {
-  const brightnessOffset = brightness * 2.55;
-  const contrastFactor = (259 * (contrast + 255)) / (255 * (259 - contrast));
-  let red = contrastFactor * (color[0] - 128) + 128 + brightnessOffset;
-  let green = contrastFactor * (color[1] - 128) + 128 + brightnessOffset;
-  let blue = contrastFactor * (color[2] - 128) + 128 + brightnessOffset;
+  const { brightnessOffset, contrastFactor, saturationFactor } = toneAdjustParams(brightness, contrast, saturation);
+  const red = contrastFactor * (color[0] - 128) + 128 + brightnessOffset;
+  const green = contrastFactor * (color[1] - 128) + 128 + brightnessOffset;
+  const blue = contrastFactor * (color[2] - 128) + 128 + brightnessOffset;
   const gray = red * LUMA.red + green * LUMA.green + blue * LUMA.blue;
-  const saturationFactor = 1 + saturation / 100;
-  red = gray + (red - gray) * saturationFactor;
-  green = gray + (green - gray) * saturationFactor;
-  blue = gray + (blue - gray) * saturationFactor;
-  return [clamp(red, 0, 255), clamp(green, 0, 255), clamp(blue, 0, 255)];
+  return [
+    clamp(gray + (red - gray) * saturationFactor, 0, 255),
+    clamp(gray + (green - gray) * saturationFactor, 0, 255),
+    clamp(gray + (blue - gray) * saturationFactor, 0, 255),
+  ];
 }
 
 /** Palettes at or below this size use the linear scan; larger palettes get
@@ -174,10 +192,7 @@ type BestMatch = { index: number; distance: number };
  * palette index, matching the linear scan's first-minimum behavior. */
 function queryKD(node: KDNode, flat: Float32Array, weights: Float32Array, r: number, g: number, b: number, best: BestMatch): void {
   const index = node.index;
-  const dr = r - flat[index * 3];
-  const dg = g - flat[index * 3 + 1];
-  const db = b - flat[index * 3 + 2];
-  const distance = dr * dr * weights[0] + dg * dg * weights[1] + db * db * weights[2];
+  const distance = lumaDistanceSquared(r, g, b, flat[index * 3], flat[index * 3 + 1], flat[index * 3 + 2], weights[0], weights[1], weights[2]);
   if (distance < best.distance || (distance === best.distance && index < best.index)) {
     best.distance = distance;
     best.index = index;
@@ -197,10 +212,7 @@ function linearMatch(flat: Float32Array, weights: Float32Array, count: number, r
   let best = 0;
   let bestDistance = Number.POSITIVE_INFINITY;
   for (let i = 0; i < count; i += 1) {
-    const dr = r - flat[i * 3];
-    const dg = g - flat[i * 3 + 1];
-    const db = b - flat[i * 3 + 2];
-    const distance = dr * dr * weights[0] + dg * dg * weights[1] + db * db * weights[2];
+    const distance = lumaDistanceSquared(r, g, b, flat[i * 3], flat[i * 3 + 1], flat[i * 3 + 2], weights[0], weights[1], weights[2]);
     if (distance < bestDistance) {
       bestDistance = distance;
       best = i;
@@ -232,9 +244,7 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
   const isHalftone = options.mode === 'halftone';
   const isFloyd = options.mode === 'floyd';
   const isAtkinson = options.mode === 'atkinson';
-  const brightnessOffset = options.brightness * 2.55;
-  const contrastFactor = (259 * (options.contrast + 255)) / (255 * (259 - options.contrast));
-  const saturationFactor = 1 + options.saturation / 100;
+  const { brightnessOffset, contrastFactor, saturationFactor } = toneAdjustParams(options.brightness, options.contrast, options.saturation);
 
   // Halftone splits color from shading: the base is the palette hard-map of
   // the adjusted color and the dot screen carries the shading, so no ink/paper
@@ -385,13 +395,8 @@ function streamDitherSeamless(source: ImageData, options: ProcessOptions): Image
   // 256-color floyd at 2k, 117s with the tree vs 41s with the scan).
   const matcher = buildPaletteMatcher(options.palette);
 
-  const brightness = options.brightness;
-  const contrast = options.contrast;
-  const saturation = options.saturation;
   const strength = options.strength;
-  const brightnessOffset = brightness * 2.55;
-  const contrastFactor = (259 * (contrast + 255)) / (255 * (259 - contrast));
-  const saturationFactor = 1 + saturation / 100;
+  const { brightnessOffset, contrastFactor, saturationFactor } = toneAdjustParams(options.brightness, options.contrast, options.saturation);
 
   /** Writes the tone-adjusted colors of virtual grid row `py` into `slot`.
    * Runs one row ahead of the scan so every slot the diffusion touches is

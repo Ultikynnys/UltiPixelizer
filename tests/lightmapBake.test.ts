@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, PlaneGeometry, Scene, Vector3 } from 'three';
 import { bakeLightmapAsync, bakeMeshLightmap, type BakeLightmapOptions } from '../src/lib/lightmapBake';
 import { createFallbackQuadScene } from '../src/lib/modelScene';
+import { ceilingQuad, flatNormalMap, raisedNeighborScene, uvIsland } from './helpers/bakeFixtures';
 
 const defaults: BakeLightmapOptions = {
   // Orthographic rays travel down camera-local forward (-Z) onto the default +Z plane face.
@@ -87,12 +88,7 @@ describe('bakeMeshLightmap', () => {
   it('casts directional shadows from UV-less geometry', () => {
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
-    const blocker = new BufferGeometry();
-    blocker.setAttribute('position', new Float32BufferAttribute([
-      -2, -2, 0.25, 2, -2, 0.25, 2, 2, 0.25,
-      -2, -2, 0.25, 2, 2, 0.25, -2, 2, 0.25,
-    ], 3));
-    scene.add(new Mesh(blocker, new MeshBasicMaterial()));
+    scene.add(ceilingQuad());
     const pixels = bakeMeshLightmap(scene, 8, 8, defaults);
     expect(centerRGB(pixels)).toEqual([0, 0, 0]);
   });
@@ -102,9 +98,7 @@ describe('bakeMeshLightmap', () => {
     // neighbor on the +Z side blocks it on the middle tile's +Z/+X region.
     const options: BakeLightmapOptions = { ...defaults, sunDirection: { x: -0.5, y: -Math.SQRT1_2, z: -0.5 } };
     const flat = bakeMeshLightmap(createFallbackQuadScene(4, true), 16, 16, options);
-    const scene = createFallbackQuadScene(4, true);
-    const neighbor = scene.children.find((child) => child.position.x === 0 && child.position.z === 1) as Mesh;
-    neighbor.position.y = 0.6;
+    const scene = raisedNeighborScene();
     const shadowed = bakeMeshLightmap(scene, 16, 16, options);
     const meanRed = (pixels: Uint8ClampedArray) => {
       let sum = 0;
@@ -136,7 +130,7 @@ describe('bakeMeshLightmap', () => {
   it('bakes a flat normal map close to the unmapped result', () => {
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
-    const flat = { data: new Uint8ClampedArray([128, 128, 255, 255]), width: 1, height: 1 };
+    const flat = flatNormalMap();
     const [r, g, b] = centerRGB(bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ff8040', normalMap: flat }));
     expect(r).toBeGreaterThanOrEqual(254);
     expect(g).toBeGreaterThanOrEqual(127);
@@ -149,7 +143,7 @@ describe('bakeMeshLightmap', () => {
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial()));
     const tilt = { data: new Uint8ClampedArray([255, 128, 128, 255]), width: 1, height: 1 };
-    const flat = { data: new Uint8ClampedArray([128, 128, 255, 255]), width: 1, height: 1 };
+    const flat = flatNormalMap();
     const tilted = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ffffff', normalMap: tilt });
     const flatResult = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ffffff', normalMap: flat });
     expect(centerRGB(tilted)[0]).toBeLessThan(centerRGB(flatResult)[0]);
@@ -167,7 +161,7 @@ describe('bakeMeshLightmap', () => {
     scene.add(new Mesh(plane, new MeshBasicMaterial()));
     // A flat normal map leaves the shading normal as the interpolated vertex
     // normal. The sun faces +Z, so lambert = tilt (~0.707) rather than 1.
-    const flat = { data: new Uint8ClampedArray([128, 128, 255, 255]), width: 1, height: 1 };
+    const flat = flatNormalMap();
     const rgb = centerRGB(bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ffffff', normalMap: flat }));
     expect(rgb[0]).toBeCloseTo(tilt * 255, 0);
     expect(rgb[1]).toBeCloseTo(tilt * 255, 0);
@@ -194,7 +188,7 @@ describe('bakeMeshLightmap', () => {
     const reference = bakeMeshLightmap(scene, 8, 8, {
       ...defaults,
       sunColor: '#ffffff',
-      normalMap: { data: new Uint8ClampedArray([128, 128, 255, 255]), width: 1, height: 1 },
+      normalMap: flatNormalMap(),
       normalStrength: 0,
     });
     const unmapped = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ffffff' });
@@ -245,10 +239,7 @@ describe('bakeMeshLightmap', () => {
 
   it('pads unwritten texels at UV island edges with island light instead of the bright background', () => {
     const scene = new Scene();
-    const island = new BufferGeometry();
-    island.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
-    island.setAttribute('uv', new Float32BufferAttribute([0.4, 0.4, 0.6, 0.4, 0.4, 0.6], 2));
-    scene.add(new Mesh(island, new MeshBasicMaterial()));
+    scene.add(new Mesh(uvIsland(), new MeshBasicMaterial()));
     const pixels = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunIntensity: 0 });
     const rgb = (px: number, py: number): number[] =>
       Array.from(pixels.slice((py * 8 + px) * 4, (py * 8 + px) * 4 + 3));

@@ -1,3 +1,4 @@
+import { LUMA } from './math';
 import { rgbToHex } from './palettes';
 import type { PixelSource } from './canvas';
 
@@ -30,7 +31,7 @@ export function computePosterizeStats(source: PixelSource): PosterizeStats {
       const r = data[offset];
       const g = data[offset + 1];
       const b = data[offset + 2];
-      const bin = (r * 0.299 + g * 0.587 + b * 0.114) | 0;
+      const bin = (r * LUMA.red + g * LUMA.green + b * LUMA.blue) | 0;
       histogram[bin] += 1;
       colorSums[bin * 3] += r;
       colorSums[bin * 3 + 1] += g;

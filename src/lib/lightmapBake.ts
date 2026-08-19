@@ -1,12 +1,12 @@
-import { Object3D, Vector3 } from 'three';
+import { Object3D } from 'three';
 import { hexToRgb, isHexColor } from './palettes';
 import { directionToSun, type DirectionVector } from './sunDirection';
-import { castBakeRay, collectBakeScene, dilateUVBake, rasterizeBakedPixels, type BakeScene } from './bakeGeometry';
-import { clamp01, combineLight, type RGB } from './math';
-import { sampleNormalMap, type NormalMapSource } from './normal';
-import { serializeBakeScene } from './aoRaster';
+import { collectBakeScene, dilateUVBake, type BakeScene } from './bakeGeometry';
+import { clamp01, type RGB } from './math';
+import type { NormalMapSource } from './normal';
+import { serializeBakeScene, type SerializedNormalMap } from './aoRaster';
 import { computeSunVisibilityGpu } from './lightmapGpu';
-import { rasterizeLightmap, type LightmapBakeRequest, type LightmapBakeResult, type SerializedLightmapOptions } from './lightmapRaster';
+import { computeSunVisibilityCpu, rasterizeLightmap, type LightmapBakeRequest, type LightmapBakeResult, type SerializedLightmapOptions } from './lightmapRaster';
 // The worker is inlined into the bundle (blob URL) — same rationale as the AO
 // worker: Tauri/Electron shells and restricted CSPs can reject module workers
 // loaded from a URL, whereas a blob-backed worker is protocol-agnostic.
@@ -29,10 +29,6 @@ function parseColor(color: string): RGB {
   return [red / 255, green / 255, blue / 255];
 }
 
-function lambertFactor(normal: Vector3, towardSun: Vector3): number {
-  return Math.max(0, normal.dot(towardSun));
-}
-
 /**
  * Bakes ambient and shadowed directional illumination into UV-space RGBA pixels.
  * Output contains irradiance only (no albedo), with white representing neutral light.
@@ -44,69 +40,50 @@ function lambertFactor(normal: Vector3, towardSun: Vector3): number {
  * Pass a pre-collected {@link BakeScene} as `bakeSceneOverride` to skip the
  * (potentially hundreds-of-ms) scene collection — the caller owns its
  * freshness via the bake-scene cache's invalidation contract.
+ *
+ * This sync path is the CPU mirror of the worker/GPU paths: it serializes the
+ * collected scene once and funnels through the same per-vertex visibility and
+ * per-texel raster the worker reads (`computeSunVisibilityCpu` +
+ * `rasterizeLightmap` + UV dilation), so the result is byte-identical to the
+ * async bake by construction.
  */
 export function bakeMeshLightmap(scene: Object3D, width: number, height: number, options: BakeLightmapOptions, bakeSceneOverride?: BakeScene): Uint8ClampedArray {
-  const sun = directionToSun(options.sunDirection);
-  const towardSun = new Vector3(sun.x, sun.y, sun.z);
-  const sunColor = parseColor(options.sunColor);
-  const ambientColor: RGB = parseColor(options.ambientColor);
-  const ambientScale = clamp01(options.ambientIntensity);
-  const sunScale = options.sunIntensity;
-  const normalMap = options.normalMap;
-  const normalStrength = clamp01(options.normalStrength ?? 1);
-  const normalFlipY = options.normalFlipY ?? false;
-
-  const { vertices, triangles, tangentBases, bvh, epsilon } = bakeSceneOverride ?? collectBakeScene(scene);
-
-  // Shadow is sampled per vertex (binary occluder test) and interpolated per
-  // pixel so shadow edges stay soft rather than snapping to face boundaries.
-  const visibility = new Float32Array(vertices.length);
-  for (let i = 0; i < vertices.length; i += 1) {
-    const vertex = vertices[i];
-    const lit = lambertFactor(vertex.normal, towardSun) > 0;
-    let sunVisibility = lit && sunScale > 0 ? 1 : 0;
-    if (sunVisibility && bvh && castBakeRay(bvh, vertex.position, vertex.normal, towardSun, epsilon, epsilon)) sunVisibility = 0;
-    visibility[i] = sunVisibility;
-  }
-
-  const mapped = new Vector3();
-  const pixels = rasterizeBakedPixels(width, height, triangles, 4, (pixels, _px, _py, w0, w1, w2, triangle, triangleIndex, offset) => {
-    // Interpolate the smooth vertex normal at this texel, then light that
-    // shading normal per pixel so smoothed normals stay continuous across faces.
-    const na = vertices[triangle.verts[0]].normal;
-    const nb = vertices[triangle.verts[1]].normal;
-    const nc = vertices[triangle.verts[2]].normal;
-    const nx = w0 * na.x + w1 * nb.x + w2 * nc.x;
-    const ny = w0 * na.y + w1 * nb.y + w2 * nc.y;
-    const nz = w0 * na.z + w1 * nb.z + w2 * nc.z;
-    const length = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-    mapped.set(nx / length, ny / length, nz / length);
-
-    // The per-triangle tangent bases were computed once at scene collection,
-    // so the map only perturbs the shading normal through the cached basis.
-    if (normalMap && tangentBases) {
-      const [uva, uvb, uvc] = triangle.uv;
-      const u = w0 * uva[0] + w1 * uvb[0] + w2 * uvc[0];
-      const v = w0 * uva[1] + w1 * uvb[1] + w2 * uvc[1];
-      const [sx, sy, sz] = sampleNormalMap(normalMap, u, v, normalStrength, normalFlipY);
-      const basisOffset = triangleIndex * 6;
-      mapped.set(
-        tangentBases[basisOffset] * sx + tangentBases[basisOffset + 3] * sy + (nx / length) * sz,
-        tangentBases[basisOffset + 1] * sx + tangentBases[basisOffset + 4] * sy + (ny / length) * sz,
-        tangentBases[basisOffset + 2] * sx + tangentBases[basisOffset + 5] * sy + (nz / length) * sz,
-      ).normalize();
-    }
-
-    const lambert = lambertFactor(mapped, towardSun);
-    const sunVisibility = w0 * visibility[triangle.verts[0]]
-      + w1 * visibility[triangle.verts[1]]
-      + w2 * visibility[triangle.verts[2]];
-    const light = combineLight(ambientColor, sunColor, ambientScale, sunScale, lambert, sunVisibility);
-    pixels[offset] = Math.round(light[0] * 255);
-    pixels[offset + 1] = Math.round(light[1] * 255);
-    pixels[offset + 2] = Math.round(light[2] * 255);
-  });
+  const bakeScene = bakeSceneOverride ?? collectBakeScene(scene);
+  const serialized = serializeBakeScene(bakeScene, 2, lightmapNormalMap(options));
+  const serializedOptions = serializeLightmapOptions(options);
+  const visibility = computeSunVisibilityCpu(serialized, bakeScene.bvh, serializedOptions.sunDirection, serializedOptions.sunIntensity);
+  const pixels = new Uint8ClampedArray(width * height * 4).fill(255);
+  const written = new Uint8Array(width * height);
+  rasterizeLightmap(pixels, written, visibility, serialized, width, height, serializedOptions);
+  dilateUVBake(pixels, written, width, height, 4);
   return pixels;
+}
+
+/** Flattens bake options into the worker-transportable shape. The normal map
+ * rides in the serialized bake scene (like the AO bake), so this carries only
+ * the parsed colors and the light geometry. */
+function serializeLightmapOptions(options: BakeLightmapOptions): SerializedLightmapOptions {
+  const sun = directionToSun(options.sunDirection);
+  return {
+    sunDirection: [sun.x, sun.y, sun.z],
+    sunColor: parseColor(options.sunColor),
+    sunIntensity: options.sunIntensity,
+    ambientColor: parseColor(options.ambientColor),
+    ambientIntensity: options.ambientIntensity,
+  };
+}
+
+/** Bundles the normal map for the serialized bake scene — the same payload the
+ * AO bake transfers, so both pipelines perturb shading normals through the
+ * shared `texelShadingNormal` mirror. The strength is clamped to [0, 1] here
+ * exactly where the old lightmap raster mirrored it. */
+function lightmapNormalMap(options: BakeLightmapOptions): SerializedNormalMap | undefined {
+  if (!options.normalMap) return undefined;
+  return {
+    map: options.normalMap,
+    strength: clamp01(options.normalStrength ?? 1),
+    flipY: options.normalFlipY ?? false,
+  };
 }
 
 /**
@@ -129,17 +106,7 @@ export async function bakeLightmapAsync(
   bakeSceneOverride?: BakeScene,
 ): Promise<Uint8ClampedArray> {
   const bakeScene = bakeSceneOverride ?? collectBakeScene(scene);
-  const sun = directionToSun(options.sunDirection);
-  const serializedOptions: SerializedLightmapOptions = {
-    sunDirection: [sun.x, sun.y, sun.z],
-    sunColor: parseColor(options.sunColor),
-    sunIntensity: options.sunIntensity,
-    ambientColor: parseColor(options.ambientColor),
-    ambientIntensity: options.ambientIntensity,
-    normalMap: options.normalMap ?? null,
-    normalStrength: options.normalStrength ?? 1,
-    normalFlipY: options.normalFlipY ?? false,
-  };
+  const serializedOptions = serializeLightmapOptions(options);
 
   // GPU visibility runs on the main thread (the ray cast is the expensive part;
   // the raster pass is cheap). The navigator.gpu check is synchronous so the
@@ -147,7 +114,7 @@ export async function bakeLightmapAsync(
   // worker/CPU path.
   if (typeof navigator !== 'undefined' && navigator.gpu) {
     try {
-      const serialized = serializeBakeScene(bakeScene, 2);
+      const serialized = serializeBakeScene(bakeScene, 2, lightmapNormalMap(options));
       const visibility = await computeSunVisibilityGpu(serialized, serializedOptions.sunDirection, serializedOptions.sunIntensity);
       const pixels = new Uint8ClampedArray(width * height * 4).fill(255);
       const written = new Uint8Array(width * height);
@@ -163,7 +130,7 @@ export async function bakeLightmapAsync(
     return bakeMeshLightmap(scene, width, height, options, bakeScene);
   }
   try {
-    const serialized = serializeBakeScene(bakeScene, 2);
+    const serialized = serializeBakeScene(bakeScene, 2, lightmapNormalMap(options));
     const request: LightmapBakeRequest = {
       ...serialized,
       type: 'bake',

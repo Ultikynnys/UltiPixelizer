@@ -138,7 +138,7 @@ export function assertAsciiWgsl(code: string, label: string): void {
 assertAsciiWgsl(WGSL_BVH_TRAVERSAL, 'BVH traversal');
 /** Uploads `data` into a fresh buffer with `usage | COPY_DST` (writeBuffer needs
  * COPY_DST) and returns it. */
-export function uploadGpuBuffer(device: GPUDevice, data: ArrayBufferView | ArrayBuffer, usage: number): GPUBuffer {
+function uploadGpuBuffer(device: GPUDevice, data: ArrayBufferView | ArrayBuffer, usage: number): GPUBuffer {
   const buffer = device.createBuffer({ size: data.byteLength, usage: usage | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(buffer, 0, data);
   return buffer;
