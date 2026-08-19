@@ -388,6 +388,102 @@ describe('seamless error-diffusion padding', () => {
     return best;
   };
 
+  /** f64x2 SIMD twin: mirrors the Rust `linear_match` pair reduction in scalar
+   * TS (same SoA f64 promotion, same distance expression, same first-wins pair
+   * reduction). Byte-compared against `linearMatchOracle` to pin the algorithm
+   * the WASM module implements before it is compiled on the host. */
+  const linearMatchPairs = (r: number, g: number, b: number, palette: string[]): number => {
+    const weights = new Float32Array([0.299, 0.587, 0.114]);
+    const flat = new Float32Array(palette.length * 3);
+    const colors = palette.map(hexToRgb);
+    for (let i = 0; i < colors.length; i += 1) {
+      flat[i * 3] = colors[i][0];
+      flat[i * 3 + 1] = colors[i][1];
+      flat[i * 3 + 2] = colors[i][2];
+    }
+    const count = colors.length;
+    // SoA f64 promotion (f32 -> f64 exact), matching the loader's layout.
+    const rCh = new Float64Array(count);
+    const gCh = new Float64Array(count);
+    const bCh = new Float64Array(count);
+    for (let i = 0; i < count; i += 1) {
+      rCh[i] = flat[i * 3];
+      gCh[i] = flat[i * 3 + 1];
+      bCh[i] = flat[i * 3 + 2];
+    }
+    const wr = weights[0];
+    const wg = weights[1];
+    const wb = weights[2];
+    const dist = (cr: number, cg: number, cb: number): number => {
+      const dr = r - cr;
+      const dg = g - cg;
+      const db = b - cb;
+      return (dr * dr * wr + dg * dg * wg) + db * db * wb;
+    };
+    let best = 0;
+    let bestDist = Number.POSITIVE_INFINITY;
+    let i = 0;
+    for (; i + 1 < count; i += 2) {
+      const d0 = dist(rCh[i], gCh[i], bCh[i]);
+      const d1 = dist(rCh[i + 1], gCh[i + 1], bCh[i + 1]);
+      let winIdx: number;
+      let winDist: number;
+      if (d0 < d1) {
+        winIdx = i;
+        winDist = d0;
+      } else if (d1 < d0) {
+        winIdx = i + 1;
+        winDist = d1;
+      } else {
+        winIdx = i;
+        winDist = d0;
+      }
+      if (winDist < bestDist) {
+        bestDist = winDist;
+        best = winIdx;
+      }
+    }
+    if (i < count) {
+      const d = dist(rCh[i], gCh[i], bCh[i]);
+      if (d < bestDist) {
+        best = i;
+      }
+    }
+    return best;
+  };
+
+  it('the f64x2 pair scan reduces byte-identically to the scalar scan', () => {
+    // Deterministic PRNG so the sweep is reproducible.
+    let seed = 0x12345678;
+    const rand = (): number => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 0x100000000;
+    };
+    // Random palettes of every size (1..256, stressing even/odd and the scalar
+    // tail) with random queries both in-gamut and out-of-gamut (error diffusion
+    // overshoots the [0,255] cube).
+    for (let trial = 0; trial < 2000; trial += 1) {
+      const count = 1 + Math.floor(rand() * 256);
+      const palette: string[] = [];
+      for (let i = 0; i < count; i += 1) {
+        const r = Math.floor(rand() * 256);
+        const g = Math.floor(rand() * 256);
+        const b = Math.floor(rand() * 256);
+        palette.push(`#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`);
+      }
+      const qr = rand() * 700 - 100;
+      const qg = rand() * 700 - 100;
+      const qb = rand() * 700 - 100;
+      expect(linearMatchPairs(qr, qg, qb, palette)).toBe(linearMatchOracle(qr, qg, qb, palette));
+    }
+  });
+
+  it('the pair scan handles single, even, and odd palette sizes', () => {
+    expect(linearMatchPairs(10, 10, 10, ['#000000'])).toBe(0);
+    expect(linearMatchPairs(10, 10, 10, ['#ffffff', '#000000'])).toBe(1);
+    expect(linearMatchPairs(250, 250, 250, ['#000000', '#ffffff', '#ff0000'])).toBe(1);
+  });
+
   it('the k-d matcher resolves a 64-color palette exactly like the linear scan', () => {
     // strength 0 removes the ordered pattern offset — the pipeline reduces to
     // tone-adjust (identity at 0/0/0) + palette mapping, isolating the matcher.

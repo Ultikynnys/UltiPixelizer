@@ -1,0 +1,5 @@
+[build]
+# The palette scan uses f64x2 SIMD intrinsics; enable the simd128 target
+# feature for this crate's compile. Engines without SIMD reject the module at
+# instantiation and the JS loader falls back to the scalar scan.
+rustflags = ["-C", "target-feature=+simd128"]

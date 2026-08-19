@@ -28,6 +28,7 @@ import { Mesh, MeshBasicMaterial, type Object3D } from 'three';
 import exampleModelUrl from '../Example/Book.fbx?url';
 import exampleBaseColorUrl from '../Example/Book_BaseColor.png?url';
 import exampleNormalUrl from '../Example/Book_NormalMap.png?url';
+import { initDitherWasm } from './lib/wasmLinearMatch';
 
 const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string; bake?: boolean }> = [
   { id: 'base', label: 'BaseColor' },
@@ -2402,6 +2403,10 @@ disableWebviewContextMenu();
 // data files, legacy palettes migrate, and the last-saved settings restore
 // (web build: no-op). Kicked off before the example assets so the restored
 // config is usually applied before the example model finishes loading.
+// Load the f64 SIMD palette scan (WASM) in the background so the seamless
+// dither can use it instead of the JS linear scan once it's ready. Until then
+// (and on load failure) the dither falls back to the byte-identical JS scan.
+void initDitherWasm();
 void bootDesktopStorage();
 void loadExampleAssets();
 

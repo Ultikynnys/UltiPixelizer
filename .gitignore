@@ -10,3 +10,4 @@ Thumbs.db
 src-tauri/target/
 src-tauri/gen/
 src-tauri/tauri.version.json
+src-wasm/target/

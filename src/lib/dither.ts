@@ -1,5 +1,6 @@
 import { hexToRgb } from './palettes';
 import { clamp, LUMA, type RGB } from './math';
+import { createWasmMatcher } from './wasmLinearMatch';
 
 export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'halftone' | 'cross' | 'stripes' | 'noise' | 'checker' | 'none';
 
@@ -441,6 +442,9 @@ function streamDitherSeamless(source: ImageData, options: ProcessOptions): Image
   // recursive query runs ~3× slower than the tight linear loop (measured:
   // 256-color floyd at 2k, 117s with the tree vs 41s with the scan).
   const matcher = buildPaletteMatcher(options.palette);
+  // Prefer the f64 SIMD WASM scan when loaded (byte-identical to linearMatch);
+  // null until initDitherWasm resolves, so the JS scan covers the load window.
+  const wasmMatcher = createWasmMatcher(matcher.flat, matcher.weights, matcher.count);
 
   const strength = options.strength;
   const { brightnessOffset, contrastFactor, saturationFactor } = toneAdjustParams(options.brightness, options.contrast, options.saturation);
@@ -495,7 +499,7 @@ function streamDitherSeamless(source: ImageData, options: ProcessOptions): Image
       const r = work[w];
       const g = work[w + 1];
       const b = work[w + 2];
-      const best = linearMatch(matcher.flat, matcher.weights, matcher.count, r, g, b);
+      const best = wasmMatcher ? wasmMatcher.match(r, g, b) : linearMatch(matcher.flat, matcher.weights, matcher.count, r, g, b);
       const mr = matcher.flat[best * 3];
       const mg = matcher.flat[best * 3 + 1];
       const mb = matcher.flat[best * 3 + 2];
@@ -524,6 +528,7 @@ function streamDitherSeamless(source: ImageData, options: ProcessOptions): Image
       }
     }
   }
+  wasmMatcher?.dispose();
   return output;
 }
 
