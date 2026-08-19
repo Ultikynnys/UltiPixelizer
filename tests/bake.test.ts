@@ -123,7 +123,7 @@ describe('generateAo', () => {
 
     vi.advanceTimersByTime(30);
     await promise;
-    expect(mocks.bakeMeshAOAsync).toHaveBeenCalledWith(scene, 8, 8, { samples: 64, distance: 2, normalStrength: 1, normalFlipY: false }, expect.any(Function), expect.any(Object));
+    expect(mocks.bakeMeshAOAsync).toHaveBeenCalledWith(scene, 8, 8, { samples: 64, distance: 2, normalStrength: 1, normalFlipY: false }, undefined, expect.any(Object));
     expect(deps.textures.ao.image).not.toBeNull();
     expect(deps.textures.ao.name).toBe('Generated AO');
     expect(deps.renderTextureRibbon).toHaveBeenCalled();
@@ -146,7 +146,7 @@ describe('generateAo', () => {
 
     // 512 × 256 dithers to 64 × 32 (pixelization width 64, aspect preserved)
     // and the AO bake matches that exactly.
-    expect(mocks.bakeMeshAOAsync).toHaveBeenCalledWith(scene, 64, 32, { samples: 64, distance: 2, normalStrength: 1, normalFlipY: false }, expect.any(Function), expect.any(Object));
+    expect(mocks.bakeMeshAOAsync).toHaveBeenCalledWith(scene, 64, 32, { samples: 64, distance: 2, normalStrength: 1, normalFlipY: false }, undefined, expect.any(Object));
   });
 
   it('bakes AO at the dithered width for portrait textures', async () => {
@@ -165,7 +165,7 @@ describe('generateAo', () => {
 
     // 256 × 512 dithers to 64 × 128 — the width is capped, not the longest
     // side, so the bake stays identical to the dithered texture.
-    expect(mocks.bakeMeshAOAsync).toHaveBeenCalledWith(scene, 64, 128, { samples: 64, distance: 2, normalStrength: 1, normalFlipY: false }, expect.any(Function), expect.any(Object));
+    expect(mocks.bakeMeshAOAsync).toHaveBeenCalledWith(scene, 64, 128, { samples: 64, distance: 2, normalStrength: 1, normalFlipY: false }, undefined, expect.any(Object));
   });
 
   it('reports bake failures to the console', async () => {

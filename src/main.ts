@@ -206,7 +206,7 @@ app.innerHTML = `
                 <span class="texture-slot-label">+${channel.label}</span>
                 <button class="icon-button texture-slot-download" data-download-texture="${channel.id}" type="button" aria-label="Download ${channel.label}" title="Download ${channel.label}">${DOWNLOAD_ICON_SVG}</button>
                 <button class="icon-button texture-slot-clear" data-clear-texture="${channel.id}" type="button" aria-label="Clear ${channel.label}">×</button>
-                ${channel.bake ? `<button class="icon-button texture-slot-bake" data-bake-texture="${channel.id}" type="button" aria-label="Bake ${channel.label}">Bake</button>` : ''}
+                ${channel.bake ? `<button class="icon-button texture-slot-bake" data-bake-texture="${channel.id}" type="button" aria-label="Bake ${channel.label}">${channel.id === 'ao' ? '<span class="texture-slot-bake-spinner" aria-hidden="true"></span>' : ''}Bake</button>` : ''}
                 ${channel.id === 'normal' ? '<span class="texture-slot-format" role="group" aria-label="Normal map format"><button type="button" data-normal-format="opengl" title="OpenGL · +Y up">GL</button><button type="button" data-normal-format="directx" title="DirectX · −Y up">DX</button></span>' : ''}
               </div>
             `).join('')}
@@ -401,13 +401,6 @@ app.innerHTML = `
         </section>
 
     </aside>
-    <div class="ao-bake-overlay" id="aoBakeOverlay" hidden role="status" aria-live="polite">
-      <div class="ao-bake-card">
-        <p class="ao-bake-title">Baking ambient occlusion</p>
-        <div class="ao-bake-track" aria-hidden="true"><div class="ao-bake-fill" id="aoBakeFill"></div></div>
-        <p class="ao-bake-percent" id="aoBakePercent">0%</p>
-      </div>
-    </div>
   </div>
 `;
 
@@ -424,9 +417,6 @@ const processedWireframeOverlay = document.querySelector<HTMLCanvasElement>('#pr
 const processedZoomBadge = document.querySelector<HTMLButtonElement>('#processedZoomBadge')!;
 const originalPreview2D = createPreview2D({ canvas: originalCanvas, frame: originalCanvas.parentElement!, badge: originalZoomBadge, overlay: originalWireframeOverlay });
 const processedPreview2D = createPreview2D({ canvas: previewCanvas, frame: previewCanvas.parentElement!, badge: processedZoomBadge, overlay: processedWireframeOverlay });
-const aoBakeOverlay = document.querySelector<HTMLDivElement>('#aoBakeOverlay')!;
-const aoBakeFill = document.querySelector<HTMLDivElement>('#aoBakeFill')!;
-const aoBakePercent = document.querySelector<HTMLParagraphElement>('#aoBakePercent')!;
 const paletteGrid = document.querySelector<HTMLDivElement>('#paletteGrid')!;
 const paletteFilters = document.querySelector<HTMLDivElement>('#paletteFilters')!;
 const paletteSearchControl = document.querySelector<HTMLDivElement>('#paletteSearchControl')!;
@@ -1965,7 +1955,6 @@ const renderer = createRenderer({
   renderNormalControls,
   renderTextureRibbon,
   applySun,
-  onAoProgress: setAoBakeProgress,
   // Orient Sun with Camera re-bakes the lightmap; end its busy state when the
   // implicit bake pipeline settles (landed, failed, skipped, or cancelled).
   onImplicitBakeSettled: () => setOrientSunBusy(false),
@@ -1999,29 +1988,24 @@ function render(): void {
   scheduleSettingsSave();
 }
 
-// AO bakes rasterize the texture in worker bands — a centered progress card
-// keeps the wait visible while bands finish. The wrapper guarantees the
-// overlay hides on success AND failure.
-function setAoBakeProgress(percent: number): void {
-  aoBakeFill.style.width = `${percent}%`;
-  aoBakePercent.textContent = `${percent}%`;
-}
-
-function showAoBakeOverlay(): void {
-  setAoBakeProgress(0);
-  aoBakeOverlay.hidden = false;
-}
-
-function hideAoBakeOverlay(): void {
-  aoBakeOverlay.hidden = true;
+// AO bakes rasterize the texture in worker bands — the AO slot's Bake button
+// holds a gray-out + throbber while the bands finish (same treatment as Orient
+// Sun with Camera), so the workspace stays clickable. The disabled button also
+// blocks a redundant second bake; the flag clears when the bake settles, on
+// success AND failure.
+function setAoBakeBusy(busy: boolean): void {
+  const button = document.querySelector<HTMLButtonElement>('[data-bake-texture="ao"]');
+  if (!button) return;
+  button.disabled = busy;
+  button.classList.toggle('busy', busy);
 }
 
 async function generateAoWithProgress(): Promise<boolean> {
-  showAoBakeOverlay();
+  setAoBakeBusy(true);
   try {
     return await generateAo();
   } finally {
-    hideAoBakeOverlay();
+    setAoBakeBusy(false);
   }
 }
 
@@ -3190,10 +3174,11 @@ const EXPORT_VIEW_SUFFIX: Record<PreviewViewMode, string> = {
   lightmap: 'Lightmap',
   'lightmap-ao': 'LightmapAO',
 };
-document.querySelector('#exportButton')!.addEventListener('click', () => {
+document.querySelector('#exportButton')!.addEventListener('click', async () => {
   // Flush the debounced render first so the export always matches what the
-  // processed pane currently shows for the selected view mode.
-  renderScheduler.flush();
+  // processed pane currently shows for the selected view mode. The render may
+  // dither on the GPU, so await it before reading the canvas back.
+  await renderScheduler.flush();
   // <model base name without suffix>_<view mode>.png — the model's name when a
   // model is loaded, otherwise the base texture's name (both sans extension).
   const stem = modelBundle

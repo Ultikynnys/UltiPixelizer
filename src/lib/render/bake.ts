@@ -55,7 +55,6 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     renderTextureRibbon,
     applySun,
     dimensions,
-    onAoProgress,
   } = deps;
 
   // The scene the bakes run against: the AO scene when a model is loaded,
@@ -146,7 +145,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
       width,
       height,
       { samples: AO_BAKE_SAMPLES, distance: state.aoDistance, ...normalOptions },
-      onAoProgress,
+      undefined,
       bakeScene,
     );
     const canvasStart = performance.now();

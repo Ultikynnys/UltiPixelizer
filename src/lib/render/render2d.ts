@@ -1,13 +1,14 @@
 import { applyAO, aoMultiplier, imageAOFactors, redChannelFactors } from '../ao';
-import { drawImageToCanvas, imagePixels, pixelateCanvas, pixelsToCanvas, processLitImageData, resampleAndPixelate, resizeImage } from '../canvas';
+import { cloneImageData, drawImageToCanvas, imagePixels, pixelateCanvas, pixelsToCanvas, resampleAndPixelate, resizeImage } from '../canvas';
 import { processImageData } from '../dither';
+import { gpuDitherCovers, processImageDataAsync } from '../gpuDither';
 import { applyLightmap } from '../lightmap';
 import { LUMA } from '../math';
 import type { PreviewViewMode, SourceImage } from '../state';
 import type { RendererDeps, RenderShared } from './types';
 
 export interface Render2DApi {
-  render: () => void;
+  render: () => Promise<void>;
   applyViewportImages: () => void;
 }
 
@@ -25,6 +26,10 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     repeatTextureOriginal,
     repeatTextureProcessed,
   } = deps;
+
+  /** Supersedes an in-flight async GPU dither: every render bumps the token,
+   * and a GPU result that lands after a newer render started is dropped. */
+  let ditherToken = 0;
 
   /** Resamples a lighting map at the processed resolution, then pixelizes it
    * with the same downscale/upscale amount as the base — each base block gets
@@ -56,11 +61,6 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     const lightmapPixels = currentLightmapPixels(width, height, pixelate);
     if (lightmapPixels) applyLightmap(data, lightmapPixels);
   }
-
-  /** Inspection views (AO-only / lightmap-only) show the raw map, so lighting
-   * (AO + lightmap multiply) is skipped — applying lighting to the map being
-   * inspected would alter what it shows. */
-  function skipLighting(): void {}
 
   /** Per-pixel shading factor for the halftone dot screen: AO visibility
    * (bias/power remapped exactly as the lighting pass applies it) times the
@@ -96,7 +96,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     return canvas;
   }
 
-  function render(): void {
+  async function render(): Promise<void> {
     const { width, height } = dimensions();
     // Image-repeat diagnostic: render the texture tiled 3×3 in the 2D panes so
     // seams at tile boundaries are visible. Only the display canvases tile —
@@ -209,14 +209,21 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
           lighting: processedOnlySource ? null : halftoneLighting(width, height),
         });
       } else {
-        processedData = processLitImageData(
-          sourceData,
-          // Lighting in the dithered pane follows the base's pixelization: the
-          // AO/lightmap maps are block-quantized with the same amount before
-          // the multiply (the original pane keeps the smooth maps).
-          processedOnlySource ? skipLighting : (data, w, h) => applyLighting(data, w, h, true),
-          (lit) => processImageData(lit, processedOptions),
-        ).processed;
+        // Lighting stays synchronous; the dither itself may go to the GPU.
+        const lit = cloneImageData(sourceData);
+        if (!processedOnlySource) applyLighting(lit.data, lit.width, lit.height, true);
+        const gpuAvailable = typeof navigator !== 'undefined' && Boolean((navigator as { gpu?: unknown }).gpu);
+        if (gpuAvailable && gpuDitherCovers(state.mode)) {
+          // The GPU dither is async: a newer render supersedes this frame, so
+          // a stale result is dropped instead of overwriting the freshest one.
+          const token = ++ditherToken;
+          processedData = await processImageDataAsync(lit, processedOptions);
+          if (token !== ditherToken) return;
+        } else {
+          // No WebGPU (or a mode the GPU pass does not cover): the exact
+          // synchronous CPU path — byte-identical to the pre-GPU pipeline.
+          processedData = processImageData(lit, processedOptions);
+        }
       }
       renderContext.putImageData(processedData, 0, 0);
     }

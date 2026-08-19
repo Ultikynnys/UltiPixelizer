@@ -319,23 +319,6 @@ select option { background: var(--card); color: var(--paper); }
 .texel-density > span { color: var(--muted); font: 500 8px 'DM Mono', monospace; letter-spacing: .06em; text-transform: uppercase; }
 .texel-density output { color: var(--paper); font: 700 12px 'DM Mono', monospace; }
 
-/* AO bake progress: centered card over the workspace while worker bands
-   rasterize. Modal — the bake is short and state is mid-flight, so clicks are
-   absorbed until the map lands. */
-.ao-bake-overlay {
-  align-items: center; background: color-mix(in srgb, var(--backdrop) 55%, transparent);
-  display: flex; inset: 0; justify-content: center; position: fixed; z-index: 40;
-}
-.ao-bake-overlay[hidden] { display: none; }
-.ao-bake-card {
-  background: var(--card); border: 1px solid var(--line);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, .5); min-width: 300px; padding: 20px 22px;
-}
-.ao-bake-title { color: var(--paper); font: 700 9px 'DM Mono', monospace; letter-spacing: .12em; margin: 0 0 12px; text-transform: uppercase; }
-.ao-bake-track { background: var(--ink); border: 1px solid var(--line); height: 8px; overflow: hidden; }
-.ao-bake-fill { background: var(--accent); height: 100%; transition: width .12s ease; width: 0; }
-.ao-bake-percent { color: var(--muted); font: 500 9px 'DM Mono', monospace; margin: 8px 0 0; text-align: right; }
-
 .texture-ribbon { align-items: center; display: flex; gap: 10px; }
 .texture-slot { align-items: center; background: var(--stage); cursor: pointer; display: flex; flex-direction: column; gap: 5px; height: 66px; justify-content: center; min-width: 82px; padding: 6px 8px; position: relative; }
 .texture-slot:hover, .palette-card-new:hover, .custom-color-add:hover { color: var(--paper); }
@@ -368,6 +351,23 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .texture-slot-clear { bottom: 4px; display: none; font: 500 10px 'DM Mono', monospace; height: 16px; line-height: 1; position: absolute; right: 4px; width: 16px; }
 .texture-slot.filled .texture-slot-clear { display: flex; }
 .texture-slot-bake { font: 500 8px 'DM Mono', monospace; height: 16px; left: 4px; letter-spacing: .04em; padding: 0 4px; position: absolute; top: 4px; }
+/* Busy (AO bake): the rasterize runs in worker bands — gray the slot's Bake
+   button out and spin a throbber so the user knows it is working and cannot
+   double-click it. Same treatment as Orient Sun with Camera. */
+.texture-slot-bake:disabled { cursor: not-allowed; opacity: .35; }
+.texture-slot-bake.busy:disabled { opacity: .55; }
+.texture-slot-bake-spinner { display: none; }
+.texture-slot-bake.busy .texture-slot-bake-spinner {
+  animation: ao-bake-spin .7s linear infinite;
+  border: 1.5px solid color-mix(in srgb, var(--paper) 28%, transparent);
+  border-radius: 50%;
+  border-top-color: var(--paper);
+  display: inline-block;
+  flex: none;
+  height: 8px;
+  width: 8px;
+}
+@keyframes ao-bake-spin { to { transform: rotate(360deg); } }
 .texture-slot-format { display: flex; gap: 1px; left: 4px; position: absolute; top: 4px; }
 .texture-slot-format button { background: var(--card); border: 0; color: var(--muted); cursor: pointer; font: 700 8px 'DM Mono', monospace; height: 16px; letter-spacing: .04em; padding: 0 4px; }
 .texture-slot-format button:hover, .texture-slot-format button.active { background: var(--paper); color: var(--ink); }

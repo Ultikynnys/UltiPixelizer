@@ -1,10 +1,10 @@
 export type RenderScheduler = {
   request: () => void;
-  flush: () => void;
+  flush: () => Promise<void> | void;
   cancel: () => void;
 };
 
-export function createRenderScheduler(render: () => void, delay = 80): RenderScheduler {
+export function createRenderScheduler(render: () => Promise<void> | void, delay = 80): RenderScheduler {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const cancel = () => {
@@ -15,7 +15,7 @@ export function createRenderScheduler(render: () => void, delay = 80): RenderSch
 
   const flush = () => {
     cancel();
-    render();
+    return render();
   };
 
   const request = () => {

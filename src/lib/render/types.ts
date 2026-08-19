@@ -23,8 +23,6 @@ export interface RendererDeps {
   renderNormalControls: () => void;
   renderTextureRibbon: () => void;
   applySun: () => void;
-  /** Whole-percent AO bake progress (0–100), forwarded from the worker bands. */
-  onAoProgress?: (percent: number) => void;
   /** Fires when the implicit lightmap bake pipeline settles: a bake landed,
    * failed, was skipped (no base image / lightmap active / cleared), or was
    * cancelled (reset / lightmap clear). Ends "busy" indicators on actions that
