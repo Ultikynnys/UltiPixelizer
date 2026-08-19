@@ -106,7 +106,7 @@ fn waitFor(row: u32, col: u32) {
 // Mirrors streamDitherSeamless's initRow: brightness/contrast/saturation
 // applied per channel, then the LUMA-weighted saturation blend, clamped.
 @compute @workgroup_size(${PREPASS_WORKGROUP})
-fn prepass(gid: vec3<u32>) {
+fn prepass(@builtin(global_invocation_id) gid: vec3<u32>) {
   let idx = gid.x;
   let cellCount = arrayLength(&work) / 3u;
   if (idx >= cellCount) {
@@ -138,7 +138,7 @@ fn prepass(gid: vec3<u32>) {
 // same spread weights, edges dropped), with rows lagging the row above by one
 // flag block.
 @compute @workgroup_size(1, ${ROWS_PER_WAVE})
-fn diffuse(gid: vec3<u32>) {
+fn diffuse(@builtin(global_invocation_id) gid: vec3<u32>) {
   let py = gid.x * ${ROWS_PER_WAVE}u + gid.y;
   if (py >= u.gridHeight) {
     return;
@@ -257,6 +257,48 @@ export async function processImageDataAsync(source: ImageData, options: ProcessO
   }
 }
 
+/** Compiled dither pipelines, cached per device. The shader + pipeline compile
+ * is the expensive part (~100ms) and the dither runs on every render, so the
+ * compile is paid once per session instead of per render. A lost device
+ * produces a fresh device from getGpuDevice, which misses the cache and
+ * recompiles. */
+type DitherPipelines = {
+  layout: GPUBindGroupLayout;
+  prepass: GPUComputePipeline;
+  diffuse: GPUComputePipeline;
+};
+let cachedPipelines: DitherPipelines | null = null;
+let cachedPipelinesDevice: GPUDevice | null = null;
+
+async function getDitherPipelines(device: GPUDevice): Promise<DitherPipelines> {
+  if (cachedPipelines && cachedPipelinesDevice === device) return cachedPipelines;
+  const layout = device.createBindGroupLayout({
+    entries: [0, 1, 2, 3, 4, 5].map((binding) => ({
+      binding,
+      visibility: GPUShaderStage.COMPUTE,
+      // Bindings 3 (work), 4 (flags), 5 (output) are read_write in the shader;
+      // 1 (source) and 2 (palette) are read-only. A read_write shader
+      // declaration on a read-only-storage layout entry is a validation error.
+      buffer: { type: binding === 0 ? 'uniform' : binding === 3 || binding === 4 || binding === 5 ? 'storage' : 'read-only-storage' },
+    })),
+  });
+  const module = device.createShaderModule({ code: DITHER_WGSL });
+  const compilationInfo = await module.getCompilationInfo();
+  const compileErrors = compilationInfo.messages.filter((message) => message.type === 'error');
+  if (compileErrors.length > 0) {
+    const first = compileErrors[0];
+    throw new Error(`dither WGSL compile error: ${first.message} (line ${first.lineNum}, column ${first.linePos})`);
+  }
+  const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
+  cachedPipelines = {
+    layout,
+    prepass: device.createComputePipeline({ layout: pipelineLayout, compute: { module, entryPoint: 'prepass' } }),
+    diffuse: device.createComputePipeline({ layout: pipelineLayout, compute: { module, entryPoint: 'diffuse' } }),
+  };
+  cachedPipelinesDevice = device;
+  return cachedPipelines;
+}
+
 /** Runs the software-pipelined error diffusion on the GPU. Throws on any
  * failure (including "no WebGPU here") so callers control the fallback. */
 /* v8 ignore start */
@@ -313,16 +355,7 @@ export async function ditherImageDataGpu(source: ImageData, options: ProcessOpti
   device.queue.writeBuffer(flagsBuffer, 0, new Uint32Array(gridHeight * blocksPerRow));
   const outputBuffer = device.createBuffer({ size: width * height * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
 
-  const layout = device.createBindGroupLayout({
-    entries: [0, 1, 2, 3, 4, 5].map((binding) => ({
-      binding,
-      visibility: GPUShaderStage.COMPUTE,
-      // Bindings 3 (work), 4 (flags), 5 (output) are read_write in the shader;
-      // 1 (source) and 2 (palette) are read-only. A read_write shader
-      // declaration on a read-only-storage layout entry is a validation error.
-      buffer: { type: binding === 0 ? 'uniform' : binding === 3 || binding === 4 || binding === 5 ? 'storage' : 'read-only-storage' },
-    })),
-  });
+  const { layout, prepass: prepassPipeline, diffuse: diffusePipeline } = await getDitherPipelines(device);
   const bindGroup = device.createBindGroup({
     layout,
     entries: [
@@ -335,18 +368,7 @@ export async function ditherImageDataGpu(source: ImageData, options: ProcessOpti
     ],
   });
 
-  const module = device.createShaderModule({ code: DITHER_WGSL });
-  const compilationInfo = await module.getCompilationInfo();
-  const compileErrors = compilationInfo.messages.filter((message) => message.type === 'error');
-  if (compileErrors.length > 0) {
-    const first = compileErrors[0];
-    throw new Error(`dither WGSL compile error: ${first.message} (line ${first.lineNum}, column ${first.linePos})`);
-  }
-
   device.pushErrorScope('validation');
-  const layoutPipeline = device.createPipelineLayout({ bindGroupLayouts: [layout] });
-  const prepassPipeline = device.createComputePipeline({ layout: layoutPipeline, compute: { module, entryPoint: 'prepass' } });
-  const diffusePipeline = device.createComputePipeline({ layout: layoutPipeline, compute: { module, entryPoint: 'diffuse' } });
 
   const encoder = device.createCommandEncoder();
   const prepass = encoder.beginComputePass();
