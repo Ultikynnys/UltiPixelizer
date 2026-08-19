@@ -89,6 +89,10 @@ pub extern "C" fn linear_match_scalar(
 /// returns a 16-byte-aligned base, so every channel and every pair-load is
 /// aligned).
 #[no_mangle]
+// The v128 SIMD intrinsics are gated behind the per-function simd128 target
+// feature — the default wasm32-unknown-unknown toolchain has it disabled, so
+// calling f64x2_*/v128_* here fails to compile without this attribute.
+#[target_feature(enable = "simd128")]
 pub extern "C" fn linear_match(
     r_ptr: *const f64,
     g_ptr: *const f64,
