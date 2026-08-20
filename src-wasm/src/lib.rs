@@ -16,6 +16,13 @@
 //! palette and weights to f64 (f32 -> f64 is exact) and passes structure-of-
 //! arrays f64 channels; `linear_match` evaluates the same expression in the
 //! same order with the same rounding, so the returned index is byte-identical.
+//!
+//! SIMD pitfall (learned the hard way): a mask from `f64x2_lt` (or any f64x2
+//! compare) packs the even comparison in bits 0-63 and the odd comparison in
+//! bits 64-127. As i32 lanes that is lanes 0,1 = even and lanes 2,3 = odd, so
+//! `v128_bitselect` against an i32x4 index vector updates the odd index
+//! whenever the even entry wins. Use an i64x2 index vector (lane layout
+//! matches the mask) or re-shuffle the mask before the bitselect.
 
 use core::arch::wasm32::*;
 
@@ -159,4 +166,220 @@ pub extern "C" fn linear_match(
     }
 
     best
+}
+
+
+// ── Full seamless error-diffusion loop ────────────────────────────────────────
+//
+// Runs the ENTIRE streaming seamless pass (src/lib/dither.ts
+// `streamDitherSeamless`) inside the module: tone adjustment + row init, the
+// per-pixel linear match, the center-tile output write, and the error spreads,
+// with the same f64 arithmetic, the same left-to-right operation order, and
+// the same f32 work-buffer stores as the JS. This is what makes the JS and
+// wasm loops byte-identical:
+//
+//   * wasm32 has no FMA instructions, so no mul+add can fuse and change
+//     rounding; every f64 op rounds identically to the JS engine.
+//   * f64 -> f32 stores (Rust `as f32`, JS typed-array stores) both round to
+//     nearest, ties to even.
+//   * the work-buffer accumulation is load-f64, add-f64, store-f32, exactly
+//     like `work[t] += x` on a Float32Array.
+//   * matched colors come from the same SoA f64 palette the JS promotes its
+//     f32 flat array into, so `mr/mg/mb` are bit-identical; they are always
+//     exact integers (hexToRgb), so the u8 output store is exact either way.
+//
+// The JS side allocates src/out/work buffers in module memory, copies the
+// source in, calls this, and copies the output back. Caller must pass a work
+// scratch of rows_needed * grid_width * 3 f32s.
+
+/// Rec. 601 luma weights, matching `LUMA` in src/lib/math.ts.
+const LUMA_R: f64 = 0.299;
+const LUMA_G: f64 = 0.587;
+const LUMA_B: f64 = 0.114;
+
+/// ES262 ToUint8Clamp: NaN -> 0, <=0 -> 0, >=255 -> 255, else round half to
+/// even. Matches Uint8ClampedArray stores. (Matched colors are exact
+/// integers, so this is defensive.)
+#[inline]
+fn to_uint8_clamp(x: f64) -> u8 {
+    if x <= 0.0 {
+        return 0;
+    }
+    if x >= 255.0 {
+        return 255;
+    }
+    let f = x.floor();
+    let diff = x - f;
+    if diff < 0.5 {
+        f as u8
+    } else if diff > 0.5 {
+        (f + 1.0) as u8
+    } else {
+        let n = f as i64;
+        if n % 2 == 0 {
+            f as u8
+        } else {
+            (f + 1.0) as u8
+        }
+    }
+}
+
+/// Tone adjustment, matching `toneAdjustPixel` in src/lib/dither.ts exactly:
+/// contrast factor on (c - 128) + 128 + offset, then the LUMA-weighted
+/// saturation blend, clamped to 0..255. `bo` = brightnessOffset, `cf` =
+/// contrastFactor, `sf` = saturationFactor.
+#[inline]
+fn tone_adjust(r: u8, g: u8, b: u8, bo: f64, cf: f64, sf: f64) -> (f64, f64, f64) {
+    let r = r as f64;
+    let g = g as f64;
+    let b = b as f64;
+    let red = cf * (r - 128.0) + 128.0 + bo;
+    let green = cf * (g - 128.0) + 128.0 + bo;
+    let blue = cf * (b - 128.0) + 128.0 + bo;
+    let gray = red * LUMA_R + green * LUMA_G + blue * LUMA_B;
+    let tr = if gray + (red - gray) * sf < 0.0 { 0.0 } else if gray + (red - gray) * sf > 255.0 { 255.0 } else { gray + (red - gray) * sf };
+    let tg = if gray + (green - gray) * sf < 0.0 { 0.0 } else if gray + (green - gray) * sf > 255.0 { 255.0 } else { gray + (green - gray) * sf };
+    let tb = if gray + (blue - gray) * sf < 0.0 { 0.0 } else if gray + (blue - gray) * sf > 255.0 { 255.0 } else { gray + (blue - gray) * sf };
+    (tr, tg, tb)
+}
+
+/// Writes the tone-adjusted colors of virtual grid row `py` into work slot
+/// `slot`, matching `initRow` in the JS (the source row wraps at `py % h`).
+#[inline]
+fn init_row(
+    work: &mut [f32],
+    src: &[u8],
+    w: usize,
+    h: usize,
+    gw: usize,
+    slot: usize,
+    py: usize,
+    bo: f64,
+    cf: f64,
+    sf: f64,
+) {
+    let sy = py % h;
+    let src_row = sy * w * 4;
+    let base = slot * gw * 3;
+    for px in 0..gw {
+        let s = src_row + (px % w) * 4;
+        let (tr, tg, tb) = tone_adjust(src[s], src[s + 1], src[s + 2], bo, cf, sf);
+        let t = base + px * 3;
+        work[t] = tr as f32;
+        work[t + 1] = tg as f32;
+        work[t + 2] = tb as f32;
+    }
+}
+
+/// Adds `er * factor * strength` into work slot base `target` at column `x`,
+/// matching `spreadRow` in the JS (columns outside the grid are dropped, and
+/// the accumulate is load-f64, add-f64, store-f32).
+#[inline]
+fn spread_row(
+    work: &mut [f32],
+    gw: usize,
+    target: usize,
+    x: i64,
+    er: f64,
+    eg: f64,
+    eb: f64,
+    factor: f64,
+    strength: f64,
+) {
+    if x < 0 || x as usize >= gw {
+        return;
+    }
+    let t = target + (x as usize) * 3;
+    let cur = work[t] as f64;
+    work[t] = (cur + (er * factor) * strength) as f32;
+    let cur = work[t + 1] as f64;
+    work[t + 1] = (cur + (eg * factor) * strength) as f32;
+    let cur = work[t + 2] as f64;
+    work[t + 2] = (cur + (eb * factor) * strength) as f32;
+}
+
+/// The full streaming seamless error-diffusion pass. Arguments: source RGBA
+/// (w*h*4), output RGBA (w*h*4), the SoA f64 palette (createWasmMatcher
+/// layout: r/g/b channels of `stride` f64s each, then 3 weights), count,
+/// width, height, atkinson flag, strength, the three tone params, and the
+/// work scratch (rows_needed*gw*3 f32s). Output bytes are written into
+/// `out_ptr`; the JS copies them back into the ImageData.
+#[no_mangle]
+pub extern "C" fn dither_seamless(
+    src_ptr: *const u8,
+    out_ptr: *mut u8,
+    r_ptr: *const f64,
+    g_ptr: *const f64,
+    b_ptr: *const f64,
+    w_ptr: *const f64,
+    count: u32,
+    width: u32,
+    height: u32,
+    atkinson: u32,
+    strength: f64,
+    brightness_offset: f64,
+    contrast_factor: f64,
+    saturation_factor: f64,
+    work_ptr: *mut f32,
+) {
+    let rows_needed: usize = if atkinson == 1 { 3 } else { 2 };
+    let w = width as usize;
+    let h = height as usize;
+    let gw = w * 3;
+    let gh = h * 2;
+    let total = w * h;
+    let src = unsafe { core::slice::from_raw_parts(src_ptr, total * 4) };
+    let out = unsafe { core::slice::from_raw_parts_mut(out_ptr, total * 4) };
+    let work = unsafe { core::slice::from_raw_parts_mut(work_ptr, rows_needed * gw * 3) };
+    let (bo, cf, sf) = (brightness_offset, contrast_factor, saturation_factor);
+
+    init_row(work, src, w, h, gw, 0, 0, bo, cf, sf);
+    if rows_needed > 2 {
+        init_row(work, src, w, h, gw, 1, 1, bo, cf, sf);
+    }
+
+    for py in 0..gh {
+        let row_slot = py % rows_needed;
+        let next_row = py + rows_needed - 1;
+        if next_row < gh {
+            init_row(work, src, w, h, gw, next_row % rows_needed, next_row, bo, cf, sf);
+        }
+        let base = row_slot * gw * 3;
+        let below = ((py + 1) % rows_needed) * gw * 3;
+        let below2 = ((py + 2) % rows_needed) * gw * 3;
+        let in_center = py >= h;
+        for px in 0..gw {
+            let wi = base + px * 3;
+            let r = work[wi] as f64;
+            let g = work[wi + 1] as f64;
+            let b = work[wi + 2] as f64;
+            let best = linear_match(r_ptr, g_ptr, b_ptr, w_ptr, count, r, g, b) as usize;
+            let mr = unsafe { *r_ptr.add(best) };
+            let mg = unsafe { *g_ptr.add(best) };
+            let mb = unsafe { *b_ptr.add(best) };
+            if in_center && px >= w && px < w * 2 {
+                let o = ((py - h) * w + (px - w)) * 4;
+                out[o] = to_uint8_clamp(mr);
+                out[o + 1] = to_uint8_clamp(mg);
+                out[o + 2] = to_uint8_clamp(mb);
+                out[o + 3] = src[(py % h) * w * 4 + (px % w) * 4 + 3];
+            }
+            let er = r - mr;
+            let eg = g - mg;
+            let eb = b - mb;
+            if atkinson == 1 {
+                spread_row(work, gw, base, px as i64 + 1, er, eg, eb, 1.0 / 8.0, strength);
+                spread_row(work, gw, base, px as i64 + 2, er, eg, eb, 1.0 / 8.0, strength);
+                spread_row(work, gw, below, px as i64 - 1, er, eg, eb, 1.0 / 8.0, strength);
+                spread_row(work, gw, below, px as i64, er, eg, eb, 1.0 / 8.0, strength);
+                spread_row(work, gw, below, px as i64 + 1, er, eg, eb, 1.0 / 8.0, strength);
+                spread_row(work, gw, below2, px as i64, er, eg, eb, 1.0 / 8.0, strength);
+            } else {
+                spread_row(work, gw, base, px as i64 + 1, er, eg, eb, 7.0 / 16.0, strength);
+                spread_row(work, gw, below, px as i64 - 1, er, eg, eb, 3.0 / 16.0, strength);
+                spread_row(work, gw, below, px as i64, er, eg, eb, 5.0 / 16.0, strength);
+                spread_row(work, gw, below, px as i64 + 1, er, eg, eb, 1.0 / 16.0, strength);
+            }
+        }
+    }
 }

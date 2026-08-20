@@ -456,18 +456,32 @@ function streamDitherSeamless(source: ImageData, options: ProcessOptions): Image
   const src = source.data;
 
   // The shared matcher's flat arrays (float32 LUMA weights) keep this path
-  // byte-identical with ditherImageData's matchPalette — but the k-d tree is
-  // deliberately NOT used here. Error-diffusion queries stay near the palette
-  // gamut, so the far-subtree prune rarely engages on dense palettes and the
-  // recursive query runs ~3× slower than the tight linear loop (measured:
-  // 256-color floyd at 2k, 117s with the tree vs 41s with the scan).
+  // byte-identical with ditherImageData's matchPalette. The k-d tree is
+  // deliberately NOT used here: error-diffusion work colors sit off the
+  // palette gamut, so the far-subtree prune rarely engages and the query
+  // degenerates to O(P) visits. Measured at 1k (floyd, 256 colors): the
+  // iterative typed-array queryKD took 10.5s on rgb332 and 33.2s on the
+  // grayscale ramp vs 5.5s for the wasm SIMD scan (the old recursive object
+  // tree measured 3x slower at 2k for the same reason). The linear scan wins
+  // on every palette, so it stays the seamless-path match strategy: the wasm
+  // f64x2 scan when loaded (byte-identical to linearMatch), the JS scan over
+  // the load window.
   const matcher = buildPaletteMatcher(options.palette);
-  // Prefer the f64 SIMD WASM scan when loaded (byte-identical to linearMatch);
-  // null until initDitherWasm resolves, so the JS scan covers the load window.
+  // The wasm module runs the ENTIRE seamless pass when loaded (byte-identical
+  // to this function, see src-wasm/src/lib.rs `dither_seamless`). The JS
+  // implementation below stays as the fallback for the load window, load
+  // failures, and artifacts built before the export existed.
   const wasmMatcher = createWasmMatcher(matcher.flat, matcher.weights, matcher.count);
+  const tone = toneAdjustParams(options.brightness, options.contrast, options.saturation);
+  if (wasmMatcher) {
+    const wasmOut = wasmMatcher.seamless(source, options, tone);
+    if (wasmOut) {
+      wasmMatcher.dispose();
+      return wasmOut;
+    }
+  }
 
   const strength = options.strength;
-  const tone = toneAdjustParams(options.brightness, options.contrast, options.saturation);
 
   /** Writes the tone-adjusted colors of virtual grid row `py` into `slot`.
    * Runs one row ahead of the scan so every slot the diffusion touches is

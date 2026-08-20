@@ -5,6 +5,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/ensure-wasm.mjs",
     "dev": "vite",
     "build:wasm": "node scripts/build-wasm.mjs",
     "build": "npm run build:wasm && tsc && vite build",
@@ -13,6 +14,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "bench": "vitest bench",
+    "pretauri": "node scripts/ensure-wasm.mjs",
     "tauri": "tauri",
     "tauri:build": "npm run build:wasm && node scripts/write-tauri-version.mjs && tauri build --config src-tauri/tauri.version.json"
   },

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { beforeAll, bench, describe } from 'vitest';
 import { processImageData, type ProcessOptions } from '../src/lib/dither';
 import { initDitherWasm } from '../src/lib/wasmLinearMatch';
@@ -9,11 +11,23 @@ import { FakeImageData, installDomStubs } from './helpers/domStubs';
  * built (`npm run build:wasm`), the dither routes through it; otherwise it
  * falls back to the JS linear scan, so running this before and after building
  * the wasm measures the actual speedup on this machine.
+ *
+ * The module is loaded from disk (bytes) like the parity test: node cannot
+ * `fetch` the `?url` asset, so a bare `initDitherWasm()` would latch a load
+ * failure here and silently benchmark the JS scan, the exact silent fallback
+ * the bench exists to measure. When the artifact is missing the load throws
+ * and the bench measures the JS path, which is the point of running it before
+ * and after `npm run build:wasm`.
  */
 
 beforeAll(async () => {
   installDomStubs();
-  await initDitherWasm();
+  try {
+    const buf = readFileSync(fileURLToPath(new URL('../src/wasm/dither.wasm', import.meta.url)));
+    await initDitherWasm(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer);
+  } catch {
+    // artifact not built — bench measures the JS linear scan.
+  }
 });
 
 function synthetic(width: number, height: number): ImageData {

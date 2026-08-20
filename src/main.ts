@@ -172,6 +172,7 @@ const state: State = defaultState();
 app.innerHTML = `
   <div class="app-shell">
     <div id="storageNotice" class="storage-notice" hidden></div>
+    <div id="wasmNotice" class="storage-notice" hidden></div>
     <div class="main-column">
     <header class="topbar">
       <div class="brand-group">
@@ -542,6 +543,7 @@ const strengthInput = document.querySelector<HTMLInputElement>('#strength')!;
 const strengthValue = document.querySelector<HTMLOutputElement>('#strengthValue')!;
 const normalFormatToggle = document.querySelector<HTMLElement>('[data-texture="normal"] .texture-slot-format')!;
 const storageNotice = document.querySelector<HTMLElement>('#storageNotice')!;
+const wasmNotice = document.querySelector<HTMLElement>('#wasmNotice')!;
 let savedCustomPalettes: CustomPalette[] = [];
 // The palette library's backing store: localStorage in the web build. On
 // desktop each palette is its own `.hex` file in the install folder, managed
@@ -2251,6 +2253,16 @@ function showStorageNotice(message: string): void {
   storageNotice.hidden = false;
 }
 
+/** Boot-time banner for a missing or broken WASM palette scan. The seamless
+ * dither still runs, but on the byte-identical JS linear scan, which at 256
+ * colors and 1k costs seconds per render. That regression must never pass
+ * silently: `npm run build:wasm` produces the artifact, and the predev hook
+ * builds it on demand, so this banner only appears in genuinely broken setups. */
+function showWasmNotice(message: string): void {
+  wasmNotice.textContent = message;
+  wasmNotice.hidden = false;
+}
+
 /** Web build: saves a palette to localStorage; when storage is full or
  * blocked it stays in the in-memory library for the session and the existing
  * notice says so loudly, instead of the save failing silently. The palette
@@ -2404,9 +2416,16 @@ disableWebviewContextMenu();
 // (web build: no-op). Kicked off before the example assets so the restored
 // config is usually applied before the example model finishes loading.
 // Load the f64 SIMD palette scan (WASM) in the background so the seamless
-// dither can use it instead of the JS linear scan once it's ready. Until then
-// (and on load failure) the dither falls back to the byte-identical JS scan.
-void initDitherWasm();
+// dither can use it instead of the JS linear scan once it's ready. The dither
+// falls back to the byte-identical JS scan until the module is ready, but a
+// load failure is a real performance regression (seconds per render at 256
+// colors / 1k), so it surfaces as a persistent banner instead of passing
+// silently. `npm run build:wasm` (or the predev hook) produces the artifact.
+void initDitherWasm().then((active) => {
+  if (!active) {
+    showWasmNotice('WASM palette scan unavailable; the slower JS scan is in use. Build it with `npm run build:wasm` (requires the Rust toolchain), then reload.');
+  }
+});
 void bootDesktopStorage();
 void loadExampleAssets();
 

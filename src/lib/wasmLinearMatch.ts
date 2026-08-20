@@ -14,6 +14,11 @@
  * silent error swallow: the load failure is logged once and latched.
  */
 
+// Type-only import (erased at runtime): dither.ts imports this module, so a
+// value import here would create a runtime cycle. ProcessOptions is used only
+// in the `seamless` method signature.
+import type { ProcessOptions } from './dither';
+
 interface DitherWasmExports {
   memory: WebAssembly.Memory;
   dither_alloc: (size: number) => number;
@@ -28,6 +33,25 @@ interface DitherWasmExports {
     g: number,
     b: number,
   ) => number;
+  /** Full seamless error-diffusion pass; absent in artifacts built before the
+   * export existed (the dither falls back to the JS loop when missing). */
+  dither_seamless?: (
+    srcPtr: number,
+    outPtr: number,
+    rPtr: number,
+    gPtr: number,
+    bPtr: number,
+    wPtr: number,
+    count: number,
+    width: number,
+    height: number,
+    atkinson: number,
+    strength: number,
+    brightnessOffset: number,
+    contrastFactor: number,
+    saturationFactor: number,
+    workPtr: number,
+  ) => void;
 }
 
 let instance: DitherWasmExports | null = null;
@@ -38,9 +62,14 @@ let loadFailed = false;
  * import means the .wasm is only fetched when this actually runs (the app
  * entry point), so tests that never call it never touch the file. Pass `bytes`
  * to instantiate from memory instead of fetching (used by the node test suite,
- * where `fetch` of the `?url` asset is not available). */
-export function initDitherWasm(bytes?: ArrayBuffer): Promise<void> {
-  if (loadFailed || instance) return Promise.resolve();
+ * where `fetch` of the `?url` asset is not available).
+ *
+ * Resolves `true` when the matcher is usable (instance loaded), `false` when
+ * it is not (load failure latched). The app shows a persistent banner on
+ * `false` so the JS fallback never runs unnoticed. */
+export function initDitherWasm(bytes?: ArrayBuffer): Promise<boolean> {
+  if (instance) return Promise.resolve(true);
+  if (loadFailed) return Promise.resolve(false);
   if (!loadPromise) {
     loadPromise = (async () => {
       let buffer: ArrayBuffer;
@@ -59,12 +88,22 @@ export function initDitherWasm(bytes?: ArrayBuffer): Promise<void> {
       console.warn('WASM palette scan unavailable; using the JS linear scan.', error);
     });
   }
-  return loadPromise;
+  return loadPromise.then(() => instance !== null);
 }
+
+/** Tone parameters for the wasm full-loop dither. Structurally identical to
+ * dither.ts's `toneAdjustParams` result; the caller (dither.ts) derives them
+ * so the single expression never drifts. */
+export type ToneParams = { brightnessOffset: number; contrastFactor: number; saturationFactor: number };
 
 /** A per-dither palette matcher backed by the wasm linear scan. */
 export interface WasmPaletteMatcher {
   match(r: number, g: number, b: number): number;
+  /** Runs the ENTIRE seamless error-diffusion pass in wasm (byte-identical to
+   * dither.ts's `streamDitherSeamless`) and returns the output, or null when
+   * the loaded artifact predates the `dither_seamless` export (the caller
+   * falls back to its JS loop). `tone` comes from `toneAdjustParams`. */
+  seamless(source: ImageData, options: ProcessOptions, tone: ToneParams): ImageData | null;
   dispose(): void;
 }
 
@@ -73,7 +112,7 @@ export interface WasmPaletteMatcher {
  * palette, `weights` the f32 [wr, wg, wb], `count` the palette size. */
 export function createWasmMatcher(flat: Float32Array, weights: Float32Array, count: number): WasmPaletteMatcher | null {
   if (!instance || count <= 0) return null;
-  const { memory, dither_alloc, dither_dealloc, linear_match } = instance;
+  const { memory, dither_alloc, dither_dealloc, linear_match, dither_seamless } = instance;
 
   // Pad the SoA stride to an even element count so every channel base and every
   // pair-load is 16-byte aligned (the wasm uses v128_load).
@@ -106,6 +145,40 @@ export function createWasmMatcher(flat: Float32Array, weights: Float32Array, cou
 
   return {
     match: (r, g, b) => linear_match(rPtr, gPtr, bPtr, wPtr, count, r, g, b),
+    seamless: (source, options, tone) => {
+      if (!dither_seamless) return null;
+      const { width, height } = source;
+      const atkinson = options.mode === 'atkinson';
+      const rowsNeeded = atkinson ? 3 : 2;
+      const gw = width * 3;
+      const bytes = width * height * 4;
+      const workBytes = rowsNeeded * gw * 3 * 4;
+      const inPtr = dither_alloc(bytes);
+      const outPtr = dither_alloc(bytes);
+      const workPtr = dither_alloc(workBytes);
+      if (inPtr === 0 || outPtr === 0 || workPtr === 0) {
+        if (inPtr) dither_dealloc(inPtr, bytes);
+        if (outPtr) dither_dealloc(outPtr, bytes);
+        if (workPtr) dither_dealloc(workPtr, workBytes);
+        return null;
+      }
+      // Read memory.buffer after the LAST alloc: a growing alloc detaches the
+      // old buffer, and the pointers are offsets into the current one.
+      const mem = new Uint8Array(memory.buffer);
+      mem.set(source.data, inPtr);
+      dither_seamless(
+        inPtr, outPtr, rPtr, gPtr, bPtr, wPtr, count,
+        width, height, atkinson ? 1 : 0,
+        options.strength, tone.brightnessOffset, tone.contrastFactor, tone.saturationFactor,
+        workPtr,
+      );
+      const output = new ImageData(new Uint8ClampedArray(bytes), width, height);
+      output.data.set(mem.subarray(outPtr, outPtr + bytes));
+      dither_dealloc(inPtr, bytes);
+      dither_dealloc(outPtr, bytes);
+      dither_dealloc(workPtr, workBytes);
+      return output;
+    },
     dispose: () => dither_dealloc(base, totalBytes),
   };
 }
