@@ -1,7 +1,7 @@
 import { Vector3 } from 'three';
 import type { MeshBVH } from 'three-mesh-bvh';
 import { texelShadingNormal, type SerializedBakeScene } from './aoRaster';
-import { castBakeRay, rasterizeBakeBand } from './bakeGeometry';
+import { blankBakeBuffers, castBakeRay, dilateUVBake, rasterizeBakeBand } from './bakeGeometry';
 import { clamp01, combineLight } from './math';
 import type { BakeWorkerError } from './workerCommon';
 
@@ -120,4 +120,21 @@ export function rasterizeLightmap(
       pixels[pixelOffset + 2] = Math.round(light[2] * 255);
     },
   );
+}
+
+/** The full raster pass every lightmap caller shares — blank buffers, per-
+ * texel lighting, and UV dilation — the trio the sync bake, the GPU path, and
+ * the worker each spelled out. Returns the pixel map plus the written mask
+ * (the caller only needs the mask if it keeps the map). */
+export function rasterizeLightmapFull(
+  visibility: Float32Array,
+  input: SerializedBakeScene,
+  width: number,
+  height: number,
+  options: SerializedLightmapOptions,
+): { pixels: Uint8ClampedArray; written: Uint8Array } {
+  const { pixels, written } = blankBakeBuffers(width, height, 4);
+  rasterizeLightmap(pixels, written, visibility, input, width, height, options);
+  dilateUVBake(pixels, written, width, height, 4);
+  return { pixels, written };
 }

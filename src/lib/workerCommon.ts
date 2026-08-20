@@ -43,3 +43,34 @@ export function postWorkerError(
 ): void {
   scope.postMessage({ type: 'error', jobId, message: error instanceof Error ? error.message : String(error) });
 }
+
+/** Runs one worker job to completion: posts `message` (transferring
+ * `transfer`), resolves with the worker's first posted message, and terminates
+ * the worker. Rejects when the worker errors or posts the shared error wire
+ * shape (`{ type: 'error', ... }`, see `BakeWorkerError`). The AO bake's
+ * banded fan-out orchestrates its workers directly (per-band progress, batch
+ * termination); single-shot callers like the lightmap bake go through here. */
+export function runSingleWorker<TResult extends { type: string }>(
+  worker: Worker,
+  label: string,
+  message: unknown,
+  transfer?: Transferable[],
+): Promise<TResult> {
+  return new Promise((resolve, reject) => {
+    worker.onmessage = (event) => {
+      worker.terminate();
+      const result = event.data as TResult;
+      if (result.type === 'error') {
+        const error = result as unknown as { message?: string };
+        reject(new Error(error.message ?? `${label} worker failed.`));
+      } else {
+        resolve(result);
+      }
+    };
+    worker.onerror = (event) => {
+      worker.terminate();
+      reject(new Error(event.message || `${label} worker failed.`));
+    };
+    worker.postMessage(message, transfer ?? []);
+  });
+}

@@ -89,15 +89,45 @@ export function nearestColor(color: RGB, palette: RGB[]): RGB {
 }
 
 /** Brightness/contrast/saturation tone parameters for `adjustColor` and the
- * dithering hot loops — the loops inline the per-channel blend (no per-pixel
- * allocation) but share the parameter derivation so the expression never
- * drifts. */
+ * dithering hot loops — the loops share the derivation (and the per-channel
+ * blend, via `toneAdjustPixel`) so the expression never drifts. */
 function toneAdjustParams(brightness: number, contrast: number, saturation: number): { brightnessOffset: number; contrastFactor: number; saturationFactor: number } {
   return {
     brightnessOffset: brightness * 2.55,
     contrastFactor: (259 * (contrast + 255)) / (255 * (259 - contrast)),
     saturationFactor: 1 + saturation / 100,
   };
+}
+
+/** Module scratch for `toneAdjustPixel` — the dither hot loops run per pixel,
+ * so the shared result is written here and read immediately (no per-pixel
+ * allocation), the same pattern as the module-level scratch vectors in the
+ * bake rasterizers. `adjustColor` allocates its own target instead. */
+const _toneScratch: RGB = [0, 0, 0];
+
+/** Tone-adjusts one pixel: brightness offset, contrast factor, then the
+ * LUMA-weighted saturation blend, clamped to 0..255. The single source of the
+ * per-channel expression — `adjustColor`, the `ditherImageData` work-buffer
+ * pass, and `streamDitherSeamless`'s initRow all produce identical values
+ * through here. Writes into `out` when given (a fresh tuple for `adjustColor`,
+ * the module scratch for the hot loops) and returns it. */
+function toneAdjustPixel(
+  params: { brightnessOffset: number; contrastFactor: number; saturationFactor: number },
+  r: number,
+  g: number,
+  b: number,
+  out?: RGB,
+): RGB {
+  const target = out ?? _toneScratch;
+  const { brightnessOffset, contrastFactor, saturationFactor } = params;
+  const red = contrastFactor * (r - 128) + 128 + brightnessOffset;
+  const green = contrastFactor * (g - 128) + 128 + brightnessOffset;
+  const blue = contrastFactor * (b - 128) + 128 + brightnessOffset;
+  const gray = red * LUMA.red + green * LUMA.green + blue * LUMA.blue;
+  target[0] = clamp(gray + (red - gray) * saturationFactor, 0, 255);
+  target[1] = clamp(gray + (green - gray) * saturationFactor, 0, 255);
+  target[2] = clamp(gray + (blue - gray) * saturationFactor, 0, 255);
+  return target;
 }
 
 /** LUMA-weighted squared distance between a query color and a candidate.
@@ -112,16 +142,9 @@ function lumaDistanceSquared(r: number, g: number, b: number, cr: number, cg: nu
 }
 
 export function adjustColor(color: RGB, brightness: number, contrast: number, saturation: number): RGB {
-  const { brightnessOffset, contrastFactor, saturationFactor } = toneAdjustParams(brightness, contrast, saturation);
-  const red = contrastFactor * (color[0] - 128) + 128 + brightnessOffset;
-  const green = contrastFactor * (color[1] - 128) + 128 + brightnessOffset;
-  const blue = contrastFactor * (color[2] - 128) + 128 + brightnessOffset;
-  const gray = red * LUMA.red + green * LUMA.green + blue * LUMA.blue;
-  return [
-    clamp(gray + (red - gray) * saturationFactor, 0, 255),
-    clamp(gray + (green - gray) * saturationFactor, 0, 255),
-    clamp(gray + (blue - gray) * saturationFactor, 0, 255),
-  ];
+  const out: RGB = [0, 0, 0];
+  toneAdjustPixel(toneAdjustParams(brightness, contrast, saturation), color[0], color[1], color[2], out);
+  return out;
 }
 
 /** Palettes at or below this size use the linear scan; larger palettes get
@@ -292,7 +315,7 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
   const isHalftone = options.mode === 'halftone';
   const isFloyd = options.mode === 'floyd';
   const isAtkinson = options.mode === 'atkinson';
-  const { brightnessOffset, contrastFactor, saturationFactor } = toneAdjustParams(options.brightness, options.contrast, options.saturation);
+  const tone = toneAdjustParams(options.brightness, options.contrast, options.saturation);
 
   // Halftone splits color from shading: the base is the palette hard-map of
   // the adjusted color and the dot screen carries the shading, so no ink/paper
@@ -300,14 +323,11 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
 
   for (let pixel = 0; pixel < width * height; pixel += 1) {
     const index = pixel * 4;
-    let ar = contrastFactor * (data[index] - 128) + 128 + brightnessOffset;
-    let ag = contrastFactor * (data[index + 1] - 128) + 128 + brightnessOffset;
-    let ab = contrastFactor * (data[index + 2] - 128) + 128 + brightnessOffset;
-    const gray = ar * LUMA.red + ag * LUMA.green + ab * LUMA.blue;
+    const adjusted = toneAdjustPixel(tone, data[index], data[index + 1], data[index + 2]);
     const w = pixel * 3;
-    work[w] = clamp(gray + (ar - gray) * saturationFactor, 0, 255);
-    work[w + 1] = clamp(gray + (ag - gray) * saturationFactor, 0, 255);
-    work[w + 2] = clamp(gray + (ab - gray) * saturationFactor, 0, 255);
+    work[w] = adjusted[0];
+    work[w + 1] = adjusted[1];
+    work[w + 2] = adjusted[2];
   }
 
   const spread = (x: number, y: number, er: number, eg: number, eb: number, factor: number): void => {
@@ -447,7 +467,7 @@ function streamDitherSeamless(source: ImageData, options: ProcessOptions): Image
   const wasmMatcher = createWasmMatcher(matcher.flat, matcher.weights, matcher.count);
 
   const strength = options.strength;
-  const { brightnessOffset, contrastFactor, saturationFactor } = toneAdjustParams(options.brightness, options.contrast, options.saturation);
+  const tone = toneAdjustParams(options.brightness, options.contrast, options.saturation);
 
   /** Writes the tone-adjusted colors of virtual grid row `py` into `slot`.
    * Runs one row ahead of the scan so every slot the diffusion touches is
@@ -458,17 +478,11 @@ function streamDitherSeamless(source: ImageData, options: ProcessOptions): Image
     const base = slot * gridWidth * 3;
     for (let px = 0; px < gridWidth; px += 1) {
       const s = srcRow + (px % width) * 4;
-      let ar = contrastFactor * (src[s] - 128) + 128 + brightnessOffset;
-      let ag = contrastFactor * (src[s + 1] - 128) + 128 + brightnessOffset;
-      let ab = contrastFactor * (src[s + 2] - 128) + 128 + brightnessOffset;
-      const gray = ar * LUMA.red + ag * LUMA.green + ab * LUMA.blue;
-      ar = clamp(gray + (ar - gray) * saturationFactor, 0, 255);
-      ag = clamp(gray + (ag - gray) * saturationFactor, 0, 255);
-      ab = clamp(gray + (ab - gray) * saturationFactor, 0, 255);
+      const adjusted = toneAdjustPixel(tone, src[s], src[s + 1], src[s + 2]);
       const w = base + px * 3;
-      work[w] = ar;
-      work[w + 1] = ag;
-      work[w + 2] = ab;
+      work[w] = adjusted[0];
+      work[w + 1] = adjusted[1];
+      work[w + 2] = adjusted[2];
     }
   };
 

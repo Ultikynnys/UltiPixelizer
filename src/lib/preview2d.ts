@@ -1,5 +1,5 @@
 import { computeContainRect } from './canvas';
-import { clamp } from './math';
+import { clamp, clampPixelCoord } from './math';
 
 /**
  * Interactive 2D texture preview for one pane: pan/zoom over the fitted
@@ -233,8 +233,8 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
     const u = (clientX - frameRect.left - corner.left - panX) / (scale * rect.width);
     const v = (clientY - frameRect.top - corner.top - panY) / (scale * rect.height);
     if (u < 0 || u >= 1 || v < 0 || v >= 1) return null;
-    const x = Math.min(canvas.width - 1, Math.max(0, Math.floor(u * canvas.width)));
-    const y = Math.min(canvas.height - 1, Math.max(0, Math.floor(v * canvas.height)));
+    const x = clampPixelCoord(u * canvas.width, canvas.width);
+    const y = clampPixelCoord(v * canvas.height, canvas.height);
     return { x, y };
   }
 

@@ -1,5 +1,5 @@
 import { imagePixels, type PixelSource } from './canvas';
-import { clamp01 } from './math';
+import { clamp01, clampPixelCoord } from './math';
 
 export type NormalFormat = 'opengl' | 'directx';
 
@@ -37,12 +37,19 @@ export function normalMapPayload(options: {
  * convention difference between OpenGL (+Y) and DirectX (-Y) is only applied at
  * decode time via the `flipY` flag.
  */
-export function imageNormalMapPixels(image: CanvasImageSource & { width: number; height: number }): NormalMapSource {
+/** Extracts an image's RGBA pixels at native resolution — the shared reader
+ * behind the normal-map and heightmap extractors (both wrap the same
+ * `PixelSource` shape). */
+function nativeSizePixels(image: CanvasImageSource & { width: number; height: number }): PixelSource {
   return {
     data: imagePixels(image, image.width, image.height),
     width: image.width,
     height: image.height,
   };
+}
+
+export function imageNormalMapPixels(image: CanvasImageSource & { width: number; height: number }): NormalMapSource {
+  return nativeSizePixels(image);
 }
 
 /**
@@ -56,6 +63,18 @@ export function imageNormalMapPixels(image: CanvasImageSource & { width: number;
  *
  * Returns a unit-length tangent-space normal.
  */
+/** Shared UV→pixel lookup for the samplers: clamps UV to [0, 1], flips `v` to
+ * image space, and returns the RGBA byte offset of the nearest texel. Both
+ * `sampleNormalMap` and `sampleHeightmap` sample through here so the two
+ * decodes share one coordinate convention and can't drift. */
+function samplePixelOffset(source: PixelSource, u: number, v: number): number {
+  const ux = Math.min(Math.max(u, 0), 1) * source.width - 0.5;
+  const vy = (1 - Math.min(Math.max(v, 0), 1)) * source.height - 0.5;
+  const px = clampPixelCoord(ux, source.width);
+  const py = clampPixelCoord(vy, source.height);
+  return (py * source.width + px) * 4;
+}
+
 export function sampleNormalMap(
   source: NormalMapSource,
   u: number,
@@ -63,11 +82,7 @@ export function sampleNormalMap(
   strength: number,
   flipY: boolean,
 ): [number, number, number] {
-  const ux = Math.min(Math.max(u, 0), 1) * source.width - 0.5;
-  const vy = (1 - Math.min(Math.max(v, 0), 1)) * source.height - 0.5;
-  const px = Math.min(source.width - 1, Math.max(0, Math.floor(ux)));
-  const py = Math.min(source.height - 1, Math.max(0, Math.floor(vy)));
-  const offset = (py * source.width + px) * 4;
+  const offset = samplePixelOffset(source, u, v);
   let nx = source.data[offset] / 127.5 - 1;
   let ny = source.data[offset + 1] / 127.5 - 1;
   if (flipY) ny = -ny;
@@ -85,11 +100,7 @@ export type HeightmapSource = PixelSource;
  * just that channel.
  */
 export function imageHeightmapPixels(image: CanvasImageSource & { width: number; height: number }): HeightmapSource {
-  return {
-    data: imagePixels(image, image.width, image.height),
-    width: image.width,
-    height: image.height,
-  };
+  return nativeSizePixels(image);
 }
 
 /**
@@ -99,10 +110,5 @@ export function imageHeightmapPixels(image: CanvasImageSource & { width: number;
  * matching `sampleNormalMap` and the lightmap bake.
  */
 export function sampleHeightmap(source: HeightmapSource, u: number, v: number): number {
-  const ux = Math.min(Math.max(u, 0), 1) * source.width - 0.5;
-  const vy = (1 - Math.min(Math.max(v, 0), 1)) * source.height - 0.5;
-  const px = Math.min(source.width - 1, Math.max(0, Math.floor(ux)));
-  const py = Math.min(source.height - 1, Math.max(0, Math.floor(vy)));
-  const offset = (py * source.width + px) * 4;
-  return source.data[offset] / 255;
+  return source.data[samplePixelOffset(source, u, v)] / 255;
 }

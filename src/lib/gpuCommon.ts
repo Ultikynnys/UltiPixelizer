@@ -255,6 +255,22 @@ export type ComputePassSpec = {
   workgroupSize?: number;
 };
 
+/** Compiles a WGSL module, throwing `${label} WGSL compile error` with the
+ * first diagnostic on failure. Shared by `runComputePass` and the dither
+ * pipeline cache so the compile-error convention (and message shape) stays in
+ * one place. */
+export async function compileShaderModule(device: GPUDevice, code: string, label: string): Promise<GPUShaderModule> {
+  const module = device.createShaderModule({ code });
+  const compilationInfo = await module.getCompilationInfo();
+  const compileErrors = compilationInfo.messages.filter((message) => message.type === 'error');
+  if (compileErrors.length > 0) {
+    const first = compileErrors[0];
+    const at = first.lineNum !== 0 ? ` (line ${first.lineNum}, column ${first.linePos})` : '';
+    throw new Error(`${label} WGSL compile error: ${first.message}${at}`);
+  }
+  return module;
+}
+
 /** Runs one full WebGPU compute pass and returns the output as a fresh
  * `Float32Array` of `count` f32s: uploads the data bindings, creates the
  * bind-group layout + group, compiles the shader (throwing `${label} WGSL
@@ -292,14 +308,7 @@ export async function runComputePass(spec: ComputePassSpec): Promise<Float32Arra
   const bindGroupLayout = device.createBindGroupLayout({ entries: layoutEntries });
   const bindGroup = device.createBindGroup({ layout: bindGroupLayout, entries: groupEntries });
 
-  const shaderModule = device.createShaderModule({ code: shader });
-  const compilationInfo = await shaderModule.getCompilationInfo();
-  const compileErrors = compilationInfo.messages.filter((message) => message.type === 'error');
-  if (compileErrors.length > 0) {
-    const first = compileErrors[0];
-    const at = first.lineNum !== 0 ? ` (line ${first.lineNum}, column ${first.linePos})` : '';
-    throw new Error(`${label} WGSL compile error: ${first.message}${at}`);
-  }
+  const shaderModule = await compileShaderModule(device, shader, label);
 
   device.pushErrorScope('validation');
   const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });

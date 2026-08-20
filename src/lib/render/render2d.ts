@@ -4,6 +4,7 @@ import { processImageData, type ProcessOptions } from '../dither';
 import { webgpuUsable } from '../gpuCommon';
 import { gpuDitherCovers, processImageDataAsync } from '../gpuDither';
 import { applyLightmap } from '../lightmap';
+import { createBoundedLru } from '../lru';
 import { LUMA } from '../math';
 import type { PreviewViewMode, SourceImage } from '../state';
 import type { RendererDeps, RenderShared } from './types';
@@ -11,6 +12,18 @@ import type { RendererDeps, RenderShared } from './types';
 export interface Render2DApi {
   render: () => Promise<void>;
   applyViewportImages: () => void;
+}
+
+/** Draws the repeat-tiled display for the image-repeat diagnostic: `repeat²`
+ * copies of `source` at `width`×`height` each. The processed and original
+ * panes tile independently (each with its own repeat factor) — one helper so
+ * the two loops can't drift. */
+function drawTiled(context: CanvasRenderingContext2D, source: CanvasImageSource, width: number, height: number, repeat: number): void {
+  for (let ty = 0; ty < repeat; ty += 1) {
+    for (let tx = 0; tx < repeat; tx += 1) {
+      context.drawImage(source, tx * width, ty * height);
+    }
+  }
 }
 
 export function createRender2D(deps: RendererDeps, shared: RenderShared): Render2DApi {
@@ -38,10 +51,10 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
    * strength back) skips the dither entirely. The input bytes are stored
    * alongside the output and byte-compared on hit, so any input change (AO /
    * lightmap re-bake, new base texture, resolution change) refreshes the
-   * entry instead of returning stale output. Bounded LRU over the options
-   * key, following the fallbackQuadCache pattern in modelScene.ts. */
+   * entry instead of returning stale output. Bounded LRU over the options key
+   * (shared factory with the fallback-quad cache, see lru.ts). */
   const DITHER_CACHE_MAX = 3;
-  const ditherCache = new Map<string, { input: Uint8ClampedArray; output: ImageData }>();
+  const ditherCache = createBoundedLru<string, { input: Uint8ClampedArray; output: ImageData }>(DITHER_CACHE_MAX);
 
   /** Cache key for the dither options: everything that changes the output
    * besides the input pixels. Slider values are discrete state, so String()
@@ -65,9 +78,6 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
   function storeDither(key: string, input: Uint8ClampedArray, output: ImageData): void {
     ditherCache.delete(key);
     ditherCache.set(key, { input, output });
-    while (ditherCache.size > DITHER_CACHE_MAX) {
-      ditherCache.delete(ditherCache.keys().next().value as string);
-    }
   }
 
   /** Cache-aware dither for synchronous computes: returns the cached result
@@ -308,13 +318,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     // layout never moves, and the grid overflows until the user scrolls out.
     previewCanvas.classList.toggle('repeat-tiled', repeatProcessed === 3);
     const previewContext = previewCanvas.getContext('2d');
-    if (previewContext) {
-      for (let ty = 0; ty < repeatProcessed; ty += 1) {
-        for (let tx = 0; tx < repeatProcessed; tx += 1) {
-          previewContext.drawImage(shared.renderedCanvas, tx * width, ty * height);
-        }
-      }
-    }
+    if (previewContext) drawTiled(previewContext, shared.renderedCanvas, width, height, repeatProcessed);
 
     // Original pane shows its chosen source at native resolution — the pixel
     // grid slider must not affect it.
@@ -327,13 +331,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     originalCanvas.height = originalSource.height * repeatOriginal;
     originalCanvas.classList.toggle('repeat-tiled', repeatOriginal === 3);
     const originalContext = originalCanvas.getContext('2d');
-    if (originalContext) {
-      for (let ty = 0; ty < repeatOriginal; ty += 1) {
-        for (let tx = 0; tx < repeatOriginal; tx += 1) {
-          originalContext.drawImage(litSourceNative, tx * originalSource.width, ty * originalSource.height);
-        }
-      }
-    }
+    if (originalContext) drawTiled(originalContext, litSourceNative, originalSource.width, originalSource.height, repeatOriginal);
 
     // The UV wireframe is drawn on display-resolution overlay canvases
     // (overlay.syncWireframeOverlays) — never into the low-res texture

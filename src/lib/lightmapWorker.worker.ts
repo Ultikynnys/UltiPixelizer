@@ -1,5 +1,4 @@
-import { blankBakeBuffers, dilateUVBake } from './bakeGeometry';
-import { computeSunVisibilityCpu, rasterizeLightmap, type LightmapBakeError, type LightmapBakeRequest, type LightmapBakeResult } from './lightmapRaster';
+import { computeSunVisibilityCpu, rasterizeLightmapFull, type LightmapBakeError, type LightmapBakeRequest, type LightmapBakeResult } from './lightmapRaster';
 import { createWorkerScope, deserializeBakeBvh, postWorkerError } from './workerCommon';
 
 /**
@@ -26,9 +25,7 @@ workerScope.addEventListener('message', (event) => {
     // in the worker (the serialized roots are byte-identical to a fresh build).
     const bvh = deserializeBakeBvh(request);
     const visibility = computeSunVisibilityCpu(request, bvh, request.options.sunDirection, request.options.sunIntensity);
-    const { pixels, written } = blankBakeBuffers(width, height, 4);
-    rasterizeLightmap(pixels, written, visibility, request, width, height, request.options);
-    dilateUVBake(pixels, written, width, height, 4);
+    const { pixels } = rasterizeLightmapFull(visibility, request, width, height, request.options);
     workerScope.postMessage({ type: 'result', jobId, pixels }, [pixels.buffer as ArrayBuffer]);
   } catch (error) {
     postWorkerError(workerScope, jobId, error);

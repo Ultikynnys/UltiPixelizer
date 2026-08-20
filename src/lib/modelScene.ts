@@ -24,8 +24,9 @@ import {
   type NormalMapTypes,
 } from 'three';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
-import { pixelsToCanvas } from './canvas';
+import { flipRowsVertically, pixelsToCanvas } from './canvas';
 import { DEFAULT_SMOOTH_ANGLE } from './defaults';
+import { createBoundedLru } from './lru';
 
 const uvPattern = /^uv(\d*)$/;
 
@@ -484,21 +485,18 @@ export function createFallbackQuadScene(tessellation = 1, grid = false): Object3
  * Evicted scenes are simply dropped (no dispose) — they were never handed to
  * the WebGL renderer, so their GPU buffers are released with them. */
 const FALLBACK_QUAD_CACHE_SIZE = 4;
-const fallbackQuadCache = new Map<string, Object3D>();
+const fallbackQuadCache = createBoundedLru<string, Object3D>(FALLBACK_QUAD_CACHE_SIZE);
 export function getFallbackQuadScene(tessellation: number, grid: boolean): Object3D {
   const key = `${tessellation}:${grid ? 'grid' : 'tile'}`;
   const cached = fallbackQuadCache.get(key);
   if (cached) {
-    // Bump recency — delete + re-set moves the entry to the Map's tail.
+    // Bump recency — delete + re-set moves the entry to the map's tail.
     fallbackQuadCache.delete(key);
     fallbackQuadCache.set(key, cached);
     return cached;
   }
   const created = createFallbackQuadScene(tessellation, grid);
   fallbackQuadCache.set(key, created);
-  if (fallbackQuadCache.size > FALLBACK_QUAD_CACHE_SIZE) {
-    fallbackQuadCache.delete(fallbackQuadCache.keys().next().value as string);
-  }
   return created;
 }
 
@@ -636,10 +634,8 @@ export function renderModelThumbnail(model: Object3D, size = 40): HTMLCanvasElem
   const raw = new Uint8Array(size * size * 4);
   gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, raw);
   const pixels = new Uint8ClampedArray(raw.buffer);
-  const flipped = new Uint8ClampedArray(size * size * 4);
-  const rowBytes = size * 4;
-  for (let y = 0; y < size; y += 1) {
-    flipped.set(pixels.subarray(y * rowBytes, (y + 1) * rowBytes), (size - 1 - y) * rowBytes);
-  }
+  // readPixels is bottom-up, so flip the copy to match the DOM's top-left.
+  const flipped = new Uint8ClampedArray(pixels);
+  flipRowsVertically(flipped, size, size);
   return pixelsToCanvas(flipped, size, size);
 }

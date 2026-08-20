@@ -1,5 +1,5 @@
 import { processImageData, type ProcessOptions } from './dither';
-import { assertAsciiWgsl, getGpuDevice } from './gpuCommon';
+import { assertAsciiWgsl, compileShaderModule, getGpuDevice } from './gpuCommon';
 import { LUMA } from './math';
 import { hexToRgb } from './palettes';
 
@@ -305,13 +305,7 @@ async function getDitherPipelines(device: GPUDevice): Promise<DitherPipelines> {
       buffer: { type: binding === 0 ? 'uniform' : binding === 3 || binding === 4 || binding === 5 ? 'storage' : 'read-only-storage' },
     })),
   });
-  const module = device.createShaderModule({ code: DITHER_WGSL });
-  const compilationInfo = await module.getCompilationInfo();
-  const compileErrors = compilationInfo.messages.filter((message) => message.type === 'error');
-  if (compileErrors.length > 0) {
-    const first = compileErrors[0];
-    throw new Error(`dither WGSL compile error: ${first.message} (line ${first.lineNum}, column ${first.linePos})`);
-  }
+  const module = await compileShaderModule(device, DITHER_WGSL, 'dither');
   const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
   cachedPipelines = {
     layout,

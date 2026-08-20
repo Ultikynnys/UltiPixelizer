@@ -328,6 +328,47 @@ function rayBoxIntersects(ray: Ray, box: Box3, near: number, far: number): boole
  * `rasterizeBakeBand` (band-clipped, progress-aware); both share one
  * barycentric core.
  */
+/** Shared barycentric core for the two UV rasterizers: clips the triangle's
+ * screen-space bbox to `[0, width − 1] × [yStart, yEnd − 1]`, tests the
+ * denominator, and invokes `perPixel` for every pixel whose center falls
+ * inside the triangle. `onRow` fires once per visited row (before its pixels)
+ * so the band rasterizer can track progress. Both `rasterizeBake` and
+ * `rasterizeBakeBand` funnel through here, so the UV-overlap detector and
+ * every bake raster share one bbox clamp and one w0/w1/w2 expression and
+ * can't drift. */
+function rasterizeTrianglePixels(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+  width: number,
+  yStart: number,
+  yEnd: number,
+  perPixel: (px: number, py: number, w0: number, w1: number, w2: number) => void,
+  onRow?: (py: number) => void,
+): void {
+  const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
+  const maxX = Math.min(width - 1, Math.ceil(Math.max(ax, bx, cx)));
+  const minY = Math.max(yStart, Math.floor(Math.min(ay, by, cy)));
+  const maxY = Math.min(yEnd - 1, Math.ceil(Math.max(ay, by, cy)));
+  const denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+  if (denominator === 0) return;
+  for (let py = minY; py <= maxY; py += 1) {
+    onRow?.(py);
+    for (let px = minX; px <= maxX; px += 1) {
+      const x = px + 0.5;
+      const y = py + 0.5;
+      const w0 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / denominator;
+      const w1 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denominator;
+      const w2 = 1 - w0 - w1;
+      if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+      perPixel(px, py, w0, w1, w2);
+    }
+  }
+}
+
 export function rasterizeBake<T extends { uv: [UvPair, UvPair, UvPair] }>(
   width: number,
   height: number,
@@ -337,31 +378,18 @@ export function rasterizeBake<T extends { uv: [UvPair, UvPair, UvPair] }>(
   for (let triangleIndex = 0; triangleIndex < triangles.length; triangleIndex += 1) {
     const triangle = triangles[triangleIndex];
     const [uva, uvb, uvc] = triangle.uv;
-    const ax = uva[0] * width;
-    const ay = (1 - uva[1]) * height;
-    const bx = uvb[0] * width;
-    const by = (1 - uvb[1]) * height;
-    const cx = uvc[0] * width;
-    const cy = (1 - uvc[1]) * height;
-
-    const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
-    const maxX = Math.min(width - 1, Math.ceil(Math.max(ax, bx, cx)));
-    const minY = Math.max(0, Math.floor(Math.min(ay, by, cy)));
-    const maxY = Math.min(height - 1, Math.ceil(Math.max(ay, by, cy)));
-    const denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
-    if (denominator === 0) continue;
-
-    for (let py = minY; py <= maxY; py += 1) {
-      for (let px = minX; px <= maxX; px += 1) {
-        const x = px + 0.5;
-        const y = py + 0.5;
-        const w0 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / denominator;
-        const w1 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denominator;
-        const w2 = 1 - w0 - w1;
-        if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-        writePixel(px, py, w0, w1, w2, triangle, triangleIndex);
-      }
-    }
+    rasterizeTrianglePixels(
+      uva[0] * width,
+      (1 - uva[1]) * height,
+      uvb[0] * width,
+      (1 - uvb[1]) * height,
+      uvc[0] * width,
+      (1 - uvc[1]) * height,
+      width,
+      0,
+      height,
+      (px, py, w0, w1, w2) => writePixel(px, py, w0, w1, w2, triangle, triangleIndex),
+    );
   }
 }
 
@@ -418,50 +446,41 @@ export function rasterizeBakeBand(
     onRowsComplete(rowsDone);
   };
 
+  const onRow = onRowsComplete
+    ? (py: number): void => {
+        const touched = rowTouched;
+        if (!touched) return;
+        const bandRow = py - yStart;
+        if (touched[bandRow]) return;
+        touched[bandRow] = 1;
+        rowsDone += 1;
+        reportProgress();
+      }
+    : undefined;
+
   for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex += 1) {
     const uvOffset = triangleIndex * 6;
-    const ax = triangleUVs[uvOffset] * width;
-    const ay = (1 - triangleUVs[uvOffset + 1]) * height;
-    const bx = triangleUVs[uvOffset + 2] * width;
-    const by = (1 - triangleUVs[uvOffset + 3]) * height;
-    const cx = triangleUVs[uvOffset + 4] * width;
-    const cy = (1 - triangleUVs[uvOffset + 5]) * height;
-
-    // Clip the triangle's UV bbox to both the canvas and this row band.
-    const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
-    const maxX = Math.min(width - 1, Math.ceil(Math.max(ax, bx, cx)));
-    const minY = Math.max(yStart, Math.floor(Math.min(ay, by, cy)));
-    const maxY = Math.min(yEnd - 1, Math.ceil(Math.max(ay, by, cy)));
-    const denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
-    if (denominator === 0) continue;
-
     const vertOffset = triangleIndex * 3;
     const v0 = triangleVerts[vertOffset] * 6;
     const v1 = triangleVerts[vertOffset + 1] * 6;
     const v2 = triangleVerts[vertOffset + 2] * 6;
-
-    for (let py = minY; py <= maxY; py += 1) {
-      if (rowTouched) {
-        const bandRow = py - yStart;
-        if (!rowTouched[bandRow]) {
-          rowTouched[bandRow] = 1;
-          rowsDone += 1;
-          reportProgress();
-        }
-      }
-      const rowOffset = (py - yStart) * width;
-      for (let px = minX; px <= maxX; px += 1) {
-        const x = px + 0.5;
-        const y = py + 0.5;
-        const w0 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / denominator;
-        const w1 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denominator;
-        const w2 = 1 - w0 - w1;
-        if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-        const index = rowOffset + px;
+    rasterizeTrianglePixels(
+      triangleUVs[uvOffset] * width,
+      (1 - triangleUVs[uvOffset + 1]) * height,
+      triangleUVs[uvOffset + 2] * width,
+      (1 - triangleUVs[uvOffset + 3]) * height,
+      triangleUVs[uvOffset + 4] * width,
+      (1 - triangleUVs[uvOffset + 5]) * height,
+      width,
+      yStart,
+      yEnd,
+      (px, py, w0, w1, w2) => {
+        const index = (py - yStart) * width + px;
         written[index] = 1;
         perTexel(px, py, w0, w1, w2, index, triangleIndex, uvOffset, vertOffset, v0, v1, v2);
-      }
-    }
+      },
+      onRow,
+    );
   }
   if (onRowsComplete && rowsDone > lastReported) onRowsComplete(rowsDone);
 }

@@ -16,6 +16,13 @@ export function clamp01(value: number): number {
   return clamp(value, 0, 1);
 }
 
+/** Clamps a floating pixel coordinate into a valid index for a `size`-sized
+ * pixel buffer: floored, then bounded to [0, size − 1]. Shared by the texture
+ * samplers (normal.ts), the 2D preview, and the eyedropper coordinate maps. */
+export function clampPixelCoord(value: number, size: number): number {
+  return Math.min(size - 1, Math.max(0, Math.floor(value)));
+}
+
 /**
  * Combines ambient and directional illumination additively. Each term is clamped
  * to [0, 1] before summing; a sun intensity above 1 overexposes, saturating the

@@ -1,3 +1,4 @@
+import { clampPixelCoord } from './math';
 import { rgbToHex } from './palettes';
 
 /**
@@ -50,8 +51,8 @@ export function canvasPixelCoords(canvas: HTMLCanvasElement, clientX: number, cl
     top = (rect.height - drawHeight) / 2;
   }
   if (localX < left || localX >= left + drawWidth || localY < top || localY >= top + drawHeight) return null;
-  const x = Math.min(canvas.width - 1, Math.max(0, Math.floor(((localX - left) / drawWidth) * canvas.width)));
-  const y = Math.min(canvas.height - 1, Math.max(0, Math.floor(((localY - top) / drawHeight) * canvas.height)));
+  const x = clampPixelCoord(((localX - left) / drawWidth) * canvas.width, canvas.width);
+  const y = clampPixelCoord(((localY - top) / drawHeight) * canvas.height, canvas.height);
   return { x, y };
 }
 

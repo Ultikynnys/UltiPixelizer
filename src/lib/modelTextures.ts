@@ -1,5 +1,5 @@
 import { Material, Mesh, Object3D, Texture } from 'three';
-import { drawImageToCanvas } from './canvas';
+import { drawImageToCanvas, flipRowsVertically } from './canvas';
 import { materialsOf } from './modelScene';
 import type { SourceImage } from './state';
 
@@ -45,15 +45,7 @@ export function textureSourceImage(texture: Texture): SourceImage | null {
 
 function flipCanvasVertically(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D): void {
   const data = context.getImageData(0, 0, canvas.width, canvas.height);
-  const rowBytes = canvas.width * 4;
-  const row = new Uint8ClampedArray(rowBytes);
-  for (let y = 0; y < Math.floor(canvas.height / 2); y += 1) {
-    const top = y * rowBytes;
-    const bottom = (canvas.height - 1 - y) * rowBytes;
-    row.set(data.data.subarray(top, top + rowBytes));
-    data.data.copyWithin(top, bottom, bottom + rowBytes);
-    data.data.set(row, bottom);
-  }
+  flipRowsVertically(data.data, canvas.width, canvas.height);
   context.putImageData(data, 0, 0);
 }
 

@@ -114,6 +114,22 @@ export function pixelsToCanvas(pixels: Uint8ClampedArray, width: number, height:
   return canvas;
 }
 
+/** Flips an RGBA pixel buffer's rows vertically in place (bottom row becomes
+ * top): converts GL bottom-up readPixels output and restores glTF texture
+ * orientation. Shared by the WebGL thumbnail reader (modelScene) and the
+ * glTF texture flip (modelTextures). */
+export function flipRowsVertically(pixels: Uint8ClampedArray, width: number, height: number): void {
+  const rowBytes = width * 4;
+  const row = new Uint8ClampedArray(rowBytes);
+  for (let y = 0; y < Math.floor(height / 2); y += 1) {
+    const top = y * rowBytes;
+    const bottom = (height - 1 - y) * rowBytes;
+    row.set(pixels.subarray(top, top + rowBytes));
+    pixels.copyWithin(top, bottom, bottom + rowBytes);
+    pixels.set(row, bottom);
+  }
+}
+
 /** Expands a single-channel factor array into a grayscale RGBA canvas. Pass an
  * optional `fill` callback to control the written value per pixel; returning
  * null leaves the pixel transparent (used for binary mask overlays). */
