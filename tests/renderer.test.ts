@@ -37,8 +37,9 @@ describe('createRenderer wiring', () => {
     api.scheduleNormalAdjustedLighting();
     api.refreshUVWireframe();
     api.refreshUVOverlap();
-    // The clear-pass still runs even with the overlap view disabled.
-    expect(deps.forEachViewport).toHaveBeenCalledOnce();
+    // Even with the overlap view disabled, both panes' viewports get cleared.
+    expect(deps.getOriginalViewport).toHaveBeenCalled();
+    expect(deps.getProcessedViewport).toHaveBeenCalled();
 
     api.resetPreview();
     expect(deps.renderTextureRibbon).toHaveBeenCalled();

@@ -24,10 +24,11 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
     originalCanvas,
     previewCanvas,
     wireframeOverlays,
-    forEachViewport,
     getAOScene,
     getOriginalPreviewMode,
     getProcessedPreviewMode,
+    getOriginalViewport,
+    getProcessedViewport,
   } = deps;
   const { original: originalWireframeOverlay, processed: processedWireframeOverlay } = wireframeOverlays;
 
@@ -39,8 +40,10 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
   // Last-computed overlap context. The mask depends only on the scene's UVs
   // (model, UV channel, LOD, world axis) and the mask resolution — both stable
   // across basecolor swaps and ribbon refreshes — so a warm cache skips the
-  // ~150ms per-triangle re-rasterization on a 60k-tri model.
-  let uvOverlapCache: { scene: Object3D | null; width: number; height: number } | null = null;
+  // ~150ms per-triangle re-rasterization on a 60k-tri model. The overlap map
+  // is retained alongside so a cache hit can re-apply the per-pane viewport
+  // highlights after a toggle flip.
+  let uvOverlapCache: { scene: Object3D | null; width: number; height: number; overlapping: Map<number, number[]> } | null = null;
 
   function uvOverlapResolution(source: SourceImage): { width: number; height: number } {
     const maxDimension = Math.max(source.width, source.height);
@@ -61,11 +64,20 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
     syncWireframeOverlays();
   }
 
+  /** Applies the overlap highlight to each 3D viewport independently: a pane's
+   * viewport shows the highlight only while that pane's own toggle is on, so
+   * the two windows stay decoupled. The mask content is shared (both panes
+   * render the same model UVs), but visibility follows each pane's toggle. */
+  function setViewportOverlap(overlapping: Map<number, number[]> | null): void {
+    getOriginalViewport()?.setUVOverlap(state.showUVOverlapOriginal ? overlapping : null);
+    getProcessedViewport()?.setUVOverlap(state.showUVOverlapProcessed ? overlapping : null);
+  }
+
   function refreshUVOverlap(): void {
     const scene = getAOScene();
     if ((!state.showUVOverlapOriginal && !state.showUVOverlapProcessed) || !scene) {
       uvOverlapMaskCanvas = null;
-      forEachViewport((viewport) => viewport.setUVOverlap(null));
+      setViewportOverlap(null);
       refreshUVWireframe();
       stopUVOverlayAnimation();
       return;
@@ -80,17 +92,19 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
     // mask is missing; the cached entry still saves the re-rasterization in
     // the common warm case (same scene and resolution).
     if (uvOverlapMaskCanvas && uvOverlapCache && uvOverlapCache.scene === scene && uvOverlapCache.width === width && uvOverlapCache.height === height) {
-      // Nothing changed — the mask canvas and 3D highlight are still valid.
-      // Just resume the animation if a toggle-off earlier stopped it.
+      // The mask is still valid, but the per-pane toggles may have changed
+      // since the last refresh — re-apply each viewport's highlight so only
+      // the pane(s) whose toggle is on show it.
+      setViewportOverlap(uvOverlapCache.overlapping);
       startUVOverlayAnimation();
       return;
     }
-    uvOverlapCache = { scene, width, height };
+    uvOverlapCache = null;
     uvOverlapMaskCanvas = null;
-    forEachViewport((viewport) => viewport.setUVOverlap(null));
     const result = computeUVOverlap(scene, width, height);
+    uvOverlapCache = { scene, width, height, overlapping: result.overlapping };
     uvOverlapMaskCanvas = uvOverlapMask(result.counts, width, height);
-    forEachViewport((viewport) => viewport.setUVOverlap(result.overlapping));
+    setViewportOverlap(result.overlapping);
     startUVOverlayAnimation();
   }
 

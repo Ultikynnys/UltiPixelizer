@@ -185,20 +185,22 @@ describe('UV wireframe', () => {
 
 describe('UV overlap overlay', () => {
   it('computes the overlap mask, notifies viewports, and animates', () => {
-    const viewport = { setUVOverlap: vi.fn() };
+    const originalViewport = { setUVOverlap: vi.fn() };
+    const processedViewport = { setUVOverlap: vi.fn() };
     const { deps, overlay } = setup({
       getAOScene: () => overlappingScene(),
-      forEachViewport: (callback) => callback(viewport as unknown as ModelViewport),
+      getOriginalViewport: () => originalViewport as unknown as ModelViewport,
+      getProcessedViewport: () => processedViewport as unknown as ModelViewport,
     });
     deps.state.showUVOverlapOriginal = true;
     deps.state.showUVOverlapProcessed = true;
     deps.textures.base.image = baseImage();
 
     overlay.refreshUVOverlap();
-    // First pass clears every viewport, second pass hands out the overlap map.
-    expect(viewport.setUVOverlap).toHaveBeenCalledTimes(2);
-    expect(viewport.setUVOverlap.mock.calls[0][0]).toBeNull();
-    const overlapping = viewport.setUVOverlap.mock.calls[1][0] as Map<number, number[]>;
+    // Each pane's viewport receives the overlap map (both toggles on).
+    expect(originalViewport.setUVOverlap).toHaveBeenCalledTimes(1);
+    expect(processedViewport.setUVOverlap).toHaveBeenCalledTimes(1);
+    const overlapping = originalViewport.setUVOverlap.mock.calls[0][0] as Map<number, number[]>;
     expect(overlapping.get(0)).toEqual([0]);
     expect(rafCount()).toBe(1);
 
@@ -211,10 +213,12 @@ describe('UV overlap overlay', () => {
 
   it('re-shows the overlay after a toggle-off/toggle-on cycle', () => {
     const scene = overlappingScene(); // stable identity — the cache key
-    const viewport = { setUVOverlap: vi.fn() };
+    const originalViewport = { setUVOverlap: vi.fn() };
+    const processedViewport = { setUVOverlap: vi.fn() };
     const { deps, overlay } = setup({
       getAOScene: () => scene,
-      forEachViewport: (callback) => callback(viewport as unknown as ModelViewport),
+      getOriginalViewport: () => originalViewport as unknown as ModelViewport,
+      getProcessedViewport: () => processedViewport as unknown as ModelViewport,
     });
     deps.state.showUVOverlapOriginal = true;
     deps.state.showUVOverlapProcessed = true;
@@ -224,16 +228,15 @@ describe('UV overlap overlay', () => {
     overlay.refreshUVOverlap();
     flushRaf(500);
     const drawsAfterFirstCycle = deps.originalCanvas.context.drawn.length;
-    const viewportCallsAfterFirstCycle = viewport.setUVOverlap.mock.calls.length; // clear + map
     expect(drawsAfterFirstCycle).toBeGreaterThan(0);
-    expect(viewportCallsAfterFirstCycle).toBe(2);
+    expect(originalViewport.setUVOverlap).toHaveBeenCalledTimes(1); // overlap map
 
     // Toggle off: the mask is cleared, the animation stops, viewports cleared.
     deps.state.showUVOverlapOriginal = false;
     deps.state.showUVOverlapProcessed = false;
     overlay.refreshUVOverlap();
     expect(rafCount()).toBe(0);
-    expect(viewport.setUVOverlap.mock.calls.length).toBe(viewportCallsAfterFirstCycle + 1);
+    expect(originalViewport.setUVOverlap.mock.calls[1][0]).toBeNull();
 
     // Toggle back on: the cleared mask must be recomputed (the warm cache is
     // stale once the mask canvas is gone) and the viewports re-notified —
@@ -241,7 +244,7 @@ describe('UV overlap overlay', () => {
     deps.state.showUVOverlapOriginal = true;
     deps.state.showUVOverlapProcessed = true;
     overlay.refreshUVOverlap();
-    expect(viewport.setUVOverlap.mock.calls.length).toBe(viewportCallsAfterFirstCycle + 3);
+    expect(originalViewport.setUVOverlap.mock.calls[2][0]).toBeInstanceOf(Map);
     expect(rafCount()).toBe(1);
     flushRaf(600);
     expect(rafCount()).toBe(1); // still animating
@@ -250,28 +253,31 @@ describe('UV overlap overlay', () => {
 
   it('invalidateUVOverlap forces the next refresh to recompute', () => {
     const scene = overlappingScene(); // stable identity — the cache key
-    const viewport = { setUVOverlap: vi.fn() };
+    const originalViewport = { setUVOverlap: vi.fn() };
+    const processedViewport = { setUVOverlap: vi.fn() };
     const { deps, overlay } = setup({
       getAOScene: () => scene,
-      forEachViewport: (callback) => callback(viewport as unknown as ModelViewport),
+      getOriginalViewport: () => originalViewport as unknown as ModelViewport,
+      getProcessedViewport: () => processedViewport as unknown as ModelViewport,
     });
     deps.state.showUVOverlapOriginal = true;
     deps.state.showUVOverlapProcessed = true;
     deps.textures.base.image = baseImage();
 
     overlay.refreshUVOverlap();
-    const calls = viewport.setUVOverlap.mock.calls.length;
-    expect(calls).toBe(2); // null-clear + overlap map
+    const calls = originalViewport.setUVOverlap.mock.calls.length;
+    expect(calls).toBe(1); // the overlap map, once per pane
 
-    // Warm cache: a second refresh skips the recompute entirely.
+    // Warm cache: the mask is still valid, but the per-pane toggles may have
+    // changed, so the viewport highlights are re-applied (not recomputed).
     overlay.refreshUVOverlap();
-    expect(viewport.setUVOverlap.mock.calls.length).toBe(calls);
+    expect(originalViewport.setUVOverlap.mock.calls.length).toBe(calls + 1);
 
     // Invalidation clears the cache, so the next refresh recomputes and
     // notifies the viewports again.
     overlay.invalidateUVOverlap();
     overlay.refreshUVOverlap();
-    expect(viewport.setUVOverlap.mock.calls.length).toBe(calls + 2);
+    expect(originalViewport.setUVOverlap.mock.calls.length).toBe(calls + 2);
 
     // A pane resize mid-animation rebuilds the shared composite canvas at
     // the new size.
@@ -285,7 +291,8 @@ describe('UV overlap overlay', () => {
     const { deps, overlay } = setup({
       getAOScene: () => overlappingScene(),
       getOriginalPreviewMode: () => '3d',
-      forEachViewport: (callback) => callback({ setUVOverlap: vi.fn() } as unknown as ModelViewport),
+      getOriginalViewport: () => ({ setUVOverlap: vi.fn() }) as unknown as ModelViewport,
+      getProcessedViewport: () => ({ setUVOverlap: vi.fn() }) as unknown as ModelViewport,
     });
     deps.state.showUVOverlapOriginal = true;
     deps.state.showUVOverlapProcessed = true;
@@ -298,9 +305,12 @@ describe('UV overlap overlay', () => {
   });
 
   it('draws the animated overlap only on the pane whose toggle is on', () => {
+    const originalViewport = { setUVOverlap: vi.fn() };
+    const processedViewport = { setUVOverlap: vi.fn() };
     const { deps, overlay } = setup({
       getAOScene: () => overlappingScene(),
-      forEachViewport: (callback) => callback({ setUVOverlap: vi.fn() } as unknown as ModelViewport),
+      getOriginalViewport: () => originalViewport as unknown as ModelViewport,
+      getProcessedViewport: () => processedViewport as unknown as ModelViewport,
     });
     deps.state.showUVOverlapOriginal = true;
     deps.state.showUVOverlapProcessed = false;
@@ -312,31 +322,83 @@ describe('UV overlap overlay', () => {
     flushRaf(500);
     expect(deps.originalCanvas.context.drawn.length).toBeGreaterThan(0);
     expect(deps.previewCanvas.context.drawn).toHaveLength(0);
+    // The viewport highlight follows the same per-pane rule: only the pane
+    // whose toggle is on gets the overlap map.
+    expect(originalViewport.setUVOverlap.mock.calls[0][0]).toBeInstanceOf(Map);
+    expect(processedViewport.setUVOverlap.mock.calls[0][0]).toBeNull();
+  });
+
+  it('applies the viewport highlight per pane, independent of the other window', () => {
+    const scene = overlappingScene(); // stable identity — the cache key
+    const originalViewport = { setUVOverlap: vi.fn() };
+    const processedViewport = { setUVOverlap: vi.fn() };
+    const { deps, overlay } = setup({
+      getAOScene: () => scene,
+      getOriginalViewport: () => originalViewport as unknown as ModelViewport,
+      getProcessedViewport: () => processedViewport as unknown as ModelViewport,
+    });
+    deps.state.showUVOverlapOriginal = true;
+    deps.state.showUVOverlapProcessed = true;
+    deps.textures.base.image = baseImage();
+
+    // Both toggles on: both viewports get the map.
+    overlay.refreshUVOverlap();
+    expect(originalViewport.setUVOverlap.mock.calls[0][0]).toBeInstanceOf(Map);
+    expect(processedViewport.setUVOverlap.mock.calls[0][0]).toBeInstanceOf(Map);
+
+    // Toggle the processed pane off: only its viewport clears (the warm cache
+    // re-applies the per-pane state); the original pane keeps its highlight
+    // and the animation keeps running.
+    deps.state.showUVOverlapProcessed = false;
+    overlay.refreshUVOverlap();
+    expect(originalViewport.setUVOverlap).toHaveBeenCalledTimes(2);
+    expect(originalViewport.setUVOverlap.mock.calls[1][0]).toBeInstanceOf(Map);
+    expect(processedViewport.setUVOverlap.mock.calls[1][0]).toBeNull();
+    expect(rafCount()).toBe(1);
+
+    // And the reverse: the original pane off, the processed pane back on.
+    deps.state.showUVOverlapOriginal = false;
+    deps.state.showUVOverlapProcessed = true;
+    overlay.refreshUVOverlap();
+    expect(originalViewport.setUVOverlap.mock.calls[2][0]).toBeNull();
+    expect(processedViewport.setUVOverlap.mock.calls[2][0]).toBeInstanceOf(Map);
   });
 
   it('scales the overlap analysis down for very large base textures', () => {
-    const viewport = { setUVOverlap: vi.fn() };
+    const originalViewport = { setUVOverlap: vi.fn() };
+    const processedViewport = { setUVOverlap: vi.fn() };
     const { deps, overlay } = setup({
       getAOScene: () => overlappingScene(),
-      forEachViewport: (callback) => callback(viewport as unknown as ModelViewport),
+      getOriginalViewport: () => originalViewport as unknown as ModelViewport,
+      getProcessedViewport: () => processedViewport as unknown as ModelViewport,
     });
     deps.state.showUVOverlapOriginal = true;
     deps.state.showUVOverlapProcessed = true;
     deps.textures.base.image = baseImage(2000, 1000);
 
     overlay.refreshUVOverlap();
-    expect(viewport.setUVOverlap).toHaveBeenCalledTimes(2);
+    expect(originalViewport.setUVOverlap).toHaveBeenCalledTimes(1);
+    expect(processedViewport.setUVOverlap).toHaveBeenCalledTimes(1);
     expect(rafCount()).toBe(1);
   });
 
   it('does nothing when the overlap view is disabled', () => {
-    const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
+    const originalViewport = { setUVOverlap: vi.fn() };
+    const processedViewport = { setUVOverlap: vi.fn() };
+    const { deps, overlay } = setup({
+      getAOScene: () => overlappingScene(),
+      getOriginalViewport: () => originalViewport as unknown as ModelViewport,
+      getProcessedViewport: () => processedViewport as unknown as ModelViewport,
+    });
     deps.textures.base.image = baseImage();
     const overlayCanvas = sizeOriginalPane(deps);
     deps.state.showUVWireframeOriginal = true;
     deps.state.showUVWireframeProcessed = true;
     overlay.refreshUVOverlap();
     expect(rafCount()).toBe(0);
+    // Both viewports are cleared — their toggles are off.
+    expect(originalViewport.setUVOverlap.mock.calls[0][0]).toBeNull();
+    expect(processedViewport.setUVOverlap.mock.calls[0][0]).toBeNull();
     // Wireframe triangles are still collected and drawn on the overlay even
     // though the overlap wave animation stays off.
     expect(overlayCanvas.hidden).toBe(false);
@@ -345,7 +407,11 @@ describe('UV overlap overlay', () => {
 
   it('stops the animation when the scene disappears', () => {
     let scene: Scene | null = overlappingScene();
-    const { deps, overlay } = setup({ getAOScene: () => scene });
+    const { deps, overlay } = setup({
+      getAOScene: () => scene,
+      getOriginalViewport: () => ({ setUVOverlap: vi.fn() }) as unknown as ModelViewport,
+      getProcessedViewport: () => ({ setUVOverlap: vi.fn() }) as unknown as ModelViewport,
+    });
     deps.state.showUVOverlapOriginal = true;
     deps.state.showUVOverlapProcessed = true;
     deps.textures.base.image = baseImage();
@@ -360,7 +426,8 @@ describe('UV overlap overlay', () => {
   it('stops drawing when the base canvas is missing', () => {
     const { deps, shared, overlay } = setup({
       getAOScene: () => overlappingScene(),
-      forEachViewport: (callback) => callback({ setUVOverlap: vi.fn() } as unknown as ModelViewport),
+      getOriginalViewport: () => ({ setUVOverlap: vi.fn() }) as unknown as ModelViewport,
+      getProcessedViewport: () => ({ setUVOverlap: vi.fn() }) as unknown as ModelViewport,
     });
     deps.state.showUVOverlapOriginal = true;
     deps.state.showUVOverlapProcessed = true;

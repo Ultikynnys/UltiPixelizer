@@ -100,8 +100,8 @@ export function createRendererDeps(overrides: Omit<Partial<RendererDeps>, 'textu
     },
     getAOScene: () => null,
     forEachViewport: vi.fn(),
-    getOriginalViewport: () => null,
-    getProcessedViewport: () => null,
+    getOriginalViewport: vi.fn(() => null),
+    getProcessedViewport: vi.fn(() => null),
     getOriginalPreviewMode: () => '2d',
     getProcessedPreviewMode: () => '2d',
     // Mirrors main.ts dimensions(): the dithered texture (and therefore the
