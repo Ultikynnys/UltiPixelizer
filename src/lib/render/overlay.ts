@@ -73,7 +73,13 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
     refreshUVWireframe();
     const source = textures.base.image!;
     const { width, height } = uvOverlapResolution(source);
-    if (uvOverlapCache && uvOverlapCache.scene === scene && uvOverlapCache.width === width && uvOverlapCache.height === height) {
+    // The cache is only usable while the mask canvas is alive: the toggle-off
+    // path clears uvOverlapMaskCanvas (and the viewports) but leaves the cache
+    // populated, so a cache hit after an off/on cycle would restart the
+    // animation with a null mask and draw nothing. Recompute whenever the
+    // mask is missing; the cached entry still saves the re-rasterization in
+    // the common warm case (same scene and resolution).
+    if (uvOverlapMaskCanvas && uvOverlapCache && uvOverlapCache.scene === scene && uvOverlapCache.width === width && uvOverlapCache.height === height) {
       // Nothing changed — the mask canvas and 3D highlight are still valid.
       // Just resume the animation if a toggle-off earlier stopped it.
       startUVOverlayAnimation();

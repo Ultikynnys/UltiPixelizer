@@ -209,6 +209,45 @@ describe('UV overlap overlay', () => {
     expect(rafCount()).toBe(1); // re-registered for the next frame
   });
 
+  it('re-shows the overlay after a toggle-off/toggle-on cycle', () => {
+    const scene = overlappingScene(); // stable identity — the cache key
+    const viewport = { setUVOverlap: vi.fn() };
+    const { deps, overlay } = setup({
+      getAOScene: () => scene,
+      forEachViewport: (callback) => callback(viewport as unknown as ModelViewport),
+    });
+    deps.state.showUVOverlapOriginal = true;
+    deps.state.showUVOverlapProcessed = true;
+    deps.textures.base.image = baseImage();
+
+    // First toggle-on: mask computed, animation running, viewports notified.
+    overlay.refreshUVOverlap();
+    flushRaf(500);
+    const drawsAfterFirstCycle = deps.originalCanvas.context.drawn.length;
+    const viewportCallsAfterFirstCycle = viewport.setUVOverlap.mock.calls.length; // clear + map
+    expect(drawsAfterFirstCycle).toBeGreaterThan(0);
+    expect(viewportCallsAfterFirstCycle).toBe(2);
+
+    // Toggle off: the mask is cleared, the animation stops, viewports cleared.
+    deps.state.showUVOverlapOriginal = false;
+    deps.state.showUVOverlapProcessed = false;
+    overlay.refreshUVOverlap();
+    expect(rafCount()).toBe(0);
+    expect(viewport.setUVOverlap.mock.calls.length).toBe(viewportCallsAfterFirstCycle + 1);
+
+    // Toggle back on: the cleared mask must be recomputed (the warm cache is
+    // stale once the mask canvas is gone) and the viewports re-notified —
+    // otherwise the animation restarts against a null mask and draws nothing.
+    deps.state.showUVOverlapOriginal = true;
+    deps.state.showUVOverlapProcessed = true;
+    overlay.refreshUVOverlap();
+    expect(viewport.setUVOverlap.mock.calls.length).toBe(viewportCallsAfterFirstCycle + 3);
+    expect(rafCount()).toBe(1);
+    flushRaf(600);
+    expect(rafCount()).toBe(1); // still animating
+    expect(deps.originalCanvas.context.drawn.length).toBeGreaterThan(drawsAfterFirstCycle);
+  });
+
   it('invalidateUVOverlap forces the next refresh to recompute', () => {
     const scene = overlappingScene(); // stable identity — the cache key
     const viewport = { setUVOverlap: vi.fn() };
