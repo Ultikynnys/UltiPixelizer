@@ -43,54 +43,63 @@ export type LightmapBakeError = BakeWorkerError;
 
 const _sun = new Vector3();
 const _mapped = new Vector3();
-const _pa = new Vector3();
+const _position = new Vector3();
 
-/**
- * Computes the per-vertex sun visibility (binary occluder test) from a
- * serialized bake scene: the CPU mirror of `computeSunVisibilityGpu`, so the
- * worker and the GPU path share one visibility definition. One ray per vertex
- * from `position + epsilon * normal` toward the sun (`near = epsilon`,
- * `far = Infinity`), gated by the Lambert term so only sun-facing vertices
- * matter. Returns a `Float32Array` of 0 (shadowed/unlit) or 1 (lit) per vertex.
- */
-export function computeSunVisibilityCpu(
+/** Four deterministic subtexel locations. A directional light needs one ray
+ * per surface point; spatially distinct samples provide shadow-edge
+ * antialiasing without pretending duplicate parallel rays add information. */
+const SUN_SAMPLES: ReadonlyArray<readonly [number, number]> = [
+  [-0.25, -0.25],
+  [0.25, -0.25],
+  [-0.25, 0.25],
+  [0.25, 0.25],
+];
+
+/** Returns barycentric weights at a subtexel offset from the current pixel
+ * center. UV V is inverted because raster rows run top-to-bottom. */
+function offsetBarycentrics(
+  center: readonly [number, number, number],
+  dx: number,
+  dy: number,
+  width: number,
+  height: number,
   input: SerializedBakeScene,
-  bvh: MeshBVH | null,
-  sunDirection: [number, number, number],
-  sunScale: number,
-): Float32Array {
-  const { vertices, epsilon } = input;
-  const towardSun = _sun.set(sunDirection[0], sunDirection[1], sunDirection[2]);
-  const visibility = new Float32Array(vertices.length / 6);
-  for (let vi = 0; vi < visibility.length; vi += 1) {
-    const offset = vi * 6;
-    _pa.set(vertices[offset], vertices[offset + 1], vertices[offset + 2]);
-    _mapped.set(vertices[offset + 3], vertices[offset + 4], vertices[offset + 5]);
-    const lit = _mapped.dot(towardSun) > 0;
-    let sunVisibility = lit && sunScale > 0 ? 1 : 0;
-    if (sunVisibility && bvh && castBakeRay(bvh, _pa, _mapped, towardSun, epsilon, epsilon)) sunVisibility = 0;
-    visibility[vi] = sunVisibility;
-  }
-  return visibility;
+  uvOffset: number,
+): [number, number, number] | null {
+  const u0 = input.triangleUVs[uvOffset];
+  const v0 = 1 - input.triangleUVs[uvOffset + 1];
+  const u1 = input.triangleUVs[uvOffset + 2];
+  const v1 = 1 - input.triangleUVs[uvOffset + 3];
+  const u2 = input.triangleUVs[uvOffset + 4];
+  const v2 = 1 - input.triangleUVs[uvOffset + 5];
+  const du = dx / width;
+  const dv = dy / height;
+  const denominator = (v1 - v2) * (u0 - u2) + (u2 - u1) * (v0 - v2);
+  if (denominator === 0) return null;
+  const centerU = center[0] * u0 + center[1] * u1 + center[2] * u2;
+  const centerV = center[0] * v0 + center[1] * v1 + center[2] * v2;
+  const w0 = ((v1 - v2) * (centerU + du - u2) + (u2 - u1) * (centerV + dv - v2)) / denominator;
+  const w1 = ((v2 - v0) * (centerU + du - u2) + (u0 - u2) * (centerV + dv - v2)) / denominator;
+  const w2 = 1 - w0 - w1;
+  return w0 < 0 || w1 < 0 || w2 < 0 ? null : [w0, w1, w2];
 }
 
 /**
- * Rasterizes the lightmap bake from a serialized bake scene and a pre-computed
- * per-vertex sun-visibility array: the worker-side mirror of
- * `bakeMeshLightmap`'s raster pass, reading the same flat arrays the AO band
- * rasterizer uses so the result is byte-identical to the sync path. The
- * visibility (binary occluder test) is computed by `computeSunVisibilityCpu` or
- * `computeSunVisibilityGpu` and interpolated per pixel; the smooth vertex
- * normal is interpolated and lit per texel; the optional normal map perturbs
- * the shading normal through a per-triangle tangent basis. `pixels` arrives
+ * Rasterizes the lightmap bake directly from a serialized bake scene. Every
+ * covered texel takes four spatially distinct subtexel samples; each sample
+ * reconstructs its world-space position and shading normal, evaluates Lambert,
+ * and casts its own shadow ray toward the sun. This avoids interpolating binary
+ * visibility from sparse mesh vertices and antialiases shadow boundaries on
+ * low-poly surfaces. The optional normal map perturbs each sample's shading
+ * normal through a per-triangle tangent basis. `pixels` arrives
  * `255`-filled and `written` blank; the caller owns the UV dilation
  * (dilateUVBake) exactly like the sync rasterizer.
  */
 export function rasterizeLightmap(
   pixels: Uint8ClampedArray,
   written: Uint8Array,
-  visibility: Float32Array,
   input: SerializedBakeScene,
+  bvh: MeshBVH | null,
   width: number,
   height: number,
   options: SerializedLightmapOptions,
@@ -101,20 +110,33 @@ export function rasterizeLightmap(
   const sunScale = options.sunIntensity;
 
   rasterizeBakeBand(width, height, 0, height, triangleUVs, triangleVerts, written,
-    (_px, _py, w0, w1, w2, index, _triangleIndex, uvOffset, vertOffset, v0, v1, v2) => {
+    (_px, _py, w0, w1, w2, index, _triangleIndex, uvOffset, _vertOffset, v0, v1, v2) => {
       const pixelOffset = index * 4;
 
-      // The smooth vertex normal is interpolated at this texel and perturbed
-      // by the normal map (when the serialized scene carries one) — the same
-      // shared math the AO bake uses, so both pipelines shade identically.
-      const normal = texelShadingNormal(vertices, v0, v1, v2, w0, w1, w2, input, uvOffset);
-      _mapped.set(normal.sx, normal.sy, normal.sz);
-
-      const lambert = Math.max(0, _mapped.dot(towardSun));
-      const sunVisibility = w0 * visibility[triangleVerts[vertOffset]]
-        + w1 * visibility[triangleVerts[vertOffset + 1]]
-        + w2 * visibility[triangleVerts[vertOffset + 2]];
-      const light = combineLight(options.ambientColor, options.sunColor, ambientScale, sunScale, lambert, sunVisibility);
+      let sun = 0;
+      let sampleCount = 0;
+      const center: [number, number, number] = [w0, w1, w2];
+      for (const [dx, dy] of SUN_SAMPLES) {
+        const weights = offsetBarycentrics(center, dx, dy, width, height, input, uvOffset);
+        if (!weights) continue;
+        const [s0, s1, s2] = weights;
+        const normal = texelShadingNormal(vertices, v0, v1, v2, s0, s1, s2, input, uvOffset);
+        _mapped.set(normal.sx, normal.sy, normal.sz);
+        const lambert = Math.max(0, _mapped.dot(towardSun));
+        let visibility = lambert > 0 && sunScale > 0 ? 1 : 0;
+        if (visibility && bvh) {
+          _position.set(
+            s0 * vertices[v0] + s1 * vertices[v1] + s2 * vertices[v2],
+            s0 * vertices[v0 + 1] + s1 * vertices[v1 + 1] + s2 * vertices[v2 + 1],
+            s0 * vertices[v0 + 2] + s1 * vertices[v1 + 2] + s2 * vertices[v2 + 2],
+          );
+          if (castBakeRay(bvh, _position, _mapped, towardSun, input.epsilon, input.epsilon)) visibility = 0;
+        }
+        sun += lambert * visibility;
+        sampleCount += 1;
+      }
+      const sampledSun = sampleCount > 0 ? sun / sampleCount : 0;
+      const light = combineLight(options.ambientColor, options.sunColor, ambientScale, sunScale, sampledSun, 1);
       pixels[pixelOffset] = Math.round(light[0] * 255);
       pixels[pixelOffset + 1] = Math.round(light[1] * 255);
       pixels[pixelOffset + 2] = Math.round(light[2] * 255);
@@ -127,14 +149,14 @@ export function rasterizeLightmap(
  * the worker each spelled out. Returns the pixel map plus the written mask
  * (the caller only needs the mask if it keeps the map). */
 export function rasterizeLightmapFull(
-  visibility: Float32Array,
   input: SerializedBakeScene,
+  bvh: MeshBVH | null,
   width: number,
   height: number,
   options: SerializedLightmapOptions,
 ): { pixels: Uint8ClampedArray; written: Uint8Array } {
   const { pixels, written } = blankBakeBuffers(width, height, 4);
-  rasterizeLightmap(pixels, written, visibility, input, width, height, options);
+  rasterizeLightmap(pixels, written, input, bvh, width, height, options);
   dilateUVBake(pixels, written, width, height, 4);
   return { pixels, written };
 }

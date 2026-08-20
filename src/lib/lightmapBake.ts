@@ -6,8 +6,7 @@ import { collectBakeScene, type BakeScene } from './bakeGeometry';
 import type { RGB } from './math';
 import { normalMapPayload, type NormalMapSource } from './normal';
 import { serializeBakeScene } from './aoRaster';
-import { computeSunVisibilityGpu } from './lightmapGpu';
-import { computeSunVisibilityCpu, rasterizeLightmapFull, type LightmapBakeRequest, type LightmapBakeResult, type SerializedLightmapOptions } from './lightmapRaster';
+import { rasterizeLightmapFull, type LightmapBakeRequest, type LightmapBakeResult, type SerializedLightmapOptions } from './lightmapRaster';
 // The worker is inlined into the bundle (blob URL) — same rationale as the AO
 // worker: Tauri/Electron shells and restricted CSPs can reject module workers
 // loaded from a URL, whereas a blob-backed worker is protocol-agnostic.
@@ -43,18 +42,16 @@ function parseColor(color: string): RGB {
  * (potentially hundreds-of-ms) scene collection — the caller owns its
  * freshness via the bake-scene cache's invalidation contract.
  *
- * This sync path is the CPU mirror of the worker/GPU paths: it serializes the
- * collected scene once and funnels through the same per-vertex visibility and
- * per-texel raster the worker reads (`computeSunVisibilityCpu` +
- * `rasterizeLightmapFull` + UV dilation), so the result is byte-identical to
- * the async bake by construction.
+ * This sync path is the CPU mirror of the worker path: it serializes the
+ * collected scene once and funnels through the same four-sample per-texel
+ * visibility raster and UV dilation, so the result is byte-identical to the
+ * async bake by construction.
  */
 export function bakeMeshLightmap(scene: Object3D, width: number, height: number, options: BakeLightmapOptions, bakeSceneOverride?: BakeScene): Uint8ClampedArray {
   const bakeScene = bakeSceneOverride ?? collectBakeScene(scene);
   const serialized = serializeBakeScene(bakeScene, 2, normalMapPayload(options));
   const serializedOptions = serializeLightmapOptions(options);
-  const visibility = computeSunVisibilityCpu(serialized, bakeScene.bvh, serializedOptions.sunDirection, serializedOptions.sunIntensity);
-  return rasterizeLightmapFull(visibility, serialized, width, height, serializedOptions).pixels;
+  return rasterizeLightmapFull(serialized, bakeScene.bvh, width, height, serializedOptions).pixels;
 }
 
 /** Flattens bake options into the worker-transportable shape. The normal map
@@ -72,16 +69,13 @@ function serializeLightmapOptions(options: BakeLightmapOptions): SerializedLight
 }
 
 /**
- * Async equivalent of `bakeMeshLightmap` for the browser. When WebGPU is
- * available the per-vertex sun-visibility ray cast runs in a compute shader and
- * the (cheap) per-texel lighting runs on the main thread; otherwise the whole
- * bake (BVH build + per-texel Phong rasterization + UV dilation) runs in a web
- * worker so the main thread stays responsive: the implicit lightmap re-bakes on
- * every sun / quad / resolution change, and at 1024² on a heavily tessellated
- * fallback grid the sync path is hundreds of ms of main-thread work. The result
- * is byte-identical to the sync path (the worker raster reads the same
- * serialized scene the AO bake transfers); any GPU/worker failure falls back to
- * the CPU/worker path.
+ * Async equivalent of `bakeMeshLightmap` for the browser. The complete
+ * per-texel multisample raster runs in a worker so the main thread stays
+ * responsive: the implicit lightmap re-bakes on every sun / quad / resolution
+ * change. The former WebGPU optimization sampled only mesh vertices and is
+ * deliberately bypassed until a GPU path can rasterize and ray-test the same
+ * subtexel positions. The worker result is byte-identical to the sync path; a
+ * worker failure falls back to the main-thread implementation.
  */
 export async function bakeLightmapAsync(
   scene: Object3D,
@@ -95,14 +89,11 @@ export async function bakeLightmapAsync(
 
   return runBakeWithFallbacks(
     'Lightmap',
-    // GPU visibility runs on the main thread (the ray cast is the expensive
-    // part; the raster pass is cheap); any throw falls through to the
-    // worker/CPU path.
-    async () => {
-      const serialized = serializeBakeScene(bakeScene, 2, normalMapPayload(options));
-      const visibility = await computeSunVisibilityGpu(serialized, serializedOptions.sunDirection, serializedOptions.sunIntensity);
-      return rasterizeLightmapFull(visibility, serialized, width, height, serializedOptions).pixels;
-    },
+    // Per-texel visibility requires UV raster coverage before ray dispatch.
+    // The former vertex-only GPU pass cannot represent that contract, so the
+    // lightmap intentionally starts with the worker path rather than silently
+    // reintroducing interpolated vertex visibility on WebGPU systems.
+    null,
     async () => {
       const serialized = serializeBakeScene(bakeScene, 2, normalMapPayload(options));
       const request: LightmapBakeRequest = {

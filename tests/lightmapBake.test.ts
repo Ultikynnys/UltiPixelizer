@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, PlaneGeometry, Scene, Vector3 } from 'three';
 import { bakeLightmapAsync, bakeMeshLightmap, type BakeLightmapOptions } from '../src/lib/lightmapBake';
 import { createFallbackQuadScene } from '../src/lib/modelScene';
-import { ceilingQuad, flatNormalMap, planeScene, raisedNeighborScene, uvIsland } from './helpers/bakeFixtures';
+import { ceilingQuad, flatNormalMap, planeScene, raisedNeighborScene, uvIsland, uvTriangle } from './helpers/bakeFixtures';
 
 const defaults: BakeLightmapOptions = {
   // Orthographic rays travel down camera-local forward (-Z) onto the default +Z plane face.
@@ -87,6 +87,37 @@ describe('bakeMeshLightmap', () => {
     scene.add(ceilingQuad());
     const pixels = bakeMeshLightmap(scene, 8, 8, defaults);
     expect(centerRGB(pixels)).toEqual([0, 0, 0]);
+  });
+
+  it('casts visibility rays from texels instead of interpolating vertex visibility', () => {
+    const scene = new Scene();
+    scene.add(uvTriangle());
+    // Cover only the triangle's three vertices. A vertex-visibility bake marks
+    // all three corners shadowed and interpolates black across the entire face;
+    // a texel ray from the clear interior correctly remains lit.
+    for (const [x, y] of [[0, 0], [1, 0], [0, 1]]) {
+      const blocker = ceilingQuad(0.08);
+      blocker.position.set(x, y, 0);
+      scene.add(blocker);
+    }
+    const pixels = bakeMeshLightmap(scene, 16, 16, defaults);
+    const interior = (12 * 16 + 4) * 4; // UV center near (0.28, 0.22).
+    expect(Array.from(pixels.slice(interior, interior + 3))).toEqual([255, 255, 255]);
+  });
+
+  it('spatially multisamples shadow boundaries within each texel', () => {
+    const scene = planeScene();
+    const halfBlocker = ceilingQuad(2, 1);
+    // Pixel x=4 on an 8-wide unit plane is centered at world x=0.0625.
+    // Put the blocker boundary through that center so two 2x2 samples see sky
+    // and two see the blocker.
+    halfBlocker.position.x = 0.0625;
+    scene.add(halfBlocker);
+    const pixels = bakeMeshLightmap(scene, 8, 8, defaults);
+    const boundary = (4 * 8 + 4) * 4;
+    const red = pixels[boundary];
+    expect(red).toBeGreaterThan(0);
+    expect(red).toBeLessThan(255);
   });
 
   it('lets a displaced grid neighbor cast a shadow onto the middle tile', () => {

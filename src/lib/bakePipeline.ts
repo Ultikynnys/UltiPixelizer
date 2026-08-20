@@ -16,7 +16,7 @@ let warnedGpuBakeFallback = false;
  */
 export async function runBakeWithFallbacks<T>(
   label: string,
-  gpu: () => Promise<T>,
+  gpu: (() => Promise<T>) | null,
   worker: () => Promise<T>,
   sync: () => T,
   /** Invoked instead of `sync` when the worker path failed (defaults to `sync`). */
@@ -25,7 +25,7 @@ export async function runBakeWithFallbacks<T>(
   // Only await the GPU path when WebGPU is actually usable: the synchronous
   // probe keeps the worker dispatch below synchronous for non-WebGPU callers,
   // and skips the doomed request once the environment has proven adapterless.
-  if (webgpuUsable()) {
+  if (gpu && webgpuUsable()) {
     try {
       return await gpu();
     } catch (error) {

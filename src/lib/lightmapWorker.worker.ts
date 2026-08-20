@@ -1,9 +1,9 @@
-import { computeSunVisibilityCpu, rasterizeLightmapFull, type LightmapBakeError, type LightmapBakeRequest, type LightmapBakeResult } from './lightmapRaster';
+import { rasterizeLightmapFull, type LightmapBakeError, type LightmapBakeRequest, type LightmapBakeResult } from './lightmapRaster';
 import { createWorkerScope, deserializeBakeBvh, postWorkerError } from './workerCommon';
 
 /**
- * Lightmap bake worker: builds an occluder BVH from the transferred world
- * positions, rasterizes the full UV map (per-texel Phong + shadow), runs the
+ * Lightmap bake worker: restores the transferred occluder BVH, rasterizes the
+ * full UV map (four spatial shadow samples per texel), runs the
  * UV dilation, and posts the RGBA pixels back with the buffer transferred
  * (zero-copy). The whole bake happens off the main thread, so the implicit
  * lightmap re-bakes (fired by every sun / quad / resolution change) never
@@ -24,8 +24,7 @@ workerScope.addEventListener('message', (event) => {
     // the request serialized — deserialize instead of rebuilding the same tree
     // in the worker (the serialized roots are byte-identical to a fresh build).
     const bvh = deserializeBakeBvh(request);
-    const visibility = computeSunVisibilityCpu(request, bvh, request.options.sunDirection, request.options.sunIntensity);
-    const { pixels } = rasterizeLightmapFull(visibility, request, width, height, request.options);
+    const { pixels } = rasterizeLightmapFull(request, bvh, width, height, request.options);
     workerScope.postMessage({ type: 'result', jobId, pixels }, [pixels.buffer as ArrayBuffer]);
   } catch (error) {
     postWorkerError(workerScope, jobId, error);
