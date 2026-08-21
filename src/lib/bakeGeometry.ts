@@ -369,6 +369,12 @@ function rasterizeTrianglePixels(
   }
 }
 
+/** Maps one normalized model UV into the top-left-origin texture-pixel space
+ * shared by UV overlap, bakes, and the vector wireframe overlay. */
+export function uvToTexturePoint(uv: UvPair, width: number, height: number): UvPair {
+  return [uv[0] * width, (1 - uv[1]) * height];
+}
+
 export function rasterizeBake<T extends { uv: [UvPair, UvPair, UvPair] }>(
   width: number,
   height: number,
@@ -377,14 +383,14 @@ export function rasterizeBake<T extends { uv: [UvPair, UvPair, UvPair] }>(
 ): void {
   for (let triangleIndex = 0; triangleIndex < triangles.length; triangleIndex += 1) {
     const triangle = triangles[triangleIndex];
-    const [uva, uvb, uvc] = triangle.uv;
+    const [a, b, c] = triangle.uv.map((uv) => uvToTexturePoint(uv, width, height));
     rasterizeTrianglePixels(
-      uva[0] * width,
-      (1 - uva[1]) * height,
-      uvb[0] * width,
-      (1 - uvb[1]) * height,
-      uvc[0] * width,
-      (1 - uvc[1]) * height,
+      a[0],
+      a[1],
+      b[0],
+      b[1],
+      c[0],
+      c[1],
       width,
       0,
       height,

@@ -240,7 +240,7 @@ select option { background: var(--card); color: var(--paper); }
    has no layout rules of its own. */
 .preview-pane canvas:active { cursor: grabbing; }
 .canvas-frame:active { cursor: grabbing; }
-.preview-pane canvas[hidden], .model-host[hidden], .uv-control[hidden], .uv-overlap-control[hidden] { display: none; }
+.preview-pane canvas[hidden], .wireframe-overlay[hidden], .model-host[hidden], .uv-control[hidden], .uv-overlap-control[hidden] { display: none; }
 /* Final rendered luminosity distribution for each 2D pane. The graph is a
    fixed UI overlay, not part of the pannable/zoomable texture canvas. */
 .luminosity-histogram {
@@ -276,25 +276,26 @@ select option { background: var(--card); color: var(--paper); }
 .luminosity-axis-labels span:nth-child(3) { left: 50%; }
 .luminosity-axis-labels span:nth-child(4) { left: 75%; }
 .luminosity-axis-labels span:nth-child(5) { right: 0; transform: none; }
-/* UV island wireframe: a display-resolution layer over the texture canvas.
-   The texture bitmaps are low-res and upscaled with nearest-neighbor, so
-   lines stroked into them would come out chunky and speckled — draw them on
-   this overlay instead, scaling it along with the canvas when the user zooms
-   (image-rendering: auto keeps the stroke edges smooth, never pixelated). */
-.preview-pane canvas.wireframe-overlay {
+/* UV island wireframe: true SVG vectors over the texture. The viewBox uses
+   the same texture-pixel coordinate system as UV-overlap rasterization, while
+   non-scaling strokes stay crisp and constant-width through preview zoom. */
+.preview-pane svg.wireframe-overlay {
   cursor: default;
   height: 100%;
-  image-rendering: auto;
   inset: 0;
-  max-height: none;
-  max-width: none;
   min-width: 0;
-  object-fit: none;
+  overflow: visible;
   pointer-events: none;
   position: absolute;
   touch-action: auto;
   width: 100%;
   z-index: 5;
+}
+.wireframe-overlay path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
 }
 .model-host { height: clamp(280px, 52vh, 560px); min-height: 0; width: 100%; }
 .model-canvas { cursor: grab; display: block; height: 100%; width: 100%; }

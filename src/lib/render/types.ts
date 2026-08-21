@@ -12,9 +12,9 @@ export interface RendererDeps {
   luminosityHistograms: { original: HTMLCanvasElement; processed: HTMLCanvasElement };
   /** False in the compact single-pane layout, where histogram overlays are hidden. */
   showLuminosityHistograms: () => boolean;
-  /** Display-resolution overlay canvases for the UV wireframe — one per 2D
-   * pane, positioned over the texture canvas and sharing its zoom transform. */
-  wireframeOverlays: { original: HTMLCanvasElement; processed: HTMLCanvasElement };
+  /** Vector overlays for the UV wireframe — one per 2D pane, positioned over
+   * the texture canvas and sharing its zoom transform. */
+  wireframeOverlays: { original: SVGSVGElement; processed: SVGSVGElement };
   getAOScene: () => Object3D | null;
   forEachViewport: (callback: (viewport: ModelViewport) => void) => void;
   getOriginalViewport: () => ModelViewport | null;

@@ -33,7 +33,7 @@ interface Preview2DOptions {
   /** Optional zoom readout (a pane's caption badge). */
   badge?: HTMLButtonElement | null;
   /** Optional UV wireframe overlay, transformed in lockstep with the canvas. */
-  overlay?: HTMLElement | null;
+  overlay?: HTMLElement | SVGElement | null;
 }
 
 const ZOOM_MIN = 0.1;

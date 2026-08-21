@@ -1,5 +1,6 @@
 import type { Object3D } from 'three';
-import { computeContainRect, createCanvas, factorsToCanvas } from '../canvas';
+import { createCanvas, factorsToCanvas } from '../canvas';
+import { uvToTexturePoint } from '../bakeGeometry';
 import type { SourceImage } from '../state';
 import { UV_OVERLAP_LABEL, collectUVTriangles, computeUVOverlap, type UVTriangle } from '../uvOverlap';
 import type { RendererDeps, RenderShared } from './types';
@@ -163,74 +164,32 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
     context.restore();
   }
 
-  /** Strokes the wireframe triangles through a display-rect mapping (UV →
-   * frame-space pixel rect). Opaque strokes: translucent ones would let the
-   * dithered pixels bleed through, reading as the lines themselves being
-   * dithered. */
-  function drawWireframe(
-    context: CanvasRenderingContext2D,
-    triangles: UVTriangle[],
-    rect: { left: number; top: number; width: number; height: number },
-  ): void {
-    context.save();
-    context.beginPath();
-    for (const triangle of triangles) {
-      const [a, b, c] = triangle.uv;
-      context.moveTo(rect.left + a[0] * rect.width, rect.top + (1 - a[1]) * rect.height);
-      context.lineTo(rect.left + b[0] * rect.width, rect.top + (1 - b[1]) * rect.height);
-      context.lineTo(rect.left + c[0] * rect.width, rect.top + (1 - c[1]) * rect.height);
-      context.closePath();
-    }
-    context.lineJoin = 'round';
-    context.lineCap = 'round';
-    context.strokeStyle = '#0a0c10';
-    context.lineWidth = 2;
-    context.stroke();
-    context.strokeStyle = '#ffffff';
-    context.lineWidth = 1;
-    context.stroke();
-    context.restore();
+  /** Builds one texture-space path using the exact normalized-UV → top-left
+   * texture-pixel mapping used by UV-overlap rasterization. SVG remains vector
+   * geometry; the bitmap-sized viewBox only establishes the shared coordinate
+   * system and aspect ratio. */
+  function wireframePath(triangles: UVTriangle[], width: number, height: number): string {
+    return triangles.map((triangle) => {
+      const [a, b, c] = triangle.uv.map((uv) => uvToTexturePoint(uv, width, height));
+      return `M${a[0]} ${a[1]}L${b[0]} ${b[1]}L${c[0]} ${c[1]}Z`;
+    }).join('');
   }
 
-  /** One pane's wireframe layer. The texture bitmaps are low-res (the
-   * dithered pane can be ~128px wide) and are upscaled to the frame with
-   * nearest-neighbor, so stroking into them turns 1px antialiased lines into
-   * chunky speckles. Drawing here instead — at the pane's display resolution
-   * × devicePixelRatio — keeps the lines crisp at any zoom, and a dedicated
-   * element keeps them clear of the dither pattern. */
-  function syncWireframeOverlay(overlay: HTMLCanvasElement, canvas: HTMLCanvasElement, showWireframe: boolean): void {
+  function syncWireframeOverlay(overlay: SVGSVGElement, canvas: HTMLCanvasElement, showWireframe: boolean): void {
     const triangles = uvWireframeTriangles;
     if (!showWireframe || canvas.hidden || !triangles || triangles.length === 0 || canvas.width <= 0 || canvas.height <= 0) {
-      overlay.hidden = true;
+      overlay.toggleAttribute('hidden', true);
+      overlay.replaceChildren();
       return;
     }
-    overlay.hidden = false;
-    const frameWidth = overlay.clientWidth;
-    const frameHeight = overlay.clientHeight;
-    if (frameWidth <= 0 || frameHeight <= 0) return;
-    const dpr = window.devicePixelRatio || 1;
-    overlay.width = Math.max(1, Math.round(frameWidth * dpr));
-    overlay.height = Math.max(1, Math.round(frameHeight * dpr));
-    const context = overlay.getContext('2d');
-    if (!context) return;
-    context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    context.clearRect(0, 0, frameWidth, frameHeight);
-    // Replicate the bitmap's object-fit: contain draw rect inside the canvas
-    // element box (offsetWidth/offsetHeight are the post-layout, transform-
-    // independent box), then offset by the box within the frame (flex
-    // centering). This is the same fitted rect the 2D preview (preview2d.ts)
-    // computes for its transform, so the overlay stays glued to the texture at
-    // any zoom.
-    const boxWidth = canvas.offsetWidth;
-    const boxHeight = canvas.offsetHeight;
-    if (boxWidth <= 0 || boxHeight <= 0) return;
-    const inner = computeContainRect(boxWidth, boxHeight, canvas.width, canvas.height);
-    drawWireframe(context, triangles, {
-      left: (frameWidth - boxWidth) / 2 + inner.left,
-      top: (frameHeight - boxHeight) / 2 + inner.top,
-      width: inner.width,
-      height: inner.height,
-    });
+    overlay.toggleAttribute('hidden', false);
+    overlay.setAttribute('viewBox', `0 0 ${canvas.width} ${canvas.height}`);
+    overlay.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    const path = wireframePath(triangles, canvas.width, canvas.height);
+    overlay.innerHTML = [
+      `<path d="${path}" stroke="#0a0c10" stroke-width="2" vector-effect="non-scaling-stroke"/>`,
+      `<path d="${path}" stroke="#ffffff" stroke-width="1" vector-effect="non-scaling-stroke"/>`,
+    ].join('');
   }
 
   function syncWireframeOverlays(): void {

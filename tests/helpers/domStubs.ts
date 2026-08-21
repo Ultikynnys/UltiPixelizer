@@ -159,6 +159,34 @@ class FakeClassList {
   }
 }
 
+export class FakeSvg {
+  hidden = false;
+  clientWidth = 0;
+  clientHeight = 0;
+  innerHTML = '';
+  readonly attributes = new Map<string, string>();
+
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+
+  toggleAttribute(name: string, force?: boolean): boolean {
+    const enabled = force ?? !this.attributes.has(name);
+    if (enabled) this.attributes.set(name, '');
+    else this.attributes.delete(name);
+    if (name === 'hidden') this.hidden = enabled;
+    return enabled;
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
+  }
+
+  replaceChildren(): void {
+    this.innerHTML = '';
+  }
+}
+
 export class FakeCanvas {
   private _width = 0;
   private _height = 0;
@@ -171,6 +199,8 @@ export class FakeCanvas {
   hidden = false;
   clientWidth = 0;
   clientHeight = 0;
+  offsetLeft = 0;
+  offsetTop = 0;
   offsetWidth = 0;
   offsetHeight = 0;
 

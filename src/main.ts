@@ -232,7 +232,7 @@ app.innerHTML = `
               <figcaption><span>01</span> Original <span class="fig-dims" id="sourceDimensions">640 × 461</span><button class="fig-zoom" id="originalZoomBadge" type="button" title="Zoom level — scroll over the preview to zoom, drag to pan, double-click to reset">100%</button></figcaption>
               <div class="canvas-frame">
                 <canvas id="originalCanvas" aria-label="Original texture preview"></canvas>
-                <canvas class="wireframe-overlay" id="originalWireframeOverlay" aria-hidden="true" hidden></canvas>
+                <svg class="wireframe-overlay" id="originalWireframeOverlay" aria-hidden="true" preserveAspectRatio="xMidYMid meet" hidden></svg>
                 <figure class="luminosity-histogram" id="originalLuminosityHistogram" aria-label="Original luminosity levels">
                   <figcaption>Luminosity levels</figcaption>
                   <canvas aria-hidden="true"></canvas>
@@ -281,7 +281,7 @@ app.innerHTML = `
               <figcaption><span>02</span> Dithered <span class="fig-dims" id="processedDimensions">128 × 92</span><button class="fig-zoom" id="processedZoomBadge" type="button" title="Zoom level — scroll over the preview to zoom, drag to pan, double-click to reset">100%</button></figcaption>
               <div class="canvas-frame">
                 <canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas>
-                <canvas class="wireframe-overlay" id="processedWireframeOverlay" aria-hidden="true" hidden></canvas>
+                <svg class="wireframe-overlay" id="processedWireframeOverlay" aria-hidden="true" preserveAspectRatio="xMidYMid meet" hidden></svg>
                 <figure class="luminosity-histogram" id="processedLuminosityHistogram" aria-label="Dithered luminosity levels">
                   <figcaption>Luminosity levels</figcaption>
                   <canvas aria-hidden="true"></canvas>
@@ -434,8 +434,8 @@ const processedLuminosityCanvas = processedLuminosityHistogram.querySelector('ca
 // the canvas transform so the UV islands stay glued to the texture at any
 // zoom.
 const originalZoomBadge = document.querySelector<HTMLButtonElement>('#originalZoomBadge')!;
-const originalWireframeOverlay = document.querySelector<HTMLCanvasElement>('#originalWireframeOverlay')!;
-const processedWireframeOverlay = document.querySelector<HTMLCanvasElement>('#processedWireframeOverlay')!;
+const originalWireframeOverlay = document.querySelector<SVGSVGElement>('#originalWireframeOverlay')!;
+const processedWireframeOverlay = document.querySelector<SVGSVGElement>('#processedWireframeOverlay')!;
 const processedZoomBadge = document.querySelector<HTMLButtonElement>('#processedZoomBadge')!;
 const originalPreview2D = createPreview2D({ canvas: originalCanvas, frame: originalCanvas.parentElement!, badge: originalZoomBadge, overlay: originalWireframeOverlay });
 const processedPreview2D = createPreview2D({ canvas: previewCanvas, frame: previewCanvas.parentElement!, badge: processedZoomBadge, overlay: processedWireframeOverlay });
