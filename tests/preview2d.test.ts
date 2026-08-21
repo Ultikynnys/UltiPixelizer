@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPreview2D, type Preview2DApi } from '../src/lib/preview2d';
-import { domStubs, installDomStubs } from './helpers/domStubs';
+import { domStubs, flushRaf, installDomStubs } from './helpers/domStubs';
 
 /**
  * DOM stubs for preview2d.ts (node environment, no jsdom).
@@ -158,11 +158,13 @@ function readTransform(surface: FakeSurface): { x: number; y: number; scale: num
 /** Dispatches a window-level event (pan/zoom listen on the window). */
 function windowEvent(type: string, props: FakeEventInit): void {
   windowSurface.dispatch(type, props);
+  flushRaf();
 }
 
 /** Dispatches a wheel event on the frame, where the listener lives. */
 function frameWheel(frame: FakeSurface, event: FakeEventInit): void {
   frame.dispatch('wheel', event);
+  flushRaf();
 }
 
 /** The wheel handler's zoom factor for a vertical scroll of `deltaY`. */
@@ -212,8 +214,10 @@ describe('wheel zoom', () => {
 
     const transform = readTransform(canvas)!;
     expect(transform.scale).toBeCloseTo(wheelZoom(-100), 5);
-    expect(transform.x).toBeCloseTo(-44.28, 1);
-    expect(transform.y).toBeCloseTo(-22.14, 1);
+    // Pixelated canvases render at device-pixel-aligned translations so wheel
+    // zoom cannot seed a fractional offset that flickers during the next drag.
+    expect(transform.x).toBe(-44);
+    expect(transform.y).toBe(-22);
     expect(badge!.textContent).toBe('122%');
   });
 
@@ -263,7 +267,7 @@ describe('wheel zoom', () => {
     frameWheel(frame, { deltaMode: 0, deltaY: 2000, clientX: 20, clientY: 20 });
     // image 300×150 at 0.1 → 30×15, smaller than the 40×40 frame with its
     // 40px pan margin: the image centers instead of clamping to a margin.
-    expect(readTransform(canvas)).toEqual({ x: 135, y: 67.5, scale: 0.1 });
+    expect(readTransform(canvas)).toEqual({ x: 135, y: 68, scale: 0.1 });
   });
 });
 
@@ -281,6 +285,18 @@ describe('pan', () => {
     windowEvent('pointermove', { pointerId: 2, clientX: 800, clientY: 150, pointerType: 'mouse', buttons: 1 });
     expect(readTransform(canvas)!.x).toBe(402);
     expect(readTransform(canvas)!.y).toBe(20);
+  });
+
+  it('snaps a fractional zoom pan to device pixels while keeping the overlay aligned', () => {
+    const { canvas, frame, overlay } = makePreview({ overlay: true });
+    frameWheel(frame, { deltaMode: 0, deltaY: -100, clientX: 213, clientY: 117 });
+    frame.dispatch('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, button: 0 });
+    windowEvent('pointermove', { pointerId: 1, clientX: 131, clientY: 119, pointerType: 'mouse', buttons: 1 });
+
+    const transform = readTransform(canvas)!;
+    expect(Number.isInteger(transform.x)).toBe(true);
+    expect(Number.isInteger(transform.y)).toBe(true);
+    expect(overlay!.style.transform).toBe(canvas.style.transform);
   });
 
   it('does not start a drag off the pan surface or with a non-primary button', () => {

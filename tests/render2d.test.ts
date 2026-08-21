@@ -77,10 +77,40 @@ describe('createRender2D render pipeline', () => {
     // The original pane keeps the unquantized lit source.
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255, 40, 40, 40, 255]);
     expect(shared.renderedCanvas).toBeDefined();
+    // Histograms read each pane's final selected-view result: four distinct
+    // original levels, versus one black level after dithering.
+    for (const level of [10, 20, 30, 40]) {
+      expect(deps.luminosityHistograms.original.context.fillRect).toHaveBeenCalledWith(level, 0, 1, 48);
+    }
+    expect(deps.luminosityHistograms.processed.context.fillRect).toHaveBeenCalledTimes(1);
+    expect(deps.luminosityHistograms.processed.context.fillRect).toHaveBeenCalledWith(0, 0, 1, 48);
     expect(deps.updatePreviewBadge).toHaveBeenCalledWith(2, 2);
     // Single-tile display: neither canvas is marked repeat-tiled.
     expect(deps.previewCanvas.classList.contains('repeat-tiled')).toBe(false);
     expect(deps.originalCanvas.classList.contains('repeat-tiled')).toBe(false);
+  });
+
+  it('keeps hidden 3D-pane histograms fresh for the next 2D entry', () => {
+    const deps = createRendererDeps({
+      getOriginalPreviewMode: () => '3d',
+      getProcessedPreviewMode: () => '2d',
+      textures: { base: { image: baseTexture(), name: '' } },
+    });
+    createRender2D(deps, sharedState()).render();
+
+    expect(deps.luminosityHistograms.original.context.fillRect).toHaveBeenCalled();
+    expect(deps.luminosityHistograms.processed.context.fillRect).toHaveBeenCalled();
+  });
+
+  it('skips both histograms in the compact single-pane layout', () => {
+    const deps = createRendererDeps({
+      showLuminosityHistograms: () => false,
+      textures: { base: { image: baseTexture(), name: '' } },
+    });
+    createRender2D(deps, sharedState()).render();
+
+    expect(deps.luminosityHistograms.original.context.fillRect).not.toHaveBeenCalled();
+    expect(deps.luminosityHistograms.processed.context.fillRect).not.toHaveBeenCalled();
   });
 
   it('applies pixelization to the source before the dither pass', () => {

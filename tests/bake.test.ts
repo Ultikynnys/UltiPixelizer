@@ -5,6 +5,7 @@ import { createFallbackQuadScene } from '../src/lib/modelScene';
 import { createRendererDeps, createRenderShared } from './helpers/rendererDeps';
 import { expectFallbackQuad } from './helpers/bakeFixtures';
 import { asSourceImage, FakeCanvas, installDomStubs } from './helpers/domStubs';
+import { WorkerJobCancelledError } from '../src/lib/workerCommon';
 
 const mocks = vi.hoisted(() => ({ bakeMeshAOAsync: vi.fn(), bakeMeshLightmap: vi.fn() }));
 vi.mock('../src/lib/aoBake', () => ({
@@ -314,7 +315,30 @@ describe('bakeLighting', () => {
 
     // 512 × 256 dithers to 64 × 32 (pixelization width 64, aspect preserved)
     // and the lightmap bake matches that exactly.
-    expect(mocks.bakeMeshLightmap).toHaveBeenCalledWith(scene, 64, 32, expect.anything(), expect.any(Object));
+    expect(mocks.bakeMeshLightmap).toHaveBeenCalledWith(scene, 64, 32, expect.anything(), expect.any(Object), expect.any(AbortSignal));
+  });
+
+  it('cancels a superseded explicit lightmap bake and lands only the latest result', async () => {
+    let firstSignal: AbortSignal | undefined;
+    mocks.bakeMeshLightmap
+      .mockImplementationOnce((_scene, _width, _height, _options, _bakeScene, signal: AbortSignal) => {
+        firstSignal = signal;
+        return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new WorkerJobCancelledError('Lightmap'))));
+      })
+      .mockResolvedValueOnce(new Uint8ClampedArray(8 * 8 * 4).fill(180));
+    const { deps, bake } = setup({ getAOScene: () => new Scene() });
+    deps.textures.base.image = base8();
+
+    const first = bake.bakeLighting();
+    vi.advanceTimersByTime(30);
+    await Promise.resolve();
+    const second = bake.bakeLighting();
+    await vi.advanceTimersByTimeAsync(30);
+
+    expect(firstSignal?.aborted).toBe(true);
+    await expect(first).resolves.toBe(false);
+    await expect(second).resolves.toBe(true);
+    expect(deps.textures.lightmap.image).not.toBeNull();
   });
 
   it('reports bake failures to the console', async () => {
@@ -347,11 +371,8 @@ describe('clearLightmap', () => {
     expect(render2d.render).toHaveBeenCalledOnce();
   });
 
-  it('drops the implicit lightmap and cancels a pending re-bake', () => {
-    mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(8 * 8 * 4));
-    const { deps, shared, bake } = setup({ getAOScene: () => new Scene() });
-    deps.textures.base.image = base8();
-    bake.scheduleImplicitLightmapBake();
+  it('drops any legacy implicit preview without starting another bake', () => {
+    const { shared, bake } = setup({ getAOScene: () => new Scene() });
     shared.implicitLightmapCanvas = new FakeCanvas() as unknown as HTMLCanvasElement;
 
     bake.clearLightmap();
@@ -368,8 +389,7 @@ describe('clearLightmap', () => {
     bake.clearLightmap(true);
 
     expect(shared.lightmapCleared).toBe(true);
-    // Sun/ambient changes after the clear must not resurrect the lightmap.
-    bake.scheduleImplicitLightmapBake();
+    // No background scheduler can resurrect the lightmap.
     vi.advanceTimersByTime(1000);
     expect(shared.implicitLightmapCanvas).toBeNull();
     expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
@@ -377,106 +397,15 @@ describe('clearLightmap', () => {
   });
 });
 
-describe('implicit lightmap scheduling', () => {
-  it('bakes onto the fallback quad without a scene; skips when a lightmap is set', async () => {
-    mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(8 * 8 * 4));
-    const { deps, shared, bake } = setup();
-    deps.textures.base.image = base8();
-
-    bake.scheduleImplicitLightmapBake();
-    // The bake now resolves through the async wrapper — advanceTimersByTimeAsync
-    // flushes the microtask that lands the canvas.
-    await vi.advanceTimersByTimeAsync(200);
-    expect(mocks.bakeMeshLightmap).toHaveBeenCalledOnce();
-    expect(shared.implicitLightmapCanvas).not.toBeNull();
-
-    mocks.bakeMeshLightmap.mockClear();
-    const { bake: withLightmap, deps: lightmapDeps } = setup({ getAOScene: () => new Scene() });
-    lightmapDeps.textures.lightmap.image = asSourceImage(new FakeCanvas());
-    withLightmap.scheduleImplicitLightmapBake();
-    vi.advanceTimersByTime(1000);
-    expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
-  });
-
-  it('does not bake while the lightmap was explicitly cleared', () => {
+describe('explicit-only lightmap policy', () => {
+  it('reset clears legacy preview state without starting a bake', () => {
     const { shared, bake } = setup({ getAOScene: () => new Scene() });
-    shared.lightmapCleared = true;
-    bake.scheduleImplicitLightmapBake();
-    vi.advanceTimersByTime(1000);
-    expect(shared.implicitLightmapCanvas).toBeNull();
-    expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
-  });
-
-  it('reengageImplicitLightmap resumes baking after a cleared slot', async () => {
-    mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(8 * 8 * 4));
-    const { deps, shared, bake } = setup({ getAOScene: () => new Scene() });
-    deps.textures.base.image = base8();
+    shared.implicitLightmapCanvas = new FakeCanvas() as unknown as HTMLCanvasElement;
     shared.lightmapCleared = true;
 
-    bake.reengageImplicitLightmap();
-    bake.scheduleImplicitLightmapBake();
-    await vi.advanceTimersByTimeAsync(200);
-
-    expect(mocks.bakeMeshLightmap).toHaveBeenCalledOnce();
-    expect(shared.implicitLightmapCanvas).not.toBeNull();
-  });
-
-  it('bakes the implicit lightmap after the debounce and renders', async () => {
-    mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(8 * 8 * 4));
-    const { deps, render2d, shared, bake } = setup({ getAOScene: () => new Scene() });
-    deps.textures.base.image = base8();
-
-    bake.scheduleImplicitLightmapBake();
-    vi.advanceTimersByTime(199);
-    expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);
-    expect(mocks.bakeMeshLightmap).toHaveBeenCalledOnce();
-    expect(shared.implicitLightmapCanvas).not.toBeNull();
-    expect(render2d.render).toHaveBeenCalledOnce();
-    // The ribbon slot previews the implicit lightmap, so it refreshes too.
-    expect(deps.renderTextureRibbon).toHaveBeenCalledOnce();
-  });
-
-  it('coalesces rapid requests into a single bake', () => {
-    mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(8 * 8 * 4));
-    const { deps, bake } = setup({ getAOScene: () => new Scene() });
-    deps.textures.base.image = base8();
-
-    bake.scheduleImplicitLightmapBake();
-    bake.scheduleImplicitLightmapBake();
-    bake.scheduleImplicitLightmapBake();
-    vi.advanceTimersByTime(200);
-    expect(mocks.bakeMeshLightmap).toHaveBeenCalledOnce();
-  });
-
-  it('drops the implicit canvas when the bake fails', () => {
-    mocks.bakeMeshLightmap.mockImplementation(() => {
-      throw new Error('bake failed');
-    });
-    const { deps, render2d, shared, bake } = setup({ getAOScene: () => new Scene() });
-    bake.scheduleImplicitLightmapBake();
-    vi.advanceTimersByTime(200);
-    expect(shared.implicitLightmapCanvas).toBeNull();
-    expect(render2d.render).not.toHaveBeenCalled();
-    // The ribbon still refreshes so the slot preview drops the stale canvas.
-    expect(deps.renderTextureRibbon).toHaveBeenCalledOnce();
-  });
-
-  it('scheduleNormalAdjustedLighting reuses the same debounce path', () => {
-    mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(8 * 8 * 4));
-    const { deps, bake } = setup({ getAOScene: () => new Scene() });
-    deps.textures.base.image = base8();
-    bake.scheduleNormalAdjustedLighting();
-    vi.advanceTimersByTime(200);
-    expect(mocks.bakeMeshLightmap).toHaveBeenCalledOnce();
-  });
-
-  it('reset cancels any pending bake and re-engages the preview', () => {
-    const { shared, bake } = setup({ getAOScene: () => new Scene() });
-    shared.lightmapCleared = true;
-    bake.scheduleImplicitLightmapBake();
     bake.reset();
     vi.advanceTimersByTime(1000);
+
     expect(shared.implicitLightmapCanvas).toBeNull();
     expect(shared.lightmapCleared).toBe(false);
     expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();

@@ -241,6 +241,41 @@ select option { background: var(--card); color: var(--paper); }
 .preview-pane canvas:active { cursor: grabbing; }
 .canvas-frame:active { cursor: grabbing; }
 .preview-pane canvas[hidden], .model-host[hidden], .uv-control[hidden], .uv-overlap-control[hidden] { display: none; }
+/* Final rendered luminosity distribution for each 2D pane. The graph is a
+   fixed UI overlay, not part of the pannable/zoomable texture canvas. */
+.luminosity-histogram {
+  background: color-mix(in srgb, var(--ink) 92%, transparent);
+  bottom: 42px; left: 8px; margin: 0; padding: 6px 8px; pointer-events: none;
+  position: absolute; width: min(220px, 42%); z-index: 10;
+}
+.luminosity-histogram[hidden] { display: none; }
+.luminosity-histogram figcaption {
+  color: var(--muted); font: 500 8px 'DM Mono', monospace;
+  letter-spacing: .06em; margin-bottom: 4px; text-transform: uppercase;
+}
+.luminosity-histogram canvas {
+  cursor: default; height: 48px; image-rendering: auto; max-height: none;
+  object-fit: fill; pointer-events: none; touch-action: auto; width: 100%;
+}
+.luminosity-axis { margin-top: 3px; }
+.luminosity-axis-rail {
+  background: linear-gradient(90deg, #000, #fff); border: 1px solid color-mix(in srgb, var(--paper) 35%, transparent);
+  height: 4px; position: relative;
+}
+.luminosity-axis-rail::after {
+  background: repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), color-mix(in srgb, var(--paper) 60%, transparent) calc(25% - 1px) 25%);
+  content: ''; inset: 0; position: absolute;
+}
+.luminosity-axis-labels {
+  color: var(--muted); font: 500 7px 'DM Mono', monospace;
+  height: 9px; margin-top: 2px; position: relative; white-space: nowrap;
+}
+.luminosity-axis-labels span { position: absolute; transform: translateX(-50%); }
+.luminosity-axis-labels span:nth-child(1) { left: 0; transform: none; }
+.luminosity-axis-labels span:nth-child(2) { left: 25%; }
+.luminosity-axis-labels span:nth-child(3) { left: 50%; }
+.luminosity-axis-labels span:nth-child(4) { left: 75%; }
+.luminosity-axis-labels span:nth-child(5) { right: 0; transform: none; }
 /* UV island wireframe: a display-resolution layer over the texture canvas.
    The texture bitmaps are low-res and upscaled with nearest-neighbor, so
    lines stroked into them would come out chunky and speckled — draw them on
@@ -384,7 +419,15 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .panel h2 { font-size: 17px; letter-spacing: -.03em; margin: 0; }
 .panel-heading { align-items: center; display: flex; justify-content: space-between; margin-bottom: 22px; }
 .panel-heading.compact { margin-bottom: 17px; }
-.range { appearance: none; background: transparent; cursor: pointer; height: 14px; margin: 0; touch-action: pan-y; width: 100%; }
+.range {
+  appearance: none;
+  background: linear-gradient(to right,
+    transparent calc(var(--default-position) - 1px),
+    var(--accent) calc(var(--default-position) - 1px),
+    var(--accent) calc(var(--default-position) + 1px),
+    transparent calc(var(--default-position) + 1px));
+  cursor: pointer; height: 14px; margin: 0; touch-action: pan-y; width: 100%;
+}
 .range::-webkit-slider-runnable-track { background: var(--line); height: 2px; }
 .range::-webkit-slider-thumb { appearance: none; background: var(--paper); border: 0; height: 14px; margin-top: -6px; width: 8px; }
 .range::-moz-range-track { background: var(--line); border: 0; height: 2px; }

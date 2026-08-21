@@ -26,6 +26,8 @@ const config: ConversionConfig = {
   quadGrid: true,
   displacementStrength: 0.18,
   displacementFlip: true,
+  showUVWireframeOriginal: false,
+  showUVWireframeProcessed: true,
   navigationPan: false,
   paletteFilter: 'search',
   paletteSearchQuery: 'pico',
@@ -96,6 +98,14 @@ describe('conversion presets', () => {
     expect(parsed.paletteFilter).toBe('compact');
     expect(parsed.paletteSearchQuery).toBe('');
     expect(parsed.paletteSearchSort).toBe('name');
+  });
+
+  it('backfills enabled UV Islands overlays into settings saved before they persisted', () => {
+    const current = createPreset('Legacy UV Islands', '', config);
+    const { showUVWireframeOriginal: _original, showUVWireframeProcessed: _processed, ...legacy } = current;
+    const parsed = parsePreset(JSON.stringify(legacy));
+    expect(parsed.showUVWireframeOriginal).toBe(true);
+    expect(parsed.showUVWireframeProcessed).toBe(true);
   });
 
   it('migrates presets saved before AO bias/power existed', () => {
@@ -271,6 +281,8 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       quadGrid: false,
       displacementStrength: 0.15,
       displacementFlip: false,
+      showUVWireframeOriginal: false,
+      showUVWireframeProcessed: true,
       navigationPan: false,
       paletteFilter: 'search',
       paletteSearchQuery: 'pico',
@@ -292,7 +304,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(30);
+    expect(Object.keys(defaults)).toHaveLength(32);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -320,6 +332,8 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       quadGrid: false,
       displacementStrength: 0.15,
       displacementFlip: false,
+      showUVWireframeOriginal: true,
+      showUVWireframeProcessed: true,
       navigationPan: false,
       paletteFilter: 'compact',
       paletteSearchQuery: '',
@@ -361,6 +375,8 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       quadGrid: false,
       displacementStrength: 0.15,
       displacementFlip: false,
+      showUVWireframeOriginal: false,
+      showUVWireframeProcessed: true,
       navigationPan: false,
       paletteFilter: 'search',
       paletteSearchQuery: 'pico',

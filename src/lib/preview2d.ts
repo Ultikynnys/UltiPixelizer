@@ -71,6 +71,9 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
   const pointers = new Map<number, { x: number; y: number }>();
   let pinchDistance = 0;
   let dragging = false;
+  let dragOrigin = { pointerX: 0, pointerY: 0, panX: 0, panY: 0 };
+  let transformFrame = 0;
+  let refitPending = false;
 
   function computeFit(): void {
     const frameWidth = frame.clientWidth;
@@ -110,8 +113,17 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
   }
 
   function apply(): void {
+    transformFrame = 0;
     const scale = zoom * tileFactor();
-    const transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+    // The texture uses nearest-neighbor rendering. Fractional translation makes
+    // its pixel grid repeatedly snap between adjacent device pixels while
+    // dragging, which appears as back-and-forth flicker. Keep precise pan state
+    // internally for zoom/sampling math, but rasterize both layers at one stable
+    // device-pixel position.
+    const deviceScale = window.devicePixelRatio || 1;
+    const renderedPanX = Math.round(panX * deviceScale) / deviceScale;
+    const renderedPanY = Math.round(panY * deviceScale) / deviceScale;
+    const transform = `translate(${renderedPanX}px, ${renderedPanY}px) scale(${scale})`;
     canvas.style.transformOrigin = `${originX}px ${originY}px`;
     canvas.style.transform = transform;
     if (overlay) {
@@ -122,6 +134,13 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
       overlay.style.transform = transform;
     }
     if (badge) badge.textContent = `${Math.round(zoom * 100)}%`;
+  }
+
+  // Pointer devices can deliver several moves before the browser paints. Keep
+  // one transform writer and commit only the latest logical pan/zoom state.
+  function scheduleApply(): void {
+    if (transformFrame) return;
+    transformFrame = requestAnimationFrame(apply);
   }
 
   /** The image's top-left frame position at pan (0,0) for a given scale. The
@@ -138,7 +157,7 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
   /** Keep a sliver of the image in view: it may slide past the frame edges
    * (revealing the backdrop) but can never be lost entirely. Bounds are in
    * frame space, against the fitted rect (not the letterboxed canvas box). */
-  function clampPan(): void {
+  function clampPan(allowSmallImagePan = false): void {
     const frameWidth = frame.clientWidth;
     const frameHeight = frame.clientHeight;
     const scale = zoom * tileFactor();
@@ -150,8 +169,17 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
     const maxX = frameWidth - margin - corner.left; // image left edge ≤ frameWidth − margin
     const minY = margin - corner.top - imageHeight;
     const maxY = frameHeight - margin - corner.top;
-    panX = minX > maxX ? (frameWidth - imageWidth) / 2 - corner.left : clamp(panX, minX, maxX);
-    panY = minY > maxY ? (frameHeight - imageHeight) / 2 - corner.top : clamp(panY, minY, maxY);
+    const centerX = (frameWidth - imageWidth) / 2 - corner.left;
+    const centerY = (frameHeight - imageHeight) / 2 - corner.top;
+    // At fit zoom both edge constraints cannot hold simultaneously. During a
+    // drag, use the interval between those constraints instead of forcing the
+    // image back to center on every move; zoom/refit still center small images.
+    panX = minX > maxX
+      ? (allowSmallImagePan ? clamp(panX, maxX, minX) : centerX)
+      : clamp(panX, minX, maxX);
+    panY = minY > maxY
+      ? (allowSmallImagePan ? clamp(panY, maxY, minY) : centerY)
+      : clamp(panY, minY, maxY);
   }
 
   /** Zooms so the frame-space point (cursorX, cursorY) stays under the cursor. */
@@ -165,10 +193,14 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
     panY = anchorY - (anchorY - panY) * factor;
     zoom = nextZoom;
     clampPan();
-    apply();
+    scheduleApply();
   }
 
   function refit(): void {
+    if (pointers.size > 0) {
+      refitPending = true;
+      return;
+    }
     computeFit();
     clampPan();
     apply();
@@ -273,6 +305,12 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
       dragging = false;
     } else if (pointers.size === 1) {
       dragging = true;
+      dragOrigin = {
+        pointerX: event.clientX,
+        pointerY: event.clientY,
+        panX,
+        panY,
+      };
     }
   });
 
@@ -301,16 +339,26 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
       return;
     }
     if (!dragging) return;
-    panX += current.x - previous.x;
-    panY += current.y - previous.y;
-    clampPan();
-    apply();
+    // Derive position from the pointer-down snapshot instead of accumulating
+    // event deltas. Dropped/coalesced pointermove events cannot introduce drift.
+    panX = dragOrigin.panX + current.x - dragOrigin.pointerX;
+    panY = dragOrigin.panY + current.y - dragOrigin.pointerY;
+    clampPan(true);
+    scheduleApply();
   });
 
   const endPointer = (event: PointerEvent): void => {
     pointers.delete(event.pointerId);
     if (pointers.size < 2) pinchDistance = 0;
-    if (pointers.size === 0) dragging = false;
+    if (pointers.size === 0) {
+      dragging = false;
+      if (refitPending) {
+        refitPending = false;
+        refit();
+      } else {
+        scheduleApply();
+      }
+    }
   };
   window.addEventListener('pointerup', endPointer);
   window.addEventListener('pointercancel', endPointer);

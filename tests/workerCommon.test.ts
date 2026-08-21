@@ -70,4 +70,24 @@ describe('runSingleWorker', () => {
     await expect(pending).rejects.toThrow('worker exploded');
     expect(terminate).toHaveBeenCalled();
   });
+
+  it('terminates and rejects a cancelled worker without waiting for a message', async () => {
+    const { worker, terminate } = createFakeWorker();
+    const controller = new AbortController();
+    const pending = runSingleWorker(worker as unknown as Worker, 'Lightmap', {}, [], { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'WorkerJobCancelledError' });
+    expect(terminate).toHaveBeenCalledOnce();
+  });
+
+  it('terminates and rejects a silent worker after the watchdog expires', async () => {
+    vi.useFakeTimers();
+    const { worker, terminate } = createFakeWorker();
+    const pending = runSingleWorker(worker as unknown as Worker, 'Lightmap', {}, [], { timeoutMs: 50 });
+    const rejection = expect(pending).rejects.toThrow('Lightmap worker timed out.');
+    await vi.advanceTimersByTimeAsync(50);
+    await rejection;
+    expect(terminate).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
 });

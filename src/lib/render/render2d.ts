@@ -5,6 +5,7 @@ import { webgpuUsable } from '../gpuCommon';
 import { gpuDitherCovers, processImageDataAsync } from '../gpuDither';
 import { applyLightmap } from '../lightmap';
 import { createBoundedLru } from '../lru';
+import { drawLuminosityHistogram } from '../luminosityHistogram';
 import { LUMA } from '../math';
 import type { PreviewViewMode, SourceImage } from '../state';
 import type { RendererDeps, RenderShared } from './types';
@@ -32,6 +33,8 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     textures,
     previewCanvas,
     originalCanvas,
+    luminosityHistograms,
+    showLuminosityHistograms,
     dimensions,
     currentColors,
     updatePreviewBadge,
@@ -138,9 +141,8 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
    * (bias/power remapped exactly as the lighting pass applies it) times the
    * lightmap's luminance. 1 = fully lit, 0 = fully dark. Returns null when
    * there is no AO bake and no lightmap at all (halftone then falls back to
-   * luminance-driven dots). The lightmap source matches the lighting pass:
-   * the explicit bake if present, else the live implicit bake, so moving the
-   * sun re-sizes the dots. */
+   * luminance-driven dots). The lightmap source is the committed image, with
+   * legacy in-memory preview state accepted until reset. */
   function halftoneLighting(width: number, height: number): Float32Array | null {
     const aoFactors = currentAOFactors(width, height, true);
     const lightmap = textures.lightmap.image ?? shared.implicitLightmapCanvas;
@@ -311,8 +313,10 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       renderContext.putImageData(processedData, 0, 0);
     }
 
-    previewCanvas.width = width * repeatProcessed;
-    previewCanvas.height = height * repeatProcessed;
+    const previewWidth = width * repeatProcessed;
+    const previewHeight = height * repeatProcessed;
+    if (previewCanvas.width !== previewWidth) previewCanvas.width = previewWidth;
+    if (previewCanvas.height !== previewHeight) previewCanvas.height = previewHeight;
     // Mark the display canvas so preview2d shows the 3× buffer at 3× scale —
     // a pure transform: each tile keeps the single-tile size, the window
     // layout never moves, and the grid overflows until the user scrolls out.
@@ -327,11 +331,22 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       ? drawImageToCanvas(originalSource, originalSource.width, originalSource.height).canvas
       : litCanvas(originalSource, originalSource.width, originalSource.height);
     shared.originalBaseCanvas = litSourceNative;
-    originalCanvas.width = originalSource.width * repeatOriginal;
-    originalCanvas.height = originalSource.height * repeatOriginal;
+    const originalWidth = originalSource.width * repeatOriginal;
+    const originalHeight = originalSource.height * repeatOriginal;
+    if (originalCanvas.width !== originalWidth) originalCanvas.width = originalWidth;
+    if (originalCanvas.height !== originalHeight) originalCanvas.height = originalHeight;
     originalCanvas.classList.toggle('repeat-tiled', repeatOriginal === 3);
     const originalContext = originalCanvas.getContext('2d');
     if (originalContext) drawTiled(originalContext, litSourceNative, originalSource.width, originalSource.height, repeatOriginal);
+
+    // Histograms use the final single-tile buffers, after each pane's selected
+    // view mode and dither/lighting path. Image-repeat display copies must not
+    // multiply the distribution by nine. Compact mode hides the graph entirely,
+    // so skip its pixel reads there as well.
+    if (showLuminosityHistograms()) {
+      drawLuminosityHistogram(shared.originalBaseCanvas, luminosityHistograms.original);
+      drawLuminosityHistogram(shared.renderedCanvas, luminosityHistograms.processed);
+    }
 
     // The UV wireframe is drawn on display-resolution overlay canvases
     // (overlay.syncWireframeOverlays) — never into the low-res texture

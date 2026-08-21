@@ -19,9 +19,9 @@ export type SerializedLightmapOptions = {
   ambientIntensity: number;
 };
 
-/** Worker message: bake the whole lightmap in one job (the implicit bake has
- * no progress UI, so a single worker suffices — banding can follow the AO
- * pattern if parallelism is ever needed). */
+/** Worker message: bake the whole lightmap in one job. A single worker keeps
+ * cancellation and result ownership unambiguous; banding can follow the AO
+ * pattern if parallelism is ever needed. */
 export type LightmapBakeRequest = SerializedBakeScene & {
   type: 'bake';
   jobId: number;

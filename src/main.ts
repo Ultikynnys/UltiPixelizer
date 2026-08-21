@@ -121,7 +121,7 @@ const sunOverlayMarkup = (): string => `
             <label class="light-swatch" title="Sun color">${colorControl('#ffffff', 'Sun color', 'id="sunColor"')}</label>
           </span>
         </div>
-        <input class="range" id="sunIntensity" type="range" min="0" max="2" step="0.01" value="${DEFAULT_SUN_INTENSITY}" aria-label="Sun intensity" />
+        <input class="range" id="sunIntensity" type="range" min="0" max="2" step="0.01" value="${DEFAULT_SUN_INTENSITY}" ${rangeDefaultAttrs('sunIntensity', 0, 2)} aria-label="Sun intensity" />
       </div>
       <div class="light-group">
         <div class="light-heading">
@@ -131,14 +131,14 @@ const sunOverlayMarkup = (): string => `
             <label class="light-swatch" title="Ambient light color">${colorControl('#ffffff', 'Ambient light color', 'id="ambientColor"')}</label>
           </span>
         </div>
-        <input class="range" id="ambientIntensity" type="range" min="0" max="1" step="0.01" value="${DEFAULT_AMBIENT_INTENSITY}" aria-label="Ambient intensity" />
+        <input class="range" id="ambientIntensity" type="range" min="0" max="1" step="0.01" value="${DEFAULT_AMBIENT_INTENSITY}" ${rangeDefaultAttrs('ambientIntensity', 0, 1)} aria-label="Ambient intensity" />
       </div>
       <div class="light-group">
         <div class="light-heading">
           <span class="light-label">Normals</span>
           <output id="normalStrengthValue">${DEFAULT_NORMAL_STRENGTH.toFixed(2)}</output>
         </div>
-        <input class="range" id="normalStrength" type="range" min="0" max="1" step="0.01" value="${DEFAULT_NORMAL_STRENGTH}" aria-label="Normal strength" />
+        <input class="range" id="normalStrength" type="range" min="0" max="1" step="0.01" value="${DEFAULT_NORMAL_STRENGTH}" ${rangeDefaultAttrs('normalStrength', 0, 1)} aria-label="Normal strength" />
       </div>
     </div>
   </div>
@@ -233,6 +233,14 @@ app.innerHTML = `
               <div class="canvas-frame">
                 <canvas id="originalCanvas" aria-label="Original texture preview"></canvas>
                 <canvas class="wireframe-overlay" id="originalWireframeOverlay" aria-hidden="true" hidden></canvas>
+                <figure class="luminosity-histogram" id="originalLuminosityHistogram" aria-label="Original luminosity levels">
+                  <figcaption>Luminosity levels</figcaption>
+                  <canvas aria-hidden="true"></canvas>
+                  <div class="luminosity-axis" aria-hidden="true">
+                    <div class="luminosity-axis-rail"></div>
+                    <div class="luminosity-axis-labels"><span>0</span><span>64</span><span>128</span><span>192</span><span>255</span></div>
+                  </div>
+                </figure>
                 <div class="model-host" id="originalModelHost" hidden></div>
                 ${sunOverlayMarkup()}
                 <div class="preview-mode-toggle" id="originalPreviewToggle" role="group" aria-label="Preview mode">
@@ -274,6 +282,14 @@ app.innerHTML = `
               <div class="canvas-frame">
                 <canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas>
                 <canvas class="wireframe-overlay" id="processedWireframeOverlay" aria-hidden="true" hidden></canvas>
+                <figure class="luminosity-histogram" id="processedLuminosityHistogram" aria-label="Dithered luminosity levels">
+                  <figcaption>Luminosity levels</figcaption>
+                  <canvas aria-hidden="true"></canvas>
+                  <div class="luminosity-axis" aria-hidden="true">
+                    <div class="luminosity-axis-rail"></div>
+                    <div class="luminosity-axis-labels"><span>0</span><span>64</span><span>128</span><span>192</span><span>255</span></div>
+                  </div>
+                </figure>
                 <div class="model-host" id="processedModelHost" hidden></div>
                 <div class="texel-density" id="processedTexelDensity" hidden title="Average texture pixels per world unit — UV face size compared with mesh face size in world space">
                   <span>Texel density</span>
@@ -408,6 +424,10 @@ app.innerHTML = `
 
 const previewCanvas = document.querySelector<HTMLCanvasElement>('#previewCanvas')!;
 const originalCanvas = document.querySelector<HTMLCanvasElement>('#originalCanvas')!;
+const originalLuminosityHistogram = document.querySelector<HTMLElement>('#originalLuminosityHistogram')!;
+const processedLuminosityHistogram = document.querySelector<HTMLElement>('#processedLuminosityHistogram')!;
+const originalLuminosityCanvas = originalLuminosityHistogram.querySelector('canvas')!;
+const processedLuminosityCanvas = processedLuminosityHistogram.querySelector('canvas')!;
 
 // 2D preview pan/zoom lives in lib/preview2d.ts; each pane gets its own
 // preview so zoom/pan state stays independent. The wireframe overlay tracks
@@ -508,7 +528,11 @@ function relocateSharedControls(narrow: boolean): void {
   sharedPaneControls.forEach((element) => target.append(element));
 }
 relocateSharedControls(narrowLayout.matches);
-narrowLayout.addEventListener('change', (event) => relocateSharedControls(event.matches));
+narrowLayout.addEventListener('change', (event) => {
+  relocateSharedControls(event.matches);
+  applyPreviewMode();
+  if (!event.matches) render();
+});
 const sunDirectionValue = document.querySelector<HTMLOutputElement>('#sunDirectionValue')!;const cameraDirectionValue = document.querySelector<HTMLOutputElement>('#cameraDirectionValue')!;
 const stripeAngleControl = document.querySelector<HTMLDivElement>('#stripeAngleControl')!;
 const stripeAngleInput = document.querySelector<HTMLInputElement>('#stripeAngle')!;
@@ -651,11 +675,9 @@ let bakeQuadDisplacement: { image: unknown; flip: boolean; strength: number } = 
  * applied in place so strength drags don't jump the camera. `keepCamera`
  * snapshots and restores both viewport cameras around the swap — the grid
  * toggle changes the scene extent but must not move the view.
- * Quad-view tweaks never re-run the implicit lightmap bake — they are
- * visualization adjustments, and a worker + GPU-fallback bake on every grid
- * toggle or displacement drag is wasted work. The bake scene cache is still
- * invalidated here, so the next bake (explicit, or a sun / resolution / model
- * change) collects the updated geometry fresh. */
+ * Quad-view tweaks are visualization adjustments and never start a lightmap
+ * bake. The bake scene cache is still invalidated here, so the next Orient Sun
+ * with Camera bake collects the updated geometry fresh. */
 function refreshFallbackQuads(rebuildViewport: boolean, keepCamera = false): void {
   // Quad-view settings are a no-op while a model is loaded: tessellation,
   // grid and displacement exist only for the fallback plane, and applying
@@ -872,13 +894,12 @@ function renderLightmapControls(): void {
 // Combined preview view enum (Combined / BaseColor / Normals / AO / Lightmap /
 // Lightmap+AO): a single segmented control on the Original pane that drives
 // both preview panes. Normals / AO / Lightmap / Lightmap+AO are only
-// actionable while their texture slot holds an image (or the lightmap has a
-// live implicit bake; Lightmap+AO needs both).
+// actionable while their texture slot holds an image. Legacy in-memory
+// lightmap state is accepted until reset; Lightmap+AO needs both channels.
 function renderViewToggle(): void {
   const aoDefined = textures.ao.image !== null;
   const normalDefined = textures.normal.image !== null;
-  // The lightmap view option follows the slot: an explicit bake, or the live
-  // implicit lightmap baked from the current sun/ambient.
+  // New lightmaps come only from Orient Sun with Camera or import.
   const lightmapDefined = lightmapIsActive(textures) || renderer.getImplicitLightmapCanvas() !== null;
   const lightmapAoDefined = aoDefined && lightmapDefined;
   if (!aoDefined && state.viewModeOriginal === 'ao') state.viewModeOriginal = 'flat';
@@ -1062,8 +1083,7 @@ function syncLightControls(
 // Orient Sun with Camera re-bakes the lightmap, which on a heavy grid can take
 // long enough that a second click would start a redundant bake. While it runs
 // the button is held disabled with a throbber (see .orient-sun-button.busy);
-// the flag clears when the bake settles — the explicit bake resolves its own
-// promise, the implicit path settles via the renderer's onImplicitBakeSettled.
+// the flag clears when the explicit bake promise settles.
 let orientSunBusy = false;
 function setOrientSunBusy(busy: boolean): void {
   orientSunBusy = busy;
@@ -1132,8 +1152,8 @@ function renderTextureRibbon(): void {
   for (const channel of TEXTURE_CHANNELS) {
     const slotElement = document.querySelector<HTMLElement>(`[data-texture="${channel.id}"]`);
     if (!slotElement) continue;
-    // The lightmap slot previews the live implicit lightmap (auto-baked from
-    // the current sun/ambient) until an explicit bake is committed to it.
+    // Preserve any legacy in-memory preview until reset. New lightmaps are
+    // produced only by Orient Sun with Camera or loaded into the slot.
     const data = channel.id === 'lightmap'
       ? textures.lightmap.image ?? renderer.getImplicitLightmapCanvas()
       : textures[channel.id].image;
@@ -1216,7 +1236,6 @@ function applyModelLod(level: number): void {
 function applySun(): void {
   renderSunControl();
   renderOrientationReadout();
-  scheduleImplicitLightmapBake();
 }
 
 function applyWorldAxis(): void {
@@ -1244,6 +1263,9 @@ function applyPreviewMode(): void {
   };
   applyPane(originalPreviewMode, originalCanvas, originalModelHost, originalPreviewToggle, originalZoomBadge);
   applyPane(processedPreviewMode, previewCanvas, processedModelHost, processedPreviewToggle, processedZoomBadge);
+  const showHistograms = !narrowLayout.matches;
+  originalLuminosityHistogram.hidden = !showHistograms || originalPreviewMode !== '2d';
+  processedLuminosityHistogram.hidden = !showHistograms || processedPreviewMode !== '2d';
   // The camera-controls pill lives on the Original pane and is a 3D-only
   // control: it swaps which mouse button orbits vs pans in both viewports.
   navigationToggle.hidden = originalPreviewMode !== '3d';
@@ -1293,11 +1315,6 @@ function closeModelPreview(): void {
   applyPreviewMode();
   renderModelControls();
   updateTexelDensity();
-  // Re-entering the no-model state re-lights the fallback flat quad — the
-  // bake scene falls back to it, so the implicit lightmap runs on the plane
-  // exactly as it would on a loaded mesh (setModel's applySun re-schedules
-  // and wins when a new model is on its way in).
-  scheduleImplicitLightmapBake();
 }
 
 async function setModel(files: File[]): Promise<void> {
@@ -1372,7 +1389,6 @@ function applyExtractedModelTextures(extracted: ExtractedModelTextures, modelNam
     textures.normal.image = extracted.normal;
     textures.normal.name = `${stem}_Normal.png`;
     renderNormalControls();
-    scheduleNormalAdjustedLighting();
   }
   if (extracted.ao) {
     textures.ao.image = extracted.ao;
@@ -1448,13 +1464,26 @@ function renderPalettes(): void {
   syncColorPicker();
 }
 
+function sliderDefaultValue(key: string): number {
+  const value = defaultConfigValues()[key as keyof ReturnType<typeof defaultConfigValues>];
+  if (typeof value !== 'number') throw new Error(`Range control ${key} has no numeric default.`);
+  // Strength is stored as 0–1 but displayed by its slider as 0–100.
+  return key === 'strength' ? value * 100 : value;
+}
+
+function rangeDefaultAttrs(key: string, min: number, max: number): string {
+  const value = sliderDefaultValue(key);
+  const position = ((value - min) / (max - min)) * 100;
+  return `data-default="${value}" style="--default-position:${position}%" title="Double-click to reset to ${value}"`;
+}
+
 // Single slider generator — every range control in the app goes through this.
 // Renders a .control-row (title + optional hint + output) above a .range input.
 function rangeControl(key: string, label: string, min: number, max: number, step: number | 'any', value: number, display: string = String(value), hint = ''): string {
   return `
     <div class="control-row">
       <label for="${key}"><span><strong>${label}</strong>${hint ? `<small>${hint}</small>` : ''}</span><output id="${key}Value" title="Click to type a value">${display}</output><input class="range-value-edit" id="${key}Edit" type="number" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label} value" hidden /></label>
-      <input class="range" id="${key}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label}" />
+      <input class="range" id="${key}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" ${rangeDefaultAttrs(key, min, max)} aria-label="${label}" />
     </div>
   `;
 }
@@ -1489,7 +1518,7 @@ function renderAdjustments(): void {
   // keep working unchanged.
   document.querySelector('#pixelationControl')!.innerHTML = `
     <label for="pixelation"><span><strong>Pixelation</strong></span><output id="pixelationValue" title="Click to type a value">${formatPercent(state.pixelation)}</output><input class="range-value-edit" id="pixelationEdit" type="number" min="0" max="80" step="1" value="${state.pixelation}" aria-label="Pixelation value" hidden /></label>
-    <input class="range" id="pixelation" type="range" min="0" max="80" step="1" value="${state.pixelation}" aria-label="Pixelation" />
+    <input class="range" id="pixelation" type="range" min="0" max="80" step="1" value="${state.pixelation}" ${rangeDefaultAttrs('pixelation', 0, 80)} aria-label="Pixelation" />
   `;
   upscaleSelect.value = state.upscale;
   document.querySelector('#resolutionControl')!.innerHTML = rangeControl('resolution', 'Resolution', 24, 1024, 8, state.resolution, formatPixels(state.resolution));
@@ -1740,6 +1769,14 @@ function bindRange({ input, output, format, apply, debounce }: RangeBinding): vo
       sync(value);
     }
   });
+  input.addEventListener('dblclick', (event) => {
+    event.preventDefault();
+    const defaultValue = input.dataset.default;
+    if (defaultValue === undefined) throw new Error(`Range control ${input.id} has no default value.`);
+    input.value = defaultValue;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   input.addEventListener('change', () => {
     // Release flushes a still-pending debounced apply with the final value.
     if (debounce && timer) {
@@ -1941,6 +1978,11 @@ const renderer = createRenderer({
   textures,
   previewCanvas,
   originalCanvas,
+  luminosityHistograms: {
+    original: originalLuminosityCanvas,
+    processed: processedLuminosityCanvas,
+  },
+  showLuminosityHistograms: () => !narrowLayout.matches,
   wireframeOverlays: {
     original: originalWireframeOverlay,
     processed: processedWireframeOverlay,
@@ -1958,9 +2000,6 @@ const renderer = createRenderer({
   renderNormalControls,
   renderTextureRibbon,
   applySun,
-  // Orient Sun with Camera re-bakes the lightmap; end its busy state when the
-  // implicit bake pipeline settles (landed, failed, skipped, or cancelled).
-  onImplicitBakeSettled: () => setOrientSunBusy(false),
   repeatTextureOriginal: () => repeatTextureOriginal,
   repeatTextureProcessed: () => repeatTextureProcessed,
 });
@@ -1971,9 +2010,6 @@ const {
   generateAo,
   bakeLighting,
   clearLightmap,
-  reengageImplicitLightmap,
-  scheduleImplicitLightmapBake,
-  scheduleNormalAdjustedLighting,
   refreshUVWireframe,
   refreshUVOverlap,
   invalidateBakeScene,
@@ -2012,11 +2048,10 @@ async function generateAoWithProgress(): Promise<boolean> {
   }
 }
 
-// Single source of truth for which texture channels have a one-click bake and
-// the action behind it — used by the slot Bake buttons and the download path.
+// AO can be generated from its texture slot. Lightmap baking is intentionally
+// absent: Orient Sun with Camera is the only action allowed to start it.
 const bakeActions: Partial<Record<TextureChannelId, () => Promise<boolean>>> = {
   ao: generateAoWithProgress,
-  lightmap: bakeLighting,
 };
 
 const renderScheduler = createRenderScheduler(render);
@@ -2027,9 +2062,8 @@ function updateResolution(value: number, immediate = false): void {
   syncActiveButton(document, '[data-resolution]', (button) => Number(button.dataset.resolution) === value);
   if (immediate) renderScheduler.flush();
   else renderScheduler.request();
-  // The dithered size drives the AO/lightmap bake size, so a change re-bakes
-  // the implicit lightmap at the new resolution (debounced in the scheduler).
-  scheduleImplicitLightmapBake();
+  // Resolution changes only resample the existing lighting map. Baking is an
+  // explicit or lighting-input action, never a side effect of output sizing.
   // The processed viewport's normals view pixelizes the map to this size.
   applyViewportNormalMap();
   updateTexelDensity();
@@ -2077,8 +2111,8 @@ function clearTexture(channel: TextureChannelId): void {
     refreshPosterizeStats();
     renderPalettes();
   } else if (channel === 'lightmap') {
-    // The slot X is a hard remove: drop the live implicit bake too and stay
-    // unlit (pure-white lightmap) until the user explicitly bakes or loads one.
+    // The slot X is a hard remove: stay unlit until Orient Sun with Camera
+    // explicitly bakes again or the user loads a lightmap.
     clearLightmap(true);
     return;
   } else {
@@ -2090,7 +2124,6 @@ function clearTexture(channel: TextureChannelId): void {
     }
     if (channel === 'normal') {
       renderNormalControls();
-      scheduleNormalAdjustedLighting();
       applyViewportNormalMap();
     }
     if (channel === 'displacement') applyDisplacementChange();
@@ -2138,7 +2171,6 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
     }
     if (channel === 'normal') {
       renderNormalControls();
-      scheduleNormalAdjustedLighting();
       applyViewportNormalMap();
     }
     if (channel === 'displacement') applyDisplacementChange();
@@ -2154,15 +2186,13 @@ function reset(): void {
   Object.assign(state, defaultState(), { paletteSnapshot: undefined });
   textures.lightmap.image = null;
   textures.lightmap.name = '';
-  // Full reset is a fresh start: re-engage the implicit lightmap preview and
-  // drop any cached render state.
+  // Full reset drops cached render and legacy lightmap preview state.
   resetPreview();
   invalidateModelCaches();
   renderTextureRibbon();
   editingCustomKey = null;
   draftName = '';
   syncControlsFromState();
-  scheduleNormalAdjustedLighting();
   applySun();
   refreshUVOverlap();
   renderModelControls();
@@ -2401,11 +2431,6 @@ render();
 // The texel-density HUD shows its plane message in the no-model state — it
 // must run at boot, before the example model (if it loads) replaces it.
 updateTexelDensity();
-// No model is loaded yet — the bake scene falls back to the flat quad, so
-// the implicit lightmap bake lights it from the start, like a loaded mesh.
-// If the example model loads shortly after, setModel's applySun re-schedules
-// the bake against the real mesh.
-scheduleImplicitLightmapBake();
 // Desktop: the webview's native browser context menu (Back/Refresh/Save
 // As/Print) has no place in an app window — suppress it (the web build keeps
 // the browser's own menu). Registered before boot so no right-click can slip
@@ -2530,7 +2555,6 @@ normalFormatToggle.addEventListener('click', (event) => {
   if (!button?.dataset.normalFormat || button.disabled) return;
   state.normalFormat = button.dataset.normalFormat as NormalFormat;
   syncActiveButton(normalFormatToggle, '[data-normal-format]', (candidate) => candidate.dataset.normalFormat === state.normalFormat);
-  scheduleNormalAdjustedLighting();
   applyViewportNormalMap();
 });
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.addEventListener('click', () => {
@@ -3048,8 +3072,12 @@ function bindPreviewToggle(toggle: HTMLElement, setMode: (mode: PreviewMode) => 
   toggle.addEventListener('click', (event) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-preview-mode]');
     if (!button?.dataset.previewMode) return;
-    setMode(button.dataset.previewMode as PreviewMode);
+    const mode = button.dataset.previewMode as PreviewMode;
+    setMode(mode);
     applyPreviewMode();
+    // A pane can change while hidden in 3D. Re-entering 2D must refresh its
+    // bitmap and luminosity histogram immediately instead of exposing stale UI.
+    if (mode === '2d') renderScheduler.flush();
   });
 }
 bindPreviewToggle(originalPreviewToggle, (mode) => { originalPreviewMode = mode; });
@@ -3102,20 +3130,11 @@ function bindSunControl(): void {
     const viewport = orientCameraViewport();
     if (!viewport || orientCameraPreviewMode() !== '3d' || orientSunBusy) return;
     state.sun.direction = viewport.getCameraForward();
-    // Orient-with-camera always (re)generates a lightmap: re-engage the live
-    // implicit bake after a slot clear, or re-bake an explicit lightmap so it
-    // follows the new direction.
-    // Hold the button busy (grayed out, throbber, unclickable) until the
-    // re-bake settles: the explicit bake resolves its own promise, the
-    // implicit path stays busy until the scheduled bake lands or is cancelled
-    // (see onImplicitBakeSettled).
+    // This is the only action that starts a lightmap bake. Model, resolution,
+    // material, and lighting-control changes never bake implicitly.
+    applySun();
     setOrientSunBusy(true);
-    if (lightmapIsActive(textures)) {
-      void bakeLighting().finally(() => setOrientSunBusy(false));
-    } else {
-      reengageImplicitLightmap();
-      applySun();
-    }
+    void bakeLighting().finally(() => setOrientSunBusy(false));
   });
   const bindLightColor = (input: HTMLInputElement, target: LightState): void => {
     input.addEventListener('input', () => {
@@ -3134,16 +3153,14 @@ function bindSunControl(): void {
   bindLightIntensity(sunControlElements.intensity, state.sun);
   bindLightColor(sunControlElements.ambientColor, state.ambient);
   bindLightIntensity(sunControlElements.ambientIntensity, state.ambient);
-  // Normal-map strength is part of the lighting bake — the same path as the
-  // ribbon's GL/DX toggle — so a change re-bakes the implicit lightmap and
-  // live-updates the Normals-view showcase uniform (no texture rebuild).
+  // Normal-map strength updates the Normals-view showcase immediately. It is
+  // consumed by lighting only on the next Orient Sun with Camera bake.
   bindRange({
     input: sunControlElements.normalStrength,
     output: sunControlElements.normalStrengthValue,
     format: formatFixed2,
     apply: (value) => {
       state.normalStrength = Math.round(value * 100) / 100;
-      scheduleNormalAdjustedLighting();
       originalViewport?.setNormalStrength(state.normalStrength);
       processedViewport?.setNormalStrength(state.normalStrength);
     },

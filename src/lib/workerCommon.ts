@@ -50,27 +50,56 @@ export function postWorkerError(
  * shape (`{ type: 'error', ... }`, see `BakeWorkerError`). The AO bake's
  * banded fan-out orchestrates its workers directly (per-band progress, batch
  * termination); single-shot callers like the lightmap bake go through here. */
+export class WorkerJobCancelledError extends Error {
+  constructor(label: string) {
+    super(`${label} worker job was cancelled.`);
+    this.name = 'WorkerJobCancelledError';
+  }
+}
+
+export type WorkerJobOptions = {
+  signal?: AbortSignal;
+  /** Final liveness guard for a worker that exits without posting an error. */
+  timeoutMs?: number;
+};
+
 export function runSingleWorker<TResult extends { type: string }>(
   worker: Worker,
   label: string,
   message: unknown,
   transfer?: Transferable[],
+  options: WorkerJobOptions = {},
 ): Promise<TResult> {
   return new Promise((resolve, reject) => {
-    worker.onmessage = (event) => {
+    let settled = false;
+    const finish = (action: () => void): void => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timeout);
+      options.signal?.removeEventListener('abort', abort);
       worker.terminate();
+      action();
+    };
+    const abort = (): void => finish(() => reject(new WorkerJobCancelledError(label)));
+    const timeout = globalThis.setTimeout(
+      () => finish(() => reject(new Error(`${label} worker timed out.`))),
+      options.timeoutMs ?? 120_000,
+    );
+    worker.onmessage = (event) => {
       const result = event.data as TResult;
       if (result.type === 'error') {
         const error = result as unknown as { message?: string };
-        reject(new Error(error.message ?? `${label} worker failed.`));
+        finish(() => reject(new Error(error.message ?? `${label} worker failed.`)));
       } else {
-        resolve(result);
+        finish(() => resolve(result));
       }
     };
-    worker.onerror = (event) => {
-      worker.terminate();
-      reject(new Error(event.message || `${label} worker failed.`));
-    };
+    worker.onerror = (event) => finish(() => reject(new Error(event.message || `${label} worker failed.`)));
+    if (options.signal?.aborted) {
+      abort();
+      return;
+    }
+    options.signal?.addEventListener('abort', abort, { once: true });
     worker.postMessage(message, transfer ?? []);
   });
 }

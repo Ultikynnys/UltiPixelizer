@@ -32,9 +32,6 @@ describe('createRenderer wiring', () => {
     api.clearLightmap();
     expect(deps.renderTextureRibbon).toHaveBeenCalled();
 
-    api.scheduleImplicitLightmapBake();
-    api.reengageImplicitLightmap();
-    api.scheduleNormalAdjustedLighting();
     api.refreshUVWireframe();
     api.refreshUVOverlap();
     // Even with the overlap view disabled, both panes' viewports get cleared.

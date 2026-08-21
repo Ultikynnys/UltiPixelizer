@@ -85,15 +85,23 @@ export function createRendererDeps(overrides: Omit<Partial<RendererDeps>, 'textu
   previewCanvas: FakeCanvas;
   originalCanvas: FakeCanvas;
   wireframeOverlays: { original: FakeCanvas; processed: FakeCanvas };
+  luminosityHistograms: { original: FakeCanvas; processed: FakeCanvas };
 } {
   const originalWireframeOverlay = new FakeCanvas();
   const processedWireframeOverlay = new FakeCanvas();
+  const originalLuminosityHistogram = new FakeCanvas();
+  const processedLuminosityHistogram = new FakeCanvas();
   const { textures: texturesOverride, ...restOverrides } = overrides;
   const deps = {
     state: createStateFixture(),
     textures: { ...emptyTextures(), ...texturesOverride },
     previewCanvas: new FakeCanvas(),
     originalCanvas: new FakeCanvas(),
+    luminosityHistograms: {
+      original: originalLuminosityHistogram as unknown as HTMLCanvasElement,
+      processed: processedLuminosityHistogram as unknown as HTMLCanvasElement,
+    },
+    showLuminosityHistograms: () => true,
     wireframeOverlays: {
       original: originalWireframeOverlay as unknown as HTMLCanvasElement,
       processed: processedWireframeOverlay as unknown as HTMLCanvasElement,
@@ -124,6 +132,7 @@ export function createRendererDeps(overrides: Omit<Partial<RendererDeps>, 'textu
     previewCanvas: FakeCanvas;
     originalCanvas: FakeCanvas;
     wireframeOverlays: { original: FakeCanvas; processed: FakeCanvas };
+    luminosityHistograms: { original: FakeCanvas; processed: FakeCanvas };
   };
   return deps;
 }

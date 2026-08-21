@@ -1,4 +1,5 @@
 import { webgpuUsable } from './gpuCommon';
+import { WorkerJobCancelledError } from './workerCommon';
 
 /** Latched once the GPU bake has failed this session. The GPU path is retried
  * each bake while `webgpuUsable()` stays true (a non-adapter failure like a
@@ -43,6 +44,9 @@ export async function runBakeWithFallbacks<T>(
   try {
     return await worker();
   } catch (error) {
+    // Cancellation means a newer bake superseded this work. Running the
+    // synchronous fallback would block the UI and resurrect stale output.
+    if (error instanceof WorkerJobCancelledError) throw error;
     console.error(`${label} worker bake failed, falling back to the main thread.`, error);
     return syncFallback();
   }

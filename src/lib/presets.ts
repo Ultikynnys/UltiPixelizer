@@ -44,6 +44,9 @@ export type ConversionConfig = {
   quadGrid: boolean;
   displacementStrength: number;
   displacementFlip: boolean;
+  /** Pane-specific UV Islands overlay preferences. */
+  showUVWireframeOriginal: boolean;
+  showUVWireframeProcessed: boolean;
   /** Left-drag camera action for the 3D viewports: pan (on) or orbit (off). */
   navigationPan: boolean;
   /** Active palette-library filter — UI state, persisted like the settings. */
@@ -160,6 +163,10 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'quadGrid', path: ['quadGrid'], default: false, migrateDefault: false, validate: isBoolean },
   { key: 'displacementStrength', path: ['displacementStrength'], default: 0.15, migrateDefault: 0.15, validate: inRange(0, 0.2) },
   { key: 'displacementFlip', path: ['displacementFlip'], default: false, migrateDefault: false, validate: isBoolean },
+  // Pane overlay preferences are UI state, but persist with the rest of the
+  // settings so disabling UV Islands survives a browser restart.
+  { key: 'showUVWireframeOriginal', path: ['showUVWireframeOriginal'], default: true, migrateDefault: true, validate: isBoolean },
+  { key: 'showUVWireframeProcessed', path: ['showUVWireframeProcessed'], default: true, migrateDefault: true, validate: isBoolean },
   // Camera interaction preference — the "Alt controls" pill. Not a conversion
   // parameter, but it is saved like the other settings (and restored from old
   // files via migrateDefault).

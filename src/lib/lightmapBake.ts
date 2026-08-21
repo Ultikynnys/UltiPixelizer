@@ -71,8 +71,8 @@ function serializeLightmapOptions(options: BakeLightmapOptions): SerializedLight
 /**
  * Async equivalent of `bakeMeshLightmap` for the browser. The complete
  * per-texel multisample raster runs in a worker so the main thread stays
- * responsive: the implicit lightmap re-bakes on every sun / quad / resolution
- * change. The former WebGPU optimization sampled only mesh vertices and is
+ * responsive during the explicit Orient Sun with Camera action. The former
+ * WebGPU optimization sampled only mesh vertices and is
  * deliberately bypassed until a GPU path can rasterize and ray-test the same
  * subtexel positions. The worker result is byte-identical to the sync path; a
  * worker failure falls back to the main-thread implementation.
@@ -83,6 +83,7 @@ export async function bakeLightmapAsync(
   height: number,
   options: BakeLightmapOptions,
   bakeSceneOverride?: BakeScene,
+  signal?: AbortSignal,
 ): Promise<Uint8ClampedArray> {
   const bakeScene = bakeSceneOverride ?? collectBakeScene(scene);
   const serializedOptions = serializeLightmapOptions(options);
@@ -114,6 +115,7 @@ export async function bakeLightmapAsync(
           serialized.triangleVerts.buffer,
           serialized.occluderPositions.buffer,
         ],
+        { signal },
       );
       return message.pixels;
     },

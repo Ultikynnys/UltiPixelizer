@@ -4,8 +4,9 @@ import { factorsToCanvas, pixelsToCanvas, resampleAndPixelate, type UpscaleMetho
 import { bakeLightmapAsync, type BakeLightmapOptions } from '../lightmapBake';
 import { getFallbackQuadScene } from '../modelScene';
 import { imageNormalMapPixels } from '../normal';
-import { lightmapIsActive, type SourceImage } from '../state';
+import type { SourceImage } from '../state';
 import { Object3D } from 'three';
+import { WorkerJobCancelledError } from '../workerCommon';
 import type { Render2DApi } from './render2d';
 import type { RendererDeps, RenderShared } from './types';
 
@@ -34,9 +35,6 @@ export interface BakeApi {
   generateAo: () => Promise<boolean>;
   bakeLighting: () => Promise<boolean>;
   clearLightmap: (suppressImplicit?: boolean) => void;
-  reengageImplicitLightmap: () => void;
-  scheduleImplicitLightmapBake: () => void;
-  scheduleNormalAdjustedLighting: () => void;
   invalidateBakeScene: () => void;
   /** Replaces the bake geometry used when no model is loaded — the quad view's
    * tessellated tile (or the full 3×3 grid in grid mode, whose neighbors are
@@ -119,14 +117,17 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     };
   }
 
-  async function bakeLightmapCanvas(): Promise<HTMLCanvasElement | null> {
+  let explicitBakeToken = 0;
+  let explicitBakeController: AbortController | null = null;
+
+  async function bakeLightmapCanvas(signal?: AbortSignal): Promise<HTMLCanvasElement | null> {
     if (!textures.base.image) return null;
     const scene = bakeSceneSource();
     // Baked maps render at the dithered texture resolution — identical to the
     // processed output — so lighting and occlusion align 1:1 with the texture.
     const { width, height } = dimensions();
     const bakeScene = getBakeScene(scene);
-    const pixels = await bakeLightmapAsync(scene, width, height, currentLightmapBakeOptions(), bakeScene ?? undefined);
+    const pixels = await bakeLightmapAsync(scene, width, height, currentLightmapBakeOptions(), bakeScene ?? undefined, signal);
     return pixelsToCanvas(pixels, width, height);
   }
 
@@ -168,7 +169,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
           .then(work)
           .then(resolve)
           .catch((error) => {
-            console.error(failureMessage, error);
+            if (!(error instanceof WorkerJobCancelledError)) console.error(failureMessage, error);
             resolve(false);
           });
       }, 30);
@@ -186,12 +187,15 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   }
 
   function bakeLighting(): Promise<boolean> {
+    explicitBakeController?.abort();
+    const token = ++explicitBakeToken;
+    const controller = new AbortController();
+    explicitBakeController = controller;
     return runBakeTask('Could not bake lighting.', async () => {
-      const canvas = await bakeLightmapCanvas();
-      if (!canvas) return false;
+      const canvas = await bakeLightmapCanvas(controller.signal);
+      if (!canvas || token !== explicitBakeToken) return false;
       textures.lightmap.image = canvas;
       textures.lightmap.name = 'Baked lighting';
-      // An explicit bake re-engages the live implicit preview for future edits.
       shared.lightmapCleared = false;
       renderLightmapControls();
       renderNormalControls();
@@ -199,18 +203,20 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
       applySun();
       render2d.render();
       return true;
+    }).finally(() => {
+      if (explicitBakeController === controller) explicitBakeController = null;
     });
   }
 
   function clearLightmap(suppressImplicit = false): void {
+    explicitBakeToken += 1;
+    explicitBakeController?.abort();
+    explicitBakeController = null;
     textures.lightmap.image = null;
     textures.lightmap.name = '';
-    // The slot previews the live implicit bake, so removing the lightmap must
-    // also drop that canvas and cancel any pending re-bake — otherwise the
-    // preview (and the render) keep the lightmap alive and X appears to do
-    // nothing. `suppressImplicit` (the slot X button) additionally stops the
-    // implicit bake from restarting: no lightmap means a pure-white multiply,
-    // i.e. unlit, until the user explicitly bakes or loads one.
+    // Clear legacy in-memory preview state as well as the committed texture.
+    // No background bake restarts it: lighting remains absent until Orient Sun
+    // with Camera runs or the user loads a lightmap.
     shared.implicitLightmapCanvas = null;
     if (shared.implicitLightmapTimer) window.clearTimeout(shared.implicitLightmapTimer);
     shared.implicitLightmapTimer = 0;
@@ -222,81 +228,24 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     renderTextureRibbon();
     applySun();
     render2d.render();
-    deps.onImplicitBakeSettled?.();
-  }
-
-  /** Re-engages the live implicit bake after the user cleared the lightmap
-   * slot — explicit actions (e.g. orient sun with camera) must still produce
-   * a lightmap. */
-  function reengageImplicitLightmap(): void {
-    shared.lightmapCleared = false;
-  }
-
-  // The implicit bake re-fires on every sun / quad / resolution change. A bake
-  // at 1024² on a heavily tessellated grid runs in a worker and can outlive
-  // the next change — the token discards a superseded bake's result so the
-  // ribbon and preview never land lighting for stale geometry.
-  let implicitBakeToken = 0;
-  async function bakeImplicitLightmap(): Promise<void> {
-    if (!textures.base.image || lightmapIsActive(textures) || shared.lightmapCleared) {
-      shared.implicitLightmapCanvas = null;
-      renderTextureRibbon();
-      deps.onImplicitBakeSettled?.();
-      return;
-    }
-    const token = ++implicitBakeToken;
-    try {
-      const canvas = await bakeLightmapCanvas();
-      if (token !== implicitBakeToken) return;
-      shared.implicitLightmapCanvas = canvas;
-      render2d.render();
-      // The lightmap slot previews the implicit bake, so the ribbon needs a
-      // refresh when the canvas lands (or disappears on failure).
-      renderTextureRibbon();
-      deps.onImplicitBakeSettled?.();
-    } catch (error) {
-      if (token !== implicitBakeToken) return;
-      shared.implicitLightmapCanvas = null;
-      console.error('Implicit lightmap bake failed.', error);
-      renderTextureRibbon();
-      deps.onImplicitBakeSettled?.();
-    }
-  }
-
-  function scheduleImplicitLightmapBake(): void {
-    if (shared.implicitLightmapTimer) window.clearTimeout(shared.implicitLightmapTimer);
-    shared.implicitLightmapTimer = 0;
-    if (lightmapIsActive(textures) || shared.lightmapCleared) return;
-    shared.implicitLightmapTimer = window.setTimeout(() => {
-      shared.implicitLightmapTimer = 0;
-      void bakeImplicitLightmap();
-    }, 200);
-  }
-
-  function scheduleNormalAdjustedLighting(): void {
-    scheduleImplicitLightmapBake();
   }
 
   function reset(): void {
+    explicitBakeToken += 1;
+    explicitBakeController?.abort();
+    explicitBakeController = null;
     shared.implicitLightmapCanvas = null;
     if (shared.implicitLightmapTimer) window.clearTimeout(shared.implicitLightmapTimer);
     shared.implicitLightmapTimer = 0;
     // Fresh state (model close / full reset) re-engages the live preview.
     shared.lightmapCleared = false;
     cachedNormalMap = null;
-    // Invalidate any in-flight worker bake — its result must not land after
-    // the reset.
-    implicitBakeToken += 1;
-    deps.onImplicitBakeSettled?.();
   }
 
   return {
     generateAo,
     bakeLighting,
     clearLightmap,
-    reengageImplicitLightmap,
-    scheduleImplicitLightmapBake,
-    scheduleNormalAdjustedLighting,
     invalidateBakeScene: invalidateBakeSceneCache,
     setFallbackQuad: (scene: Object3D) => {
       fallbackQuad = scene;
