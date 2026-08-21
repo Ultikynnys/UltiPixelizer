@@ -373,7 +373,11 @@ function lambertFromMaterial(material: Material): Material {
     if (source.normalMapType !== undefined) lambert.normalMapType = source.normalMapType;
     if (source.normalScale) lambert.normalScale.copy(source.normalScale);
   }
-  if (source.vertexColors !== undefined) lambert.vertexColors = source.vertexColors;
+  // Vertex colors are never used: faces always render white and the applied
+  // map (base, lightmap, AO, or inspection source) carries all color. FBX /
+  // glTF exports often bake tint into vertex colors, so the converted
+  // material must not inherit the source's flag.
+  lambert.vertexColors = false;
   if (source.flatShading !== undefined) lambert.flatShading = source.flatShading;
   lambert.transparent = material.transparent;
   lambert.opacity = material.opacity;
@@ -421,7 +425,11 @@ export function applyTextureToMaterial(material: Material, texture: Texture): vo
   };
   if (!('map' in textured)) return;
   textured.map = texture;
+  // Incoming vertex colors are discarded on every applied map: the displayed
+  // texture (base, lightmap, AO, or inspection source) renders unmodulated on
+  // white faces. Material color is forced white alongside.
   textured.color?.set(0xffffff);
+  textured.vertexColors = false;
   textured.transparent = true;
   textured.side = DoubleSide;
   textured.needsUpdate = true;

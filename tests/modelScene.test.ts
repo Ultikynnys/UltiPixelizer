@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshPhongMaterial, MeshStandardMaterial, NearestFilter, Object3D, PerspectiveCamera, ShaderMaterial, SRGBColorSpace, Texture, Vector3 } from 'three';
-import { applyDisplacement, applyUVChannel, cloneModelScene, computeSmoothNormals, convertToLambertShading, createFallbackQuadScene, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, getFallbackQuadScene, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
+import { applyDisplacement, applyTextureToMaterial, applyUVChannel, cloneModelScene, computeSmoothNormals, convertToLambertShading, createFallbackQuadScene, createPixelTexture, disposeModel, fitCameraToObject, geometryUVChannels, getFallbackQuadScene, triangleNormal, uvChannelIndex } from '../src/lib/modelScene';
 import { expectFallbackQuad } from './helpers/bakeFixtures';
 
 function mesh(channels: string[], materials = 1): Mesh {
@@ -167,6 +167,7 @@ describe('model scene processing', () => {
     const phong = new MeshPhongMaterial({
       color: 0x336699, map, normalMap, emissive: 0x112233,
       specular: 0xffffff, shininess: 60, transparent: true, opacity: 0.5,
+      vertexColors: true,
     });
     const standard = new MeshStandardMaterial({ color: 0x884422, metalness: 1, roughness: 0 });
     const root = new Object3D();
@@ -183,6 +184,8 @@ describe('model scene processing', () => {
     expect(convertedPhong.emissive.getHex()).toBe(0x112233);
     expect(convertedPhong.transparent).toBe(true);
     expect(convertedPhong.opacity).toBe(0.5);
+    // Vertex colors are discarded — the applied map carries all color.
+    expect(convertedPhong.vertexColors).toBe(false);
     expect('specular' in convertedPhong).toBe(false);
     expect('shininess' in convertedPhong).toBe(false);
     expect('metalness' in convertedStandard).toBe(false);
@@ -199,6 +202,28 @@ describe('model scene processing', () => {
     expect((root.children[0] as Mesh).material).toBe(lambert);
     expect((root.children[1] as Mesh).material).toBe(basic);
     expect((root.children[2] as Mesh).material).toBe(custom);
+  });
+
+  it('applyTextureToMaterial discards vertex colors and forces white faces', () => {
+    const texture = new Texture();
+    // An imported model that ships vertex-color tint (FBX/glTF) must not bleed
+    // it into the applied map — the map carries all color, faces render white.
+    const lambert = new MeshLambertMaterial({ color: 0xff0000, vertexColors: true });
+
+    applyTextureToMaterial(lambert, texture);
+
+    expect(lambert.map).toBe(texture);
+    expect(lambert.color.getHex()).toBe(0xffffff);
+    expect(lambert.vertexColors).toBe(false);
+    expect(lambert.transparent).toBe(true);
+    expect(lambert.side).toBe(DoubleSide);
+  });
+
+  it('applyTextureToMaterial skips materials without a map slot', () => {
+    const texture = new Texture();
+    const shader = new ShaderMaterial();
+    applyTextureToMaterial(shader, texture);
+    expect('map' in shader).toBe(false);
   });
 
   it('convertToLambertShading converts multi-material meshes in place', () => {
