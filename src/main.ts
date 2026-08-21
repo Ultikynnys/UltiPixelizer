@@ -899,7 +899,8 @@ function renderLightmapControls(): void {
 function renderViewToggle(): void {
   const aoDefined = textures.ao.image !== null;
   const normalDefined = textures.normal.image !== null;
-  // New lightmaps come only from Orient Sun with Camera or import.
+  // New lightmaps come from Orient Sun with Camera, import, or the implicit
+  // re-bake on sun/ambient/normal changes.
   const lightmapDefined = lightmapIsActive(textures) || renderer.getImplicitLightmapCanvas() !== null;
   const lightmapAoDefined = aoDefined && lightmapDefined;
   if (!aoDefined && state.viewModeOriginal === 'ao') state.viewModeOriginal = 'flat';
@@ -1080,14 +1081,51 @@ function syncLightControls(
   intensityValue.textContent = light.intensity.toFixed(2);
 }
 
-// Orient Sun with Camera re-bakes the lightmap, which on a heavy grid can take
-// long enough that a second click would start a redundant bake. While it runs
-// the button is held disabled with a throbber (see .orient-sun-button.busy);
-// the flag clears when the explicit bake promise settles.
+// Lightmap bakes — Orient Sun with Camera's explicit re-bake and the implicit
+// re-bakes from sun/ambient slider moves and normal-map slot edits — can on a
+// heavy grid take long enough that a second trigger would start a redundant
+// bake. While one runs the button is held disabled with a throbber (see
+// .orient-sun-button.busy); the flag clears when the latest bake settles.
 let orientSunBusy = false;
 function setOrientSunBusy(busy: boolean): void {
   orientSunBusy = busy;
   renderSunControl();
+}
+
+// Every lightmap bake funnels through here, so the throbber always shows while
+// a lightmap is being calculated. bakeLighting aborts superseded jobs, so a
+// sequence guard keeps the button busy until the newest bake settles: an
+// aborted bake's finally must not drop the throbber while its replacement is
+// still running.
+let lightmapBakeSeq = 0;
+function runLightmapBake(): void {
+  const seq = ++lightmapBakeSeq;
+  setOrientSunBusy(true);
+  void bakeLighting().finally(() => {
+    if (seq === lightmapBakeSeq) setOrientSunBusy(false);
+  });
+}
+
+// Sun/ambient sliders schedule the bake on release ('change'), not per drag
+// move, so a drag never starts a mid-drag bake. The 200ms debounce coalesces
+// rapid successive triggers (consecutive slider commits, slot mutations)
+// into one bake. While the lightmap slot was explicitly cleared (X) the
+// scheduler stays quiet — lighting remains absent until Orient Sun with
+// Camera, a loaded lightmap, or a reset re-engages it (see
+// renderer.isLightmapCleared).
+let implicitBakeTimer = 0;
+function scheduleImplicitLightmapBake(): void {
+  if (renderer.isLightmapCleared()) return;
+  if (implicitBakeTimer) window.clearTimeout(implicitBakeTimer);
+  implicitBakeTimer = window.setTimeout(() => {
+    implicitBakeTimer = 0;
+    runLightmapBake();
+  }, 200);
+}
+
+function cancelImplicitLightmapBake(): void {
+  if (implicitBakeTimer) window.clearTimeout(implicitBakeTimer);
+  implicitBakeTimer = 0;
 }
 
 function renderSunControl(): void {
@@ -1152,8 +1190,9 @@ function renderTextureRibbon(): void {
   for (const channel of TEXTURE_CHANNELS) {
     const slotElement = document.querySelector<HTMLElement>(`[data-texture="${channel.id}"]`);
     if (!slotElement) continue;
-    // Preserve any legacy in-memory preview until reset. New lightmaps are
-    // produced only by Orient Sun with Camera or loaded into the slot.
+    // The slot previews the committed lightmap, or any legacy in-memory
+    // preview until reset. New lightmaps come from Orient Sun with Camera,
+    // import, or the implicit re-bake on sun/ambient/normal changes.
     const data = channel.id === 'lightmap'
       ? textures.lightmap.image ?? renderer.getImplicitLightmapCanvas()
       : textures[channel.id].image;
@@ -1389,6 +1428,9 @@ function applyExtractedModelTextures(extracted: ExtractedModelTextures, modelNam
     textures.normal.image = extracted.normal;
     textures.normal.name = `${stem}_Normal.png`;
     renderNormalControls();
+    // A model-carried normal map lands in the slot — re-bake the lightmap
+    // with the existing sun angle.
+    scheduleImplicitLightmapBake();
   }
   if (extracted.ao) {
     textures.ao.image = extracted.ao;
@@ -2048,8 +2090,9 @@ async function generateAoWithProgress(): Promise<boolean> {
   }
 }
 
-// AO can be generated from its texture slot. Lightmap baking is intentionally
-// absent: Orient Sun with Camera is the only action allowed to start it.
+// AO can be generated from its texture slot. The lightmap slot has no Bake
+// button: lightmaps come from Orient Sun with Camera, import, or the implicit
+// re-bake on sun/ambient/normal changes.
 const bakeActions: Partial<Record<TextureChannelId, () => Promise<boolean>>> = {
   ao: generateAoWithProgress,
 };
@@ -2112,8 +2155,12 @@ function clearTexture(channel: TextureChannelId): void {
     renderPalettes();
   } else if (channel === 'lightmap') {
     // The slot X is a hard remove: stay unlit until Orient Sun with Camera
-    // explicitly bakes again or the user loads a lightmap.
+    // explicitly bakes again, the user loads a lightmap, or a reset. The
+    // implicit scheduler stays quiet while lightmapCleared is set, so a slider
+    // move does not resurrect it; cancel any pending debounce so one that
+    // fired before the X cannot override the clear.
     clearLightmap(true);
+    cancelImplicitLightmapBake();
     return;
   } else {
     textures[channel].image = null;
@@ -2125,6 +2172,9 @@ function clearTexture(channel: TextureChannelId): void {
     if (channel === 'normal') {
       renderNormalControls();
       applyViewportNormalMap();
+      // The lightmap samples the slot's map — removing it re-bakes with the
+      // existing sun angle.
+      scheduleImplicitLightmapBake();
     }
     if (channel === 'displacement') applyDisplacementChange();
   }
@@ -2172,6 +2222,9 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
     if (channel === 'normal') {
       renderNormalControls();
       applyViewportNormalMap();
+      // The lightmap samples the slot's map — adding or replacing it re-bakes
+      // with the existing sun angle.
+      scheduleImplicitLightmapBake();
     }
     if (channel === 'displacement') applyDisplacementChange();
     renderTextureRibbon();
@@ -2183,6 +2236,7 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
 
 function reset(): void {
   renderScheduler.cancel();
+  cancelImplicitLightmapBake();
   Object.assign(state, defaultState(), { paletteSnapshot: undefined });
   textures.lightmap.image = null;
   textures.lightmap.name = '';
@@ -2555,6 +2609,9 @@ normalFormatToggle.addEventListener('click', (event) => {
   if (!button?.dataset.normalFormat || button.disabled) return;
   state.normalFormat = button.dataset.normalFormat as NormalFormat;
   syncActiveButton(normalFormatToggle, '[data-normal-format]', (candidate) => candidate.dataset.normalFormat === state.normalFormat);
+  // GL/DX flips how the map decodes into the bake, so the lightmap re-bakes
+  // with the existing sun angle.
+  scheduleImplicitLightmapBake();
   applyViewportNormalMap();
 });
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.addEventListener('click', () => {
@@ -3130,22 +3187,33 @@ function bindSunControl(): void {
     const viewport = orientCameraViewport();
     if (!viewport || orientCameraPreviewMode() !== '3d' || orientSunBusy) return;
     state.sun.direction = viewport.getCameraForward();
-    // This is the only action that starts a lightmap bake. Model, resolution,
-    // material, and lighting-control changes never bake implicitly.
+    // Orient Sun with Camera is the only action that changes the sun angle.
+    // Sun/ambient sliders and normal-map slot edits re-bake with the existing
+    // direction via scheduleImplicitLightmapBake.
     applySun();
-    setOrientSunBusy(true);
-    void bakeLighting().finally(() => setOrientSunBusy(false));
+    runLightmapBake();
   });
   const bindLightColor = (input: HTMLInputElement, target: LightState): void => {
     input.addEventListener('input', () => {
       target.color = input.value;
       applySun();
     });
+    // The bake runs only when the picker commits: 'input' fires continuously
+    // while the user drags, and a bake per move freezes the UI on heavy grids
+    // (scene collection and normal prep run on the main thread). 'change'
+    // fires on release with the final value.
+    input.addEventListener('change', () => {
+      scheduleImplicitLightmapBake();
+    });
   };
   const bindLightIntensity = (input: HTMLInputElement, target: LightState): void => {
     input.addEventListener('input', () => {
       target.intensity = Number(input.value);
       applySun();
+    });
+    // See bindLightColor — the bake is release-triggered, not per-drag-move.
+    input.addEventListener('change', () => {
+      scheduleImplicitLightmapBake();
     });
   };
 

@@ -35,6 +35,11 @@ export interface BakeApi {
   generateAo: () => Promise<boolean>;
   bakeLighting: () => Promise<boolean>;
   clearLightmap: (suppressImplicit?: boolean) => void;
+  /** Whether the lightmap slot was explicitly cleared (X) — while set, the
+   * app-level implicit re-bake scheduler must stay quiet so the render keeps
+   * the user's unlit choice until Orient Sun with Camera, a loaded lightmap,
+   * or a reset re-engages it. */
+  isLightmapCleared: () => boolean;
   invalidateBakeScene: () => void;
   /** Replaces the bake geometry used when no model is loaded — the quad view's
    * tessellated tile (or the full 3×3 grid in grid mode, whose neighbors are
@@ -215,8 +220,10 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     textures.lightmap.image = null;
     textures.lightmap.name = '';
     // Clear legacy in-memory preview state as well as the committed texture.
-    // No background bake restarts it: lighting remains absent until Orient Sun
-    // with Camera runs or the user loads a lightmap.
+    // While suppressImplicit is set (the slot X), the app-level implicit
+    // re-bake scheduler checks isLightmapCleared and stays quiet: lighting
+    // remains absent until Orient Sun with Camera bakes again, the user loads
+    // a lightmap, or a reset re-engages it.
     shared.implicitLightmapCanvas = null;
     if (shared.implicitLightmapTimer) window.clearTimeout(shared.implicitLightmapTimer);
     shared.implicitLightmapTimer = 0;
@@ -246,6 +253,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     generateAo,
     bakeLighting,
     clearLightmap,
+    isLightmapCleared: () => shared.lightmapCleared,
     invalidateBakeScene: invalidateBakeSceneCache,
     setFallbackQuad: (scene: Object3D) => {
       fallbackQuad = scene;

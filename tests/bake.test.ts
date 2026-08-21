@@ -397,7 +397,7 @@ describe('clearLightmap', () => {
   });
 });
 
-describe('explicit-only lightmap policy', () => {
+describe('lightmap lifecycle', () => {
   it('reset clears legacy preview state without starting a bake', () => {
     const { shared, bake } = setup({ getAOScene: () => new Scene() });
     shared.implicitLightmapCanvas = new FakeCanvas() as unknown as HTMLCanvasElement;
@@ -409,6 +409,39 @@ describe('explicit-only lightmap policy', () => {
     expect(shared.implicitLightmapCanvas).toBeNull();
     expect(shared.lightmapCleared).toBe(false);
     expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
+  });
+});
+
+describe('isLightmapCleared', () => {
+  it('reports whether the lightmap slot was explicitly cleared', () => {
+    const { bake } = setup({ getAOScene: () => new Scene() });
+    expect(bake.isLightmapCleared()).toBe(false);
+
+    bake.clearLightmap(true);
+    expect(bake.isLightmapCleared()).toBe(true);
+
+    // The flag is sticky: a plain clear drops the map but does not re-engage
+    // the implicit scheduler — only an explicit bake or a reset does.
+    bake.clearLightmap();
+    expect(bake.isLightmapCleared()).toBe(true);
+  });
+
+  it('tracks the flag through an explicit bake and a reset', async () => {
+    mocks.bakeMeshLightmap.mockReturnValue(new Uint8ClampedArray(8 * 8 * 4));
+    const { deps, bake } = setup({ getAOScene: () => new Scene() });
+    deps.textures.base.image = base8();
+    bake.clearLightmap(true);
+    expect(bake.isLightmapCleared()).toBe(true);
+
+    const promise = bake.bakeLighting();
+    vi.advanceTimersByTime(30);
+    await promise;
+    // A successful bake re-engages the render, so sliders bake again.
+    expect(bake.isLightmapCleared()).toBe(false);
+
+    bake.clearLightmap(true);
+    bake.reset();
+    expect(bake.isLightmapCleared()).toBe(false);
   });
 });
 

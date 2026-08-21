@@ -31,6 +31,8 @@ describe('createRenderer wiring', () => {
     api.bakeLighting();
     api.clearLightmap();
     expect(deps.renderTextureRibbon).toHaveBeenCalled();
+    // The plain clear does not lock the render; only the slot X does.
+    expect(api.isLightmapCleared()).toBe(false);
 
     api.refreshUVWireframe();
     api.refreshUVOverlap();

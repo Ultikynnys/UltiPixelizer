@@ -44,6 +44,10 @@ export interface RendererApi {
   bakeLighting: () => Promise<boolean>;
   /** Removes the lightmap and cancels any in-flight lighting bake. */
   clearLightmap: (suppressImplicit?: boolean) => void;
+  /** Whether the lightmap slot was explicitly cleared (X) — while true, the
+   * implicit re-bake scheduler (sun/ambient sliders, normal-map slot edits)
+   * stays quiet; see RenderShared.lightmapCleared. */
+  isLightmapCleared: () => boolean;
   /** Drops cached bake scenes (world transforms, BVH) after any in-place
    * change to the AO scene's geometry: UV channel, LOD visibility, world-axis
    * rotation, model import/close. Without this the next bake would reuse stale
@@ -73,8 +77,8 @@ export interface RenderShared {
   implicitLightmapCanvas: HTMLCanvasElement | null;
   implicitLightmapTimer: number;
   /** Set when the user explicitly removes the lightmap (slot X). While set,
-   * the implicit auto-bake from sun/ambient is suppressed so the render stays
-   * unlit (pure-white lightmap) until an explicit bake, a loaded lightmap, or
-   * a reset. */
+   * the implicit auto-bake from sun/ambient and normal-map changes is
+   * suppressed so the render stays unlit (pure-white lightmap) until an
+   * explicit bake, a loaded lightmap, or a reset. */
   lightmapCleared: boolean;
 }

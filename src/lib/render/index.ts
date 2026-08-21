@@ -30,6 +30,7 @@ export function createRenderer(deps: RendererDeps): RendererApi {
     generateAo: bake.generateAo,
     bakeLighting: bake.bakeLighting,
     clearLightmap: bake.clearLightmap,
+    isLightmapCleared: bake.isLightmapCleared,
     invalidateBakeScene: bake.invalidateBakeScene,
     setFallbackQuad: bake.setFallbackQuad,
     refreshUVWireframe: overlay.refreshUVWireframe,
