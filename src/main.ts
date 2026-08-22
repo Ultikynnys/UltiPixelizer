@@ -961,9 +961,10 @@ function applyViewportNormalMap(): void {
 }
 
 function renderNormalControls(): void {
-  const lightmapActive = lightmapIsActive(textures);
+  // GL/DX is always live: flipping the format re-bakes the lightmap with the
+  // new decode (see the normalFormatToggle click handler), so a committed
+  // lightmap must never lock the buttons.
   syncActiveButton(normalFormatToggle, '[data-normal-format]', (button) => button.dataset.normalFormat === state.normalFormat);
-  normalFormatToggle.querySelectorAll<HTMLButtonElement>('[data-normal-format]').forEach((button) => { button.disabled = lightmapActive; });
 }
 
 function buildAOScene(source: Object3D): Object3D {
