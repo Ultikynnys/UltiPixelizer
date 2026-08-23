@@ -64,6 +64,10 @@ function modeRow(mode: DitherMode): string {
 // download buttons, and the Export PNG button, so the markup lives in one place.
 const DOWNLOAD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v7M4.5 6.5L7 9l2.5-2.5M1 11.5h12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+// Expand-icon for the dithered preview's fullscreen toggle — four outward
+// corner brackets so it reads as "make bigger" (inverse of a collapse glyph).
+const FULLSCREEN_ICON_SVG = '<svg width="12" height="12" viewBox="0 0 14 14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9"/></svg>';
+
 // Import-arrow icon for the palette import card — the inverse of download:
 // the tray line stays at the bottom, but the arrowhead flips to the top of
 // the shaft so the arrow points up, out of storage into the app.
@@ -295,6 +299,7 @@ app.innerHTML = `
                   <span>Texel density</span>
                   <output id="processedTexelDensityValue">—</output>
                 </div>
+                <button class="fullscreen-toggle" id="processedFullscreenToggle" type="button" title="Expand the dithered preview to fill the whole stage" aria-pressed="false">${FULLSCREEN_ICON_SVG}</button>
                 <div class="preview-mode-toggle" id="processedPreviewToggle" role="group" aria-label="Preview mode">
                   <button type="button" data-preview-mode="2d" class="active">2D</button>
                   <button type="button" data-preview-mode="3d">3D</button>
@@ -533,6 +538,27 @@ narrowLayout.addEventListener('change', (event) => {
   applyPreviewMode();
   if (!event.matches) render();
 });
+
+// Fullscreen toggle on the dithered preview: expands it to fill the whole
+// stage by hiding the Original pane — the same single-pane layout the narrow
+// window already forces, but driven by the button at any width. Because the
+// Original pane is hidden, the pane-independent shared controls (view mode,
+// UV toggles, lighting panel) must relocate onto the dithered pane, exactly
+// as the narrow-layout relocation does, and move back when fullscreen ends.
+const comparisonGrid = document.querySelector<HTMLDivElement>('.comparison-grid')!;
+const processedFullscreenToggle = document.querySelector<HTMLButtonElement>('#processedFullscreenToggle')!;
+let previewFullscreen = false;
+function setPreviewFullscreen(active: boolean): void {
+  previewFullscreen = active;
+  comparisonGrid.classList.toggle('fullscreen', active);
+  processedFullscreenToggle.setAttribute('aria-pressed', String(active));
+  processedFullscreenToggle.title = active
+    ? 'Restore the side-by-side preview'
+    : 'Expand the dithered preview to fill the whole stage';
+  relocateSharedControls(active || narrowLayout.matches);
+  applyPreviewMode();
+}
+processedFullscreenToggle.addEventListener('click', () => setPreviewFullscreen(!previewFullscreen));
 const sunDirectionValue = document.querySelector<HTMLOutputElement>('#sunDirectionValue')!;const cameraDirectionValue = document.querySelector<HTMLOutputElement>('#cameraDirectionValue')!;
 const stripeAngleControl = document.querySelector<HTMLDivElement>('#stripeAngleControl')!;
 const stripeAngleInput = document.querySelector<HTMLInputElement>('#stripeAngle')!;
