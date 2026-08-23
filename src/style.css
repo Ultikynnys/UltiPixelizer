@@ -367,6 +367,14 @@ select option { background: var(--card); color: var(--paper); }
 .fullscreen-toggle svg { display: block; }
 .fullscreen-toggle:hover, .fullscreen-toggle:focus-visible { color: var(--paper); }
 .fullscreen-toggle[aria-pressed='true'] { color: var(--accent); }
+/* In fullscreen the dithered preview fills the whole screen with no other
+   controls, so the exit toggle is the only thing left — enlarge it and move it
+   into the very corner, away from the texel density chip it stacks under in the
+   normal layout. */
+.canvas-frame:fullscreen .fullscreen-toggle {
+  align-items: center; display: flex; justify-content: center; left: 8px; padding: 12px; top: 8px;
+}
+.canvas-frame:fullscreen .fullscreen-toggle svg { height: 28px; width: 28px; }
 /* True fullscreen: the dithered canvas-frame is the fullscreened element, so
    the browser sizes it to the whole screen (`:fullscreen`) and the preview
    canvas fills that frame. Every overlay control on the frame (2D/3D toggle,
