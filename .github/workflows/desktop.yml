@@ -171,8 +171,10 @@ jobs:
         run: |
           curl -sL -o butler.zip "https://github.com/itchio/butler/releases/download/v15.30.0/butler-linux-amd64.zip"
           unzip -o butler.zip
-          chmod +x butler/butler
-          echo "$PWD/butler" >> "$GITHUB_PATH"
+          # The archive extracts to a per-platform dir (linux-amd64/) holding the
+          # butler binary; add that dir to PATH.
+          chmod +x linux-amd64/butler
+          echo "$PWD/linux-amd64" >> "$GITHUB_PATH"
 
       - name: Push installers to itch.io
         shell: bash
