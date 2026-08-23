@@ -182,14 +182,20 @@ jobs:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          # Stage one installer per channel dir (butler pushes one src dir per
-          # channel), then push all four. Each name picks a platform tag:
+          # The upload-artifact step stores the installers under subdirs
+          # (appimage/, deb/, msi/, nsis/) beneath the merge root, so the files
+          # are NOT at release/*.ext — locate them recursively by name. Stage
+          # one installer per channel (butler pushes one src dir per channel),
+          # then push all four. Each channel name picks a platform tag:
           # linux-* -> Linux, windows-* -> Windows.
           mkdir -p itch/linux-appimage itch/linux-deb itch/windows-exe itch/windows-msi
-          cp release/*.AppImage itch/linux-appimage/ 2>/dev/null || true
-          cp release/*.deb itch/linux-deb/ 2>/dev/null || true
-          cp release/*-setup.exe itch/windows-exe/ 2>/dev/null || true
-          cp release/*.msi itch/windows-msi/ 2>/dev/null || true
+          # Match only the canonical UltiPixelizer_* installers (Tauri also emits
+          # same-version duplicate artifacts for the lowercase product id, e.g.
+          # ulti-pixelizer_2.6.9_amd64.deb — those must not pollute a channel).
+          find release -type f -name 'UltiPixelizer_*.AppImage' -exec cp {} itch/linux-appimage/ \;
+          find release -type f -name 'UltiPixelizer_*.deb' -exec cp {} itch/linux-deb/ \;
+          find release -type f -name 'UltiPixelizer_*-setup.exe' -exec cp {} itch/windows-exe/ \;
+          find release -type f -name 'UltiPixelizer_*.msi' -exec cp {} itch/windows-msi/ \;
           butler push itch/linux-appimage r60d/ultipixelizer:linux-appimage --userversion "$VERSION"
           butler push itch/linux-deb r60d/ultipixelizer:linux-deb --userversion "$VERSION"
           butler push itch/windows-exe r60d/ultipixelizer:windows-exe --userversion "$VERSION"
