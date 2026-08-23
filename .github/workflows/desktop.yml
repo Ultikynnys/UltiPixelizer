@@ -158,8 +158,14 @@ jobs:
       # Publish the same installers to itch.io (r60d.itch.io/ultipixelizer).
       # butler authenticates from the BUTLER_API_KEY env var, which GitHub
       # injects from the BUTLER_API_KEY repository secret — the key never
-      # appears in this file or in build logs. The version tag (v2.6.6, from
-      # the same git build count as the release) becomes the itch user-version.
+      # appears in this file or in build logs. The version is always the same
+      # commit-count-derived version as the GitHub release.
+      #
+      # itch maps one channel to exactly one download, so the 4 installers use
+      # 4 channels (2 Linux: .AppImage + .deb; 2 Windows: .exe + .msi). A
+      # re-push to a channel REPLACES that channel's download (build history
+      # stays, the page shows one file), so this step is idempotent — no
+      # clearing needed on subsequent releases.
       - name: Install butler
         shell: bash
         run: |
@@ -174,11 +180,15 @@ jobs:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          # Stage each channel's files in its own dir (butler pushes one src
-          # dir per channel), then push both. Windows carries the NSIS .exe;
-          # Linux carries the .AppImage and .deb.
-          mkdir -p itch/windows itch/linux
-          cp release/*.exe itch/windows/ 2>/dev/null || true
-          cp release/*.AppImage release/*.deb itch/linux/ 2>/dev/null || true
-          butler push itch/windows r60d/ultipixelizer:windows --userversion "$VERSION"
-          butler push itch/linux r60d/ultipixelizer:linux --userversion "$VERSION"
+          # Stage one installer per channel dir (butler pushes one src dir per
+          # channel), then push all four. Each name picks a platform tag:
+          # linux-* -> Linux, windows-* -> Windows.
+          mkdir -p itch/linux-appimage itch/linux-deb itch/windows-exe itch/windows-msi
+          cp release/*.AppImage itch/linux-appimage/ 2>/dev/null || true
+          cp release/*.deb itch/linux-deb/ 2>/dev/null || true
+          cp release/*-setup.exe itch/windows-exe/ 2>/dev/null || true
+          cp release/*.msi itch/windows-msi/ 2>/dev/null || true
+          butler push itch/linux-appimage r60d/ultipixelizer:linux-appimage --userversion "$VERSION"
+          butler push itch/linux-deb r60d/ultipixelizer:linux-deb --userversion "$VERSION"
+          butler push itch/windows-exe r60d/ultipixelizer:windows-exe --userversion "$VERSION"
+          butler push itch/windows-msi r60d/ultipixelizer:windows-msi --userversion "$VERSION"
