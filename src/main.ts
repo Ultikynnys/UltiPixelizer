@@ -539,26 +539,27 @@ narrowLayout.addEventListener('change', (event) => {
   if (!event.matches) render();
 });
 
-// Fullscreen toggle on the dithered preview: expands it to fill the whole
-// stage by hiding the Original pane — the same single-pane layout the narrow
-// window already forces, but driven by the button at any width. Because the
-// Original pane is hidden, the pane-independent shared controls (view mode,
-// UV toggles, lighting panel) must relocate onto the dithered pane, exactly
-// as the narrow-layout relocation does, and move back when fullscreen ends.
-const comparisonGrid = document.querySelector<HTMLDivElement>('.comparison-grid')!;
+// Fullscreen toggle on the dithered preview: enters true OS-level fullscreen
+// via the Fullscreen API — the dithered canvas-frame takes over the whole
+// screen, not just the app's canvas stage. Because the frame fills the screen,
+// its overlay controls are hidden by the `:fullscreen` CSS rules; the only
+// control left is this toggle, so the user can exit. The pane-independent
+// shared controls (view mode, UV toggles, lighting) relocate onto the dithered
+// pane while fullscreen hides the Original pane, and move back on exit.
 const processedFullscreenToggle = document.querySelector<HTMLButtonElement>('#processedFullscreenToggle')!;
-let previewFullscreen = false;
-function setPreviewFullscreen(active: boolean): void {
-  previewFullscreen = active;
-  comparisonGrid.classList.toggle('fullscreen', active);
+const isPreviewFullscreen = (): boolean => document.fullscreenElement === processedPaneFrame;
+function syncPreviewFullscreen(): void {
+  const active = isPreviewFullscreen();
   processedFullscreenToggle.setAttribute('aria-pressed', String(active));
-  processedFullscreenToggle.title = active
-    ? 'Restore the side-by-side preview'
-    : 'Expand the dithered preview to fill the whole stage';
+  processedFullscreenToggle.title = active ? 'Exit fullscreen' : 'Enter fullscreen';
   relocateSharedControls(active || narrowLayout.matches);
   applyPreviewMode();
 }
-processedFullscreenToggle.addEventListener('click', () => setPreviewFullscreen(!previewFullscreen));
+document.addEventListener('fullscreenchange', syncPreviewFullscreen);
+processedFullscreenToggle.addEventListener('click', () => {
+  if (isPreviewFullscreen()) void document.exitFullscreen();
+  else void processedPaneFrame.requestFullscreen();
+});
 const sunDirectionValue = document.querySelector<HTMLOutputElement>('#sunDirectionValue')!;const cameraDirectionValue = document.querySelector<HTMLOutputElement>('#cameraDirectionValue')!;
 const stripeAngleControl = document.querySelector<HTMLDivElement>('#stripeAngleControl')!;
 const stripeAngleInput = document.querySelector<HTMLInputElement>('#stripeAngle')!;

@@ -355,10 +355,10 @@ select option { background: var(--card); color: var(--paper); }
 .texel-density > span { color: var(--muted); font: 500 8px 'DM Mono', monospace; letter-spacing: .06em; text-transform: uppercase; }
 .texel-density output { color: var(--paper); font: 700 12px 'DM Mono', monospace; }
 /* Fullscreen toggle on the dithered preview, stacked below the texel density
-   chip — expands the dithered preview to fill the whole stage by hiding the
-   Original pane (the same single-pane layout the narrow window forces, but
-   user-driven at any width). Same dark-ink chip language as the corner
-   overlays. Only the dithered pane carries one; the Original pane has none. */
+   chip — enters true OS-level fullscreen via the Fullscreen API, taking over
+   the whole screen (not just the app's canvas stage). Same dark-ink chip
+   language as the corner overlays. Only the dithered pane carries one; the
+   Original pane has none. */
 .fullscreen-toggle {
   align-items: center; background: color-mix(in srgb, var(--ink) 92%, transparent);
   border: 0; color: var(--muted); cursor: pointer; display: flex; justify-content: center;
@@ -367,19 +367,16 @@ select option { background: var(--card); color: var(--paper); }
 .fullscreen-toggle svg { display: block; }
 .fullscreen-toggle:hover, .fullscreen-toggle:focus-visible { color: var(--paper); }
 .fullscreen-toggle[aria-pressed='true'] { color: var(--accent); }
-/* Fullscreen state on the stage: hide the Original pane and let the dithered
-   pane span the whole grid — mirrors the @media (max-width: 1100px) single-pane
-   rules, but driven by the toggle instead of the window width. */
-.comparison-grid.fullscreen { grid-template-columns: 1fr; }
-.comparison-grid.fullscreen .original-pane { display: none; }
-/* In fullscreen the dithered preview is the whole stage, so every overlay
-   control on it (2D/3D toggle, UV controls, view-mode enum, texel density,
-   luminosity graph, sun/lighting panel, Export PNG, and the shared controls
-   relocated here by the narrow/fullscreen layout) is hidden — the only control
-   left is the fullscreen toggle that restores the normal two-pane view. The
+/* True fullscreen: the dithered canvas-frame is the fullscreened element, so
+   the browser sizes it to the whole screen (`:fullscreen`) and the preview
+   canvas fills that frame. Every overlay control on the frame (2D/3D toggle,
+   UV controls, view-mode enum, texel density, luminosity graph, sun/lighting
+   panel, Export PNG, and the shared controls relocated here while fullscreen)
+   is hidden — the only control left is the fullscreen toggle that exits. The
    canvas, UV wireframe overlay, and 3D model host render the preview and stay. */
-.comparison-grid.fullscreen .processed-pane .canvas-frame > :not(canvas):not(.fullscreen-toggle):not(.wireframe-overlay):not(.model-host) { display: none; }
-.comparison-grid.fullscreen .processed-pane figcaption .fig-zoom { display: none; }
+.canvas-frame:fullscreen canvas { height: 100%; max-height: none; max-width: 100%; width: 100%; }
+.canvas-frame:fullscreen .model-host { height: 100%; max-height: none; }
+.canvas-frame:fullscreen > :not(canvas):not(.fullscreen-toggle):not(.wireframe-overlay):not(.model-host) { display: none; }
 
 .texture-ribbon { align-items: center; display: flex; gap: 10px; }
 .texture-slot { align-items: center; background: var(--stage); cursor: pointer; display: flex; flex-direction: column; gap: 5px; height: 66px; justify-content: center; min-width: 82px; padding: 6px 8px; position: relative; }
@@ -621,9 +618,6 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
      chip stacks under the 2D/3D toggle with the 2D-view toggles beneath it. */
   .comparison-grid { grid-template-columns: 1fr; }
   .original-pane { display: none; }
-  /* The dithered preview already fills the stage in the single-pane narrow
-     layout, so the fullscreen toggle is redundant — hide it there. */
-  .fullscreen-toggle { display: none; }
   .circle-link { display: none; }
   .uv-control { display: none; }
   /* The texture ribbon's six slots (5 textures + model) need ~500px at their
