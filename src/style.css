@@ -593,6 +593,31 @@ body.eyedropping, body.eyedropping * { cursor: var(--eyedropper-cursor, crosshai
 .range-value-edit { background: var(--surface); border: 1px solid var(--line-bright); color: var(--paper); font: 500 9px 'DM Mono', monospace; max-width: 84px; padding: 1px 4px; text-align: right; }
 .range-value-edit:focus { border-color: var(--accent); outline: none; }
 .panel-description { color: var(--muted); font-size: 9px; line-height: 1.5; margin: 4px 0 0; }
+/* Changelogs panel: fetches the GitHub release history and shows one
+   collapsible changelog per version. The list scrolls within the panel (many
+   versions), the fetch button sits full-width above it, and each version row
+   is a chevron toggle that reveals its commit subjects. */
+.changelog-fetch { margin-top: 10px; width: 100%; }
+.changelog-list { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; max-height: 300px; overflow-y: auto; padding-right: 2px; }
+.changelog-version { border-bottom: 1px solid var(--line); }
+.changelog-version:last-child { border-bottom: 0; }
+.changelog-toggle {
+  align-items: center; background: transparent; border: 0; color: var(--paper); cursor: pointer;
+  display: flex; font: 600 11px 'DM Mono', monospace; gap: 7px; padding: 7px 0; text-align: left; width: 100%;
+}
+.changelog-toggle:hover .changelog-version-name, .changelog-toggle:focus-visible .changelog-version-name { color: var(--paper); }
+.changelog-chevron {
+  border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--muted);
+  flex: none; transition: transform .12s ease;
+}
+.changelog-version.open .changelog-chevron { transform: rotate(180deg); }
+.changelog-version-name { color: var(--paper-soft); }
+.changelog-count { color: var(--muted); font-size: 9px; margin-left: auto; }
+.changelog-body { padding: 2px 0 8px 15px; }
+.changelog-commits { display: flex; flex-direction: column; gap: 3px; list-style: none; margin: 0; padding: 0; }
+.changelog-commit { color: var(--muted); font-size: 10px; line-height: 1.45; }
+.changelog-commit a { color: inherit; text-decoration: none; }
+.changelog-commit a:hover { color: var(--paper); text-decoration: underline; }
 .lightmap-status { background: var(--surface); color: var(--paper-dim); font: 500 8px 'DM Mono', monospace; margin-top: 13px; overflow: hidden; padding: 8px; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── interactive states: hover / focus / active are all color changes, never rings ── */

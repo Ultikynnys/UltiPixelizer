@@ -423,6 +423,13 @@ app.innerHTML = `
           <label class="control-row quad-grid-row"><span><strong>Flip displacement</strong><small>Invert the heightmap — 1 − height</small></span>${toggleControl('displacementFlip', 'Invert the displacement heightmap')}</label>
         </section>
 
+        <section class="panel">
+          <div class="panel-heading compact"><div><h2>Changelogs</h2></div></div>
+          <p class="panel-description">Release notes from the GitHub repo — newest first.</p>
+          <button class="button changelog-fetch" id="changelogFetchButton" type="button">Fetch changelogs</button>
+          <div class="changelog-list" id="changelogList"></div>
+        </section>
+
     </aside>
   </div>
 `;
@@ -3333,4 +3340,103 @@ document.addEventListener('click', (event) => {
   if (!anchor) return;
   event.preventDefault();
   void openExternalLink(anchor.href).catch((error) => console.error('Could not open link.', error));
+});
+
+// ── Changelogs panel ─────────────────────────────────────────────────────
+// Fetches the GitHub release history (the pipeline versions releases by git
+// tag, e.g. v2.6.2) and renders one collapsible changelog per version, newest
+// first. Each version's body lists the commit subjects that shipped in it.
+// Commits newer than the newest release tag (unreleased work) form a top group.
+const changelogFetchButton = document.querySelector<HTMLButtonElement>('#changelogFetchButton')!;
+const changelogList = document.querySelector<HTMLDivElement>('#changelogList')!;
+const CHANGELOG_REPO = 'Ultikynnys/UltiPixelizer';
+
+interface ChangelogCommit {
+  message: string;
+  url: string;
+}
+
+interface ChangelogVersion {
+  version: string;
+  commits: ChangelogCommit[];
+}
+
+/** The first line of a commit message is the changelog subject. */
+function changelogSubject(message: string): string {
+  return message.split('\n')[0].trim();
+}
+
+async function fetchChangelogs(): Promise<void> {
+  changelogFetchButton.disabled = true;
+  changelogList.textContent = 'Loading release history…';
+  try {
+    const [tagsResponse, commitsResponse] = await Promise.all([
+      fetch(`https://api.github.com/repos/${CHANGELOG_REPO}/tags?per_page=100`),
+      fetch(`https://api.github.com/repos/${CHANGELOG_REPO}/commits?per_page=100`),
+    ]);
+    if (!tagsResponse.ok || !commitsResponse.ok) {
+      throw new Error(`GitHub API ${Math.max(tagsResponse.status, commitsResponse.status)}`);
+    }
+    const tags = await tagsResponse.json() as Array<{ name: string; commit: { sha: string } }>;
+    const commits = await commitsResponse.json() as Array<{ sha: string; html_url: string; commit: { message: string } }>;
+
+    // Each version is a git tag pointing at a commit. Walking the commit log
+    // newest→oldest, a tagged commit begins (and older commits join) that
+    // version; commits newer than the newest tag land in an Unreleased group.
+    const versionBySha = new Map<string, string>();
+    for (const tag of tags) versionBySha.set(tag.commit.sha, tag.name);
+
+    const unreleased: ChangelogVersion = { version: 'Unreleased', commits: [] };
+    const released: ChangelogVersion[] = [];
+    let current: ChangelogVersion = unreleased;
+    for (const item of commits) {
+      const version = versionBySha.get(item.sha);
+      if (version) {
+        current = { version, commits: [] };
+        released.push(current);
+      }
+      current.commits.push({ message: item.commit.message, url: item.html_url });
+    }
+    const versions = unreleased.commits.length ? [unreleased, ...released] : released;
+
+    renderChangelogs(versions);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'network error';
+    changelogList.textContent = `Could not fetch changelogs (${reason}). Check your connection and try again.`;
+  } finally {
+    changelogFetchButton.disabled = false;
+  }
+}
+
+function renderChangelogs(versions: ChangelogVersion[]): void {
+  changelogList.innerHTML = versions.map((group) => `
+    <div class="changelog-version">
+      <button class="changelog-toggle" type="button" aria-expanded="false">
+        <span class="changelog-chevron"></span>
+        <span class="changelog-version-name">${escapeHtml(group.version)}</span>
+        <span class="changelog-count">${group.commits.length} commit${group.commits.length === 1 ? '' : 's'}</span>
+      </button>
+      <div class="changelog-body" hidden>
+        <ul class="changelog-commits">
+          ${group.commits.map((commit) => `
+            <li class="changelog-commit">
+              <a href="${escapeHtml(commit.url)}" target="_blank" rel="noopener">${escapeHtml(changelogSubject(commit.message))}</a>
+            </li>`).join('')}
+        </ul>
+      </div>
+    </div>`).join('');
+}
+
+changelogFetchButton.addEventListener('click', () => void fetchChangelogs());
+
+// Chevron rows toggle their commit list. Delegated so re-renders stay wired.
+changelogList.addEventListener('click', (event) => {
+  const toggle = (event.target as HTMLElement).closest<HTMLButtonElement>('.changelog-toggle');
+  if (!toggle) return;
+  const group = toggle.parentElement!;
+  const body = group.querySelector<HTMLDivElement>('.changelog-body');
+  const expanded = toggle.getAttribute('aria-expanded') === 'true';
+  toggle.setAttribute('aria-expanded', String(!expanded));
+  group.classList.toggle('open', !expanded);
+  if (body) body.hidden = expanded;
 });
