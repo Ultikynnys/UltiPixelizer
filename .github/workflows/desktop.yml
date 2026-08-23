@@ -154,3 +154,31 @@ jobs:
               --title "UltiPixelizer $TAG" \
               --notes "Standalone UltiPixelizer build (Windows .msi/.exe, Linux .AppImage/.deb). All processing stays on-device."
           fi
+
+      # Publish the same installers to itch.io (r60d.itch.io/ultipixelizer).
+      # butler authenticates from the BUTLER_API_KEY env var, which GitHub
+      # injects from the BUTLER_API_KEY repository secret — the key never
+      # appears in this file or in build logs. The version tag (v2.6.6, from
+      # the same git build count as the release) becomes the itch user-version.
+      - name: Install butler
+        shell: bash
+        run: |
+          curl -sL -o butler.zip "https://github.com/itchio/butler/releases/download/v15.30.0/butler-linux-amd64.zip"
+          unzip -o butler.zip
+          chmod +x butler/butler
+          echo "$PWD/butler" >> "$GITHUB_PATH"
+
+      - name: Push installers to itch.io
+        shell: bash
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Stage each channel's files in its own dir (butler pushes one src
+          # dir per channel), then push both. Windows carries the NSIS .exe;
+          # Linux carries the .AppImage and .deb.
+          mkdir -p itch/windows itch/linux
+          cp release/*.exe itch/windows/ 2>/dev/null || true
+          cp release/*.AppImage release/*.deb itch/linux/ 2>/dev/null || true
+          butler push itch/windows r60d/ultipixelizer:windows --userversion "$VERSION"
+          butler push itch/linux r60d/ultipixelizer:linux --userversion "$VERSION"
