@@ -139,6 +139,13 @@ export async function loadModel(
     };
     manager.onLoad = () => resolveIdle?.();
     const loaded = await withoutFbxUpAxisWarning(() => new FBXLoader(manager).loadAsync(bundle.primaryUrl));
+    // FBX UnitScaleFactor is expressed in centimetres per file unit. This
+    // viewer uses metres, and FBXLoader intentionally leaves conversion to the
+    // application, so normalize the loaded root before any downstream clones.
+    const unitScaleFactor = loaded.userData.unitScaleFactor;
+    if (typeof unitScaleFactor === 'number' && Number.isFinite(unitScaleFactor) && unitScaleFactor > 0) {
+      loaded.scale.multiplyScalar(unitScaleFactor / 100);
+    }
     orientToWorldAxis(loaded, worldAxis);
     if (textureLoadsStarted) await idle;
     scene = loaded;

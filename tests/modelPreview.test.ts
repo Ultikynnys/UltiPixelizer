@@ -256,6 +256,23 @@ describe('loadModel', () => {
     expect(maya.scene.rotation.x).toBe(0);
   });
 
+  it.each([
+    { unitScaleFactor: 1, expectedScale: 0.01 },
+    { unitScaleFactor: 100, expectedScale: 1 },
+  ])('converts FBX units to metres ($unitScaleFactor cm per unit)', async ({ unitScaleFactor, expectedScale }) => {
+    mocks.scene = meshScene();
+    mocks.scene.userData.unitScaleFactor = unitScaleFactor;
+    const result = await loadModel(bundle('fbx'), [], 'maya');
+    expect(result.scene.scale.toArray()).toEqual([expectedScale, expectedScale, expectedScale]);
+  });
+
+  it('preserves FBX scale when unit metadata is absent', async () => {
+    mocks.scene = meshScene();
+    mocks.scene.scale.setScalar(2);
+    const result = await loadModel(bundle('fbx'), [], 'maya');
+    expect(result.scene.scale.toArray()).toEqual([2, 2, 2]);
+  });
+
   it('suppresses the FBXLoader Z-up notice while passing other warnings through', async () => {
     mocks.scene = meshScene();
     mocks.emitZupWarning = true;
