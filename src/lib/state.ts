@@ -67,6 +67,8 @@ export type State = {
   /** Left-drag camera action for the 3D viewports: pan (on) or orbit (off) —
    * the "Alt controls" pill. Persisted like the other settings. */
   navigationPan: boolean;
+  /** Shared 10 cm floor reference shown in both 3D viewports. */
+  showFloorGrid: boolean;
 };
 
 /** True when a lightmap is loaded (the lightmap slot holds an image). Shared by

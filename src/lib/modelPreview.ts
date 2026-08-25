@@ -4,10 +4,12 @@ import {
   AnimationClip,
   AxesHelper,
   AnimationMixer,
+  Box3,
   BufferGeometry,
   CanvasTexture,
   DoubleSide,
   Float32BufferAttribute,
+  GridHelper,
   LinearFilter,
   LoadingManager,
   Material,
@@ -41,6 +43,11 @@ import { UV_OVERLAP_LABEL } from './uvOverlap';
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
 
 export type CameraState = { position: Vector3; quaternion: Quaternion; target: Vector3 };
+
+/** Floor reference convention: one Three.js world unit is treated as one metre,
+ * and every grid division is 0.1 units (10 cm). */
+export const FLOOR_GRID_DIVISION = 0.1;
+const FLOOR_GRID_MINIMUM_SIZE = 2;
 
 function overlapLabelTexture(): CanvasTexture {
   const { canvas, context } = createCanvas(256, 64);
@@ -168,6 +175,7 @@ export class ModelViewport {
   // implicitly baked) lighting, so the viewport never re-lights it in realtime.
   // The full-intensity white ambient displays the texture unmodulated.
   private readonly ambient = new AmbientLight(0xffffff, Math.PI);
+  private floorGrid = new GridHelper(FLOOR_GRID_MINIMUM_SIZE, FLOOR_GRID_MINIMUM_SIZE / FLOOR_GRID_DIVISION, 0x7f8c8d, 0x46525a);
   private readonly axes = new AxesHelper(1);
   private readonly gizmoScene = new Scene();
   private readonly gizmoCamera = new OrthographicCamera(-1.3, 1.3, 1.3, -1.3, 0.1, 10);
@@ -236,6 +244,34 @@ export class ModelViewport {
       : { LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN };
   }
 
+  /** Shows a floor reference in both app viewports. Spacing is always 0.1
+   * world units (10 cm under the app's 1 unit = 1 metre convention); only the
+   * total extent changes to contain the current model. */
+  setFloorGrid(visible: boolean): void {
+    this.floorGrid.visible = visible;
+  }
+
+  private updateFloorGrid(): void {
+    if (!this.model) return;
+    this.model.updateMatrixWorld(true);
+    const bounds = new Box3().setFromObject(this.model);
+    if (bounds.isEmpty()) return;
+    const size = bounds.getSize(new Vector3());
+    const center = bounds.getCenter(new Vector3());
+    const requiredSize = Math.max(FLOOR_GRID_MINIMUM_SIZE, size.x, size.z) + FLOOR_GRID_DIVISION * 2;
+    const divisions = Math.ceil(requiredSize / FLOOR_GRID_DIVISION);
+    const gridSize = divisions * FLOOR_GRID_DIVISION;
+    const visible = this.floorGrid.visible;
+    this.scene.remove(this.floorGrid);
+    this.floorGrid.geometry.dispose();
+    const materials = Array.isArray(this.floorGrid.material) ? this.floorGrid.material : [this.floorGrid.material];
+    materials.forEach((material) => material.dispose());
+    this.floorGrid = new GridHelper(gridSize, divisions, 0x7f8c8d, 0x46525a);
+    this.floorGrid.position.set(center.x, bounds.min.y, center.z);
+    this.floorGrid.visible = visible;
+    this.scene.add(this.floorGrid);
+  }
+
   constructor(private readonly host: HTMLElement) {
     this.renderer = new WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -258,7 +294,8 @@ export class ModelViewport {
       }
     };
     host.addEventListener('pointerdown', this.modifierStripper, true);
-    this.scene.add(this.ambient);
+    this.floorGrid.visible = false;
+    this.scene.add(this.ambient, this.floorGrid);
     this.axes.renderOrder = 1;
     // The gizmo lives in its own scene — rendered last, scissored into the
     // bottom-right corner — so the model can never occlude it. It renders with
@@ -283,6 +320,7 @@ export class ModelViewport {
     this.removeOverlapOverlay();
     this.model = model;
     this.scene.add(model);
+    this.updateFloorGrid();
     // Keep the gizmo aligned with the model's world-axis convention — the model
     // arrives pre-oriented from loadModel, so mirror its root rotation.
     this.axes.rotation.copy(model.rotation);
@@ -298,6 +336,7 @@ export class ModelViewport {
     // Mirror the convention rotation so the gizmo tracks the model's axes:
     // Z-up (Blender) shows the blue Z axis pointing up, Y-up (Maya) the green Y.
     this.axes.rotation.copy(this.model.rotation);
+    this.updateFloorGrid();
     this.refitCamera();
   }
 
@@ -600,6 +639,9 @@ export class ModelViewport {
     if (this.model) disposeModel(this.model);
     this.normalMapMaterial.dispose();
     this.normalMapTexture?.dispose();
+    this.floorGrid.geometry.dispose();
+    const gridMaterials = Array.isArray(this.floorGrid.material) ? this.floorGrid.material : [this.floorGrid.material];
+    gridMaterials.forEach((material) => material.dispose());
     this.axes.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

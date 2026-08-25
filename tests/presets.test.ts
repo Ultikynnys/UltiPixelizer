@@ -29,6 +29,7 @@ const config: ConversionConfig = {
   showUVWireframeOriginal: false,
   showUVWireframeProcessed: true,
   navigationPan: false,
+  showFloorGrid: true,
   paletteFilter: 'search',
   paletteSearchQuery: 'pico',
   paletteSearchSort: 'fewest',
@@ -299,12 +300,13 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       normalStrength: 0.6,
       normalFormat: 'opengl',
       cameraDirection: { x: 0, y: 0, z: -1 },
+      showFloorGrid: true,
     } as State;
   }
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(32);
+    expect(Object.keys(defaults)).toHaveLength(33);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -335,6 +337,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       showUVWireframeOriginal: true,
       showUVWireframeProcessed: true,
       navigationPan: false,
+      showFloorGrid: false,
       paletteFilter: 'compact',
       paletteSearchQuery: '',
       paletteSearchSort: 'name',
@@ -378,6 +381,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       showUVWireframeOriginal: false,
       showUVWireframeProcessed: true,
       navigationPan: false,
+      showFloorGrid: true,
       paletteFilter: 'search',
       paletteSearchQuery: 'pico',
       paletteSearchSort: 'fewest',

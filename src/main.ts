@@ -275,6 +275,10 @@ app.innerHTML = `
                   <span>Alt controls</span>
                   ${toggleControl('navigationPan', 'Pan the camera on left-drag (off: orbit)')}
                 </label>
+                <label class="uv-overlap-control" id="floorGridToggle" hidden title="Show a floor scale reference in both 3D views. Each division is 0.1 world units (10 cm when 1 unit = 1 metre).">
+                  <span>10 cm grid</span>
+                  ${toggleControl('showFloorGrid', 'Show the 10 cm floor grid in both 3D views')}
+                </label>
                 <label class="uv-overlap-control" id="worldAxisToggle" hidden title="Up axis for FBX/OBJ models. On: Y-up (Maya). Off: Z-up (Blender).">
                   <span>Y-Up</span>
                   ${toggleControl('worldAxisYUp', 'Use Y-up as the model up axis (off: Z-up)')}
@@ -480,9 +484,10 @@ const lodControl = document.querySelector<HTMLLabelElement>('#lodControl')!;
 const lodMapSelect = document.querySelector<HTMLSelectElement>('#lodMap')!;
 const worldAxisToggle = document.querySelector<HTMLElement>('#worldAxisToggle')!;
 const worldAxisYUpInput = document.querySelector<HTMLInputElement>('#worldAxisYUp')!;
-// Camera-controls pill — pinned to the Original pane's 3D view. The choice is
-// global across both viewports (see state.navigationPan).
+// Camera controls are pinned to the Original pane's 3D view and apply globally
+// across both viewports.
 const navigationToggle = document.querySelector<HTMLElement>('#navigationToggle')!;
+const floorGridToggle = document.querySelector<HTMLElement>('#floorGridToggle')!;
 const uvOverlapControl = document.querySelector<HTMLLabelElement>('#uvOverlapControl')!;
 const uvOverlapInput = document.querySelector<HTMLInputElement>('#uvOverlap')!;
 const repeatTextureControl = document.querySelector<HTMLLabelElement>('#repeatTextureControl')!;
@@ -649,7 +654,10 @@ function ensureViewports(): void {
     processedViewport = new ModelViewport(processedModelHost);
     processedViewport.setModel(createFallbackQuadScene(), []);
   }
-  forEachViewport((viewport) => viewport.setNavigationDragMode(state.navigationPan));
+  forEachViewport((viewport) => {
+    viewport.setNavigationDragMode(state.navigationPan);
+    viewport.setFloorGrid(state.showFloorGrid);
+  });
 }
 
 // Fallback-quad configuration — persisted with the other settings: the quad
@@ -1192,6 +1200,17 @@ document.querySelector<HTMLInputElement>('#navigationPan')!.addEventListener('ch
   scheduleSettingsSave();
 });
 
+function renderFloorGridControl(): void {
+  const toggle = document.querySelector<HTMLInputElement>('#showFloorGrid')!;
+  toggle.checked = state.showFloorGrid;
+  forEachViewport((viewport) => viewport.setFloorGrid(state.showFloorGrid));
+}
+document.querySelector<HTMLInputElement>('#showFloorGrid')!.addEventListener('change', (event) => {
+  state.showFloorGrid = (event.target as HTMLInputElement).checked;
+  forEachViewport((viewport) => viewport.setFloorGrid(state.showFloorGrid));
+  scheduleSettingsSave();
+});
+
 function updatePatternControls(): void {
   stripeAngleControl.hidden = state.mode !== 'stripes';
   noiseScaleControl.hidden = state.mode !== 'noise';
@@ -1343,9 +1362,10 @@ function applyPreviewMode(): void {
   const showHistograms = !narrowLayout.matches;
   originalLuminosityHistogram.hidden = !showHistograms || originalPreviewMode !== '2d';
   processedLuminosityHistogram.hidden = !showHistograms || processedPreviewMode !== '2d';
-  // The camera-controls pill lives on the Original pane and is a 3D-only
-  // control: it swaps which mouse button orbits vs pans in both viewports.
+  // Shared viewport controls live on the Original pane and affect both 3D views.
   navigationToggle.hidden = originalPreviewMode !== '3d';
+  floorGridToggle.hidden = originalPreviewMode !== '3d' && processedPreviewMode !== '3d';
+  renderFloorGridControl();
   renderWorldAxisControl();
   renderSunControl();
   renderQuadControl();

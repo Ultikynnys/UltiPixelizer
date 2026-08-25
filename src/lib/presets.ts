@@ -49,6 +49,8 @@ export type ConversionConfig = {
   showUVWireframeProcessed: boolean;
   /** Left-drag camera action for the 3D viewports: pan (on) or orbit (off). */
   navigationPan: boolean;
+  /** Shared 10 cm floor reference shown in both 3D viewports. */
+  showFloorGrid: boolean;
   /** Active palette-library filter — UI state, persisted like the settings. */
   paletteFilter: PaletteCategory;
   /** Palette-library search query (Search category), remembered across restarts. */
@@ -171,6 +173,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   // parameter, but it is saved like the other settings (and restored from old
   // files via migrateDefault).
   { key: 'navigationPan', path: ['navigationPan'], default: false, migrateDefault: false, validate: isBoolean },
+  { key: 'showFloorGrid', path: ['showFloorGrid'], default: false, migrateDefault: false, validate: isBoolean },
   // Palette-library UI state — like navigationPan, not a conversion parameter,
   // but saved with the settings so the last filter/query/sort survive restarts.
   { key: 'paletteFilter', path: ['paletteFilter'], default: 'compact', migrateDefault: 'compact', validate: isEnum(paletteCategories) },

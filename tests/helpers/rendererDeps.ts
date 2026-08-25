@@ -57,6 +57,7 @@ export function createStateFixture(): State {
     normalFormat: 'opengl',
     cameraDirection: { x: 0, y: 0, z: -1 },
     navigationPan: false,
+    showFloorGrid: false,
     paletteSearchQuery: '',
     paletteSearchSort: 'name',
     showUVOverlapOriginal: false,

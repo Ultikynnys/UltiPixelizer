@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnimationClip, BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, MOUSE, Object3D, Scene, ShaderMaterial, Texture } from 'three';
-import { loadModel, ModelViewport, upAxisRotation } from '../src/lib/modelPreview';
+import { FLOOR_GRID_DIVISION, loadModel, ModelViewport, upAxisRotation } from '../src/lib/modelPreview';
 import { renderModelThumbnail } from '../src/lib/modelScene';
 import type { ModelFileBundle } from '../src/lib/modelFiles';
 import { domStubs, FakeCanvas, flushRaf, installDomStubs, rafCount } from './helpers/domStubs';
@@ -398,6 +398,36 @@ describe('ModelViewport', () => {
     expect(mocks.controls[0].mouseButtons.LEFT).toBe(MOUSE.ROTATE);
     expect(mocks.controls[0].mouseButtons.RIGHT).toBe(MOUSE.PAN);
     viewport.dispose();
+  });
+
+  it('shows a floor grid with fixed 10 cm divisions at the model floor', () => {
+    const viewport = new ModelViewport(host());
+    const grid = () => (viewport as unknown as { floorGrid: Object3D & { visible: boolean; geometry: BufferGeometry } }).floorGrid;
+    expect(FLOOR_GRID_DIVISION).toBe(0.1);
+    expect(grid().visible).toBe(false);
+
+    const model = meshScene();
+    model.position.set(2, 3, 4);
+    viewport.setModel(model, []);
+    viewport.setFloorGrid(true);
+
+    expect(grid().visible).toBe(true);
+    expect(grid().position.y).toBeCloseTo(3);
+    expect(grid().position.x).toBeCloseTo(2.5);
+    expect(grid().position.z).toBeCloseTo(4);
+    const positions = grid().geometry.getAttribute('position');
+    const firstZ = positions.getZ(0);
+    const nextZ = positions.getZ(4);
+    expect(Math.abs(nextZ - firstZ)).toBeCloseTo(FLOOR_GRID_DIVISION);
+
+    viewport.setFloorGrid(false);
+    expect(grid().visible).toBe(false);
+    const geometryDispose = vi.spyOn(grid().geometry, 'dispose');
+    const material = (grid() as unknown as { material: MeshBasicMaterial }).material;
+    const materialDispose = vi.spyOn(material, 'dispose');
+    viewport.dispose();
+    expect(geometryDispose).toHaveBeenCalled();
+    expect(materialDispose).toHaveBeenCalled();
   });
 
   it('restoreCameraView re-aims the camera from a saved position and orbit target', () => {
