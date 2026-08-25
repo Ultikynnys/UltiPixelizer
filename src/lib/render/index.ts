@@ -22,6 +22,11 @@ export function createRenderer(deps: RendererDeps): RendererApi {
     directionalityCanvas: null,
     directionalityCanvasWidth: 0,
     directionalityCanvasHeight: 0,
+    varianceData: null,
+    varianceScene: null,
+    varianceCanvas: null,
+    varianceCanvasWidth: 0,
+    varianceCanvasHeight: 0,
     lightmapCleared: false,
   };
 
@@ -60,6 +65,11 @@ export function createRenderer(deps: RendererDeps): RendererApi {
       shared.uvStretchCanvas = null;
       shared.uvStretchCanvasWidth = 0;
       shared.uvStretchCanvasHeight = 0;
+      shared.varianceData = null;
+      shared.varianceScene = null;
+      shared.varianceCanvas = null;
+      shared.varianceCanvasWidth = 0;
+      shared.varianceCanvasHeight = 0;
       deps.forEachViewport((viewport) => viewport.setUVStretch(null));
     },
     syncWireframeOverlays: overlay.syncWireframeOverlays,

@@ -279,6 +279,7 @@ app.innerHTML = `
                   <button type="button" data-view="lightmap-ao">Lightmap+AO</button>
                   <button type="button" data-view="uv-stretch" title="Compare each UV face area with its world-space face area">UV Stretch</button>
                   <button type="button" data-view="directionality" title="A 16-wave sawtooth over the V (Y) UV coordinate, showing UV directionality across the surface">Directionality</button>
+                  <button type="button" data-view="texel-variance" title="Color each face by its texel density vs the model-wide average (red below, blue above)">Texel Variance</button>
                 </div>
                 <div class="viewport-control-stack">
                   <label class="uv-overlap-control" id="navigationToggle" hidden title="Left-drag camera action. On: pan moves the camera sideways. Off: orbit rotates around the target. The middle button always zooms.">
@@ -972,13 +973,17 @@ function renderViewToggle(): void {
   const lightmapDefined = lightmapIsActive(textures) || renderer.getImplicitLightmapCanvas() !== null;
   const lightmapAoDefined = aoDefined && lightmapDefined;
   const uvStretchDefined = uvStretchIsAvailable();
-  // The Directionality view colors each surface by its UV V coordinate, so like
-  // UV Stretch it needs a model carrying usable UVs.
+  // The Directionality and Texel Variance views color each surface by its UV
+  // V coordinate / per-face density, so like UV Stretch they need a model
+  // carrying usable UVs.
   const directionalityDefined = uvStretchIsAvailable();
+  const texelVarianceDefined = uvStretchIsAvailable();
   if (!uvStretchDefined && state.viewModeOriginal === 'uv-stretch') state.viewModeOriginal = 'flat';
   if (!uvStretchDefined && state.viewModeProcessed === 'uv-stretch') state.viewModeProcessed = 'flat';
   if (!directionalityDefined && state.viewModeOriginal === 'directionality') state.viewModeOriginal = 'flat';
   if (!directionalityDefined && state.viewModeProcessed === 'directionality') state.viewModeProcessed = 'flat';
+  if (!texelVarianceDefined && state.viewModeOriginal === 'texel-variance') state.viewModeOriginal = 'flat';
+  if (!texelVarianceDefined && state.viewModeProcessed === 'texel-variance') state.viewModeProcessed = 'flat';
   if (!aoDefined && state.viewModeOriginal === 'ao') state.viewModeOriginal = 'flat';
   if (!lightmapDefined && state.viewModeOriginal === 'lightmap') state.viewModeOriginal = 'flat';
   if (!normalDefined && state.viewModeOriginal === 'normals') state.viewModeOriginal = 'flat';
@@ -992,7 +997,7 @@ function renderViewToggle(): void {
   // and viewports exactly as they do to a loaded model. The per-button
   // `disabled` states below already handle missing sources.
   originalViewToggle.hidden = false;
-  syncViewToggle(originalViewToggle, state.viewModeOriginal, normalDefined, aoDefined, lightmapDefined, lightmapAoDefined, uvStretchDefined, directionalityDefined);
+  syncViewToggle(originalViewToggle, state.viewModeOriginal, normalDefined, aoDefined, lightmapDefined, lightmapAoDefined, uvStretchDefined, directionalityDefined, texelVarianceDefined);
   // A view-mode fallback above (e.g. the normal map was removed) must reach the
   // 3D viewports too  they render the Normals view via setNormalsView and
   // would otherwise stay latched on the stale showcase.
@@ -1000,7 +1005,7 @@ function renderViewToggle(): void {
   applyViewDirectionality();
 }
 
-function syncViewToggle(toggle: HTMLDivElement, viewMode: PreviewViewMode, normalDefined: boolean, aoDefined: boolean, lightmapDefined: boolean, lightmapAoDefined: boolean, uvStretchDefined: boolean, directionalityDefined: boolean): void {
+function syncViewToggle(toggle: HTMLDivElement, viewMode: PreviewViewMode, normalDefined: boolean, aoDefined: boolean, lightmapDefined: boolean, lightmapAoDefined: boolean, uvStretchDefined: boolean, directionalityDefined: boolean, texelVarianceDefined: boolean): void {
   syncActiveButton(toggle, '[data-view]', (button) => button.dataset.view === viewMode);
   for (const button of toggle.querySelectorAll<HTMLButtonElement>('[data-view]')) {
     const view = button.dataset.view as PreviewViewMode;
@@ -1009,7 +1014,8 @@ function syncViewToggle(toggle: HTMLDivElement, viewMode: PreviewViewMode, norma
       || (view === 'lightmap' && !lightmapDefined)
       || (view === 'lightmap-ao' && !lightmapAoDefined)
       || (view === 'uv-stretch' && !uvStretchDefined)
-      || (view === 'directionality' && !directionalityDefined);
+      || (view === 'directionality' && !directionalityDefined)
+      || (view === 'texel-variance' && !texelVarianceDefined);
   }
 }
 
@@ -3383,8 +3389,12 @@ function applyViewMode(): void {
   renderViewToggle();
   applyViewNormals();
   applyViewDirectionality();
-  if (state.viewModeOriginal !== 'uv-stretch') originalViewport?.setUVStretch(null);
-  if (state.viewModeProcessed !== 'uv-stretch') processedViewport?.setUVStretch(null);
+  // The per-face color overlay serves both UV Stretch and Texel Variance; keep
+  // it installed while either is active, and clear it otherwise.
+  const overlayActiveOriginal = state.viewModeOriginal === 'uv-stretch' || state.viewModeOriginal === 'texel-variance';
+  const overlayActiveProcessed = state.viewModeProcessed === 'uv-stretch' || state.viewModeProcessed === 'texel-variance';
+  if (!overlayActiveOriginal) originalViewport?.setUVStretch(null);
+  if (!overlayActiveProcessed) processedViewport?.setUVStretch(null);
   // Show/hide the UV-stretch sensitivity slider within the lighting controls.
   renderSunControl();
   render();
@@ -3418,6 +3428,7 @@ const EXPORT_VIEW_SUFFIX: Record<PreviewViewMode, string> = {
   'lightmap-ao': 'LightmapAO',
   'uv-stretch': 'UVStretch',
   directionality: 'Directionality',
+  'texel-variance': 'TexelVariance',
 };
 document.querySelector('#exportButton')!.addEventListener('click', async () => {
   // Flush the debounced render first so the export always matches what the

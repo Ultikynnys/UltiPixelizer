@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Scene } from 'three';
-import { computeAverageTexelDensity, computeUVStretchData, recolorUVStretchData, uvStretchColor } from '../src/lib/texelDensity';
+import { computeAverageTexelDensity, computeTexelVarianceData, computeUVStretchData, recolorUVStretchData, texelVarianceColor, uvStretchColor } from '../src/lib/texelDensity';
 
 /** Single-triangle mesh: world triangle (0,0,0)-(1,0,0)-(0,1,0) (area 0.5)
  * mapped onto UV triangle (0,0)-(1,0)-(0,1) (UV area 0.5). */
@@ -199,5 +199,43 @@ describe('UV stretch data', () => {
     const degenerateWorld = triMesh([[0, 0], [1, 0], [0, 1]], [[0, 0, 0], [1, 0, 0], [2, 0, 0]]);
     scene.add(uvless, degenerateUv, degenerateWorld);
     expect(computeUVStretchData(scene)).toBeNull();
+  });
+});
+
+describe('texel variance', () => {
+  it('maps the density ratio to red below / blue above the average', () => {
+    // Exactly at the average → neutral white.
+    expect(texelVarianceColor(1)).toEqual([255, 255, 255]);
+    // 50% below → maximum red, 50% above → maximum blue.
+    expect(texelVarianceColor(0.5)).toEqual([255, 60, 60]);
+    expect(texelVarianceColor(1.5)).toEqual([60, 120, 255]);
+    // Beyond ±50% clamps to the extremes.
+    expect(texelVarianceColor(0)).toEqual([255, 60, 60]);
+    expect(texelVarianceColor(3)).toEqual([60, 120, 255]);
+    // Interpolates monotonically off white toward the extremes.
+    expect(texelVarianceColor(0.75)[1]).toBeLessThan(texelVarianceColor(1)[1]); // greener → redder
+    expect(texelVarianceColor(1.25)[0]).toBeLessThan(texelVarianceColor(1)[0]); // bluer
+  });
+
+  it('colors faces red below and blue above the model-wide average density', () => {
+    const scene = new Scene();
+    // High texel density: a lot of UV area over a small world triangle.
+    scene.add(triMesh([[0, 0], [1, 0], [0, 1]], [[0, 0, 0], [1, 0, 0], [0, 0.5, 0]]));
+    // Low texel density: little UV area over a large world triangle.
+    scene.add(triMesh([[0, 0], [0.5, 0], [0, 0.5]], [[0, 0, 0], [2, 0, 0], [0, 1, 0]]));
+    const data = computeTexelVarianceData(scene, 64, 64)!;
+    expect(data.faces).toHaveLength(2);
+    const highDensity = data.faces[0].uvArea / data.faces[0].worldArea > data.faces[1].uvArea / data.faces[1].worldArea ? data.faces[0] : data.faces[1];
+    const lowDensity = highDensity === data.faces[0] ? data.faces[1] : data.faces[0];
+    // More texels per world area than average → blue; fewer → red.
+    expect(highDensity.color[2]).toBeGreaterThan(highDensity.color[0]); // blue channel dominates
+    expect(lowDensity.color[0]).toBeGreaterThan(lowDensity.color[2]); // red channel dominates
+    // The ratio cancels the texture resolution, so any size gives the same colors.
+    const other = computeTexelVarianceData(scene, 16, 16)!;
+    expect(other.faces.map((face) => face.color)).toEqual(data.faces.map((face) => face.color));
+  });
+
+  it('returns null without measurable mapped geometry', () => {
+    expect(computeTexelVarianceData(new Scene(), 64, 64)).toBeNull();
   });
 });

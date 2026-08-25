@@ -5,7 +5,7 @@ import { webgpuUsable } from '../gpuCommon';
 import { gpuDitherCovers, processImageDataAsync } from '../gpuDither';
 import { applyLightmap } from '../lightmap';
 import { rasterizeBake } from '../bakeGeometry';
-import { computeUVStretchData, recolorUVStretchData, type UVStretchData } from '../texelDensity';
+import { computeTexelVarianceData, computeUVStretchData, recolorUVStretchData, type UVStretchData } from '../texelDensity';
 import { createBoundedLru } from '../lru';
 import { drawLuminosityHistogram } from '../luminosityHistogram';
 import { LUMA } from '../math';
@@ -248,8 +248,32 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       shared.uvStretchCanvasHeight = height;
     }
     const stretchSource = stretchSourceData ? shared.uvStretchCanvas : null;
-    getOriginalViewport()?.setUVStretch(state.viewModeOriginal === 'uv-stretch' ? stretchSourceData : null);
-    getProcessedViewport()?.setUVStretch(state.viewModeProcessed === 'uv-stretch' ? stretchSourceData : null);
+
+    // Texel-variance view: colors each face by its texel density relative to
+    // the model-wide average (red below, blue above). Reuses the stretch view's
+    // flat per-face overlay (`setUVStretch`) and UV-space raster.
+    const varianceSelected = state.viewModeOriginal === 'texel-variance' || state.viewModeProcessed === 'texel-variance';
+    const varianceScene = varianceSelected ? getAOScene() : null;
+    if (varianceScene !== shared.varianceScene) {
+      shared.varianceScene = varianceScene;
+      shared.varianceData = varianceScene ? computeTexelVarianceData(varianceScene, width, height) : null;
+    }
+    const varianceData = shared.varianceData;
+    if (varianceData && (!shared.varianceCanvas || shared.varianceCanvasWidth !== width || shared.varianceCanvasHeight !== height)) {
+      shared.varianceCanvas = renderUVStretchCanvas(varianceData, width, height);
+      shared.varianceCanvasWidth = width;
+      shared.varianceCanvasHeight = height;
+    }
+    const varianceSource = varianceData ? shared.varianceCanvas : null;
+
+    // The flat per-face overlay is shared by UV Stretch and Texel Variance;
+    // each pane feeds whichever is active (the two view modes are exclusive).
+    const originalOverlay = state.viewModeOriginal === 'uv-stretch' ? stretchSourceData
+      : (state.viewModeOriginal === 'texel-variance' ? varianceData : null);
+    const processedOverlay = state.viewModeProcessed === 'uv-stretch' ? stretchSourceData
+      : (state.viewModeProcessed === 'texel-variance' ? varianceData : null);
+    getOriginalViewport()?.setUVStretch(originalOverlay);
+    getProcessedViewport()?.setUVStretch(processedOverlay);
 
     // Directionality view: stage a vertical V-sawtooth canvas for the 2D panes
     // and feed each 3D viewport's UV-directionality material.
@@ -318,6 +342,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       : viewMode === 'lightmap' ? lightmapCanvas
       : viewMode === 'lightmap-ao' ? lightmapAoSource
       : viewMode === 'uv-stretch' ? stretchSource
+      : viewMode === 'texel-variance' ? varianceSource
       : viewMode === 'directionality' ? directionalitySource
       : null;
     const originalOnlySource = inspectionSource(state.viewModeOriginal);
@@ -328,7 +353,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     // pixelized with nearest-neighbor at the target resolution instead (the
     // same map the 3D processed viewport displays).
     const processedSource = processedOnlySource ?? textures.base.image!;
-    const directInspection = (state.viewModeProcessed === 'normals' || state.viewModeProcessed === 'uv-stretch' || state.viewModeProcessed === 'directionality') && processedOnlySource !== null;
+    const directInspection = (state.viewModeProcessed === 'normals' || state.viewModeProcessed === 'uv-stretch' || state.viewModeProcessed === 'texel-variance' || state.viewModeProcessed === 'directionality') && processedOnlySource !== null;
     let nextCanvas: HTMLCanvasElement;
     if (directInspection) {
       // The normals inspection shows the same chunky blocks as the dithered

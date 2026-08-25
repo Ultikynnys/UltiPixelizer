@@ -24,6 +24,11 @@ export function createRenderShared(overrides: Partial<RenderShared> = {}): Rende
     directionalityCanvas: null,
     directionalityCanvasWidth: 0,
     directionalityCanvasHeight: 0,
+    varianceData: null,
+    varianceScene: null,
+    varianceCanvas: null,
+    varianceCanvasWidth: 0,
+    varianceCanvasHeight: 0,
     lightmapCleared: false,
     ...overrides,
   };

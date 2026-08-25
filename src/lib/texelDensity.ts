@@ -134,3 +134,39 @@ export function computeAverageTexelDensity(scene: Object3D, width: number, heigh
   const data = computeUVStretchData(scene);
   return data === null ? null : Math.sqrt((data.uvAreaSum * width * height) / data.worldAreaSum);
 }
+
+/** Colors a face by how its own texel density compares with the model-wide
+ * average (see `computeAverageTexelDensity`). `ratio` is the face's density
+ * divided by the average: 1 = neutral (white), below 1 ramps to RED (max at
+ * 50% below), above 1 ramps to BLUE (max at 50% above). */
+export function texelVarianceColor(ratio: number): UVStretchColor {
+  const NEUTRAL: UVStretchColor = [255, 255, 255];
+  const RED: UVStretchColor = [255, 60, 60];
+  const BLUE: UVStretchColor = [60, 120, 255];
+  const from = ratio <= 1 ? RED : BLUE;
+  const amount = ratio <= 1 ? (1 - ratio) / 0.5 : (ratio - 1) / 0.5;
+  const t = Math.min(Math.max(amount, 0), 1);
+  return [
+    Math.round(NEUTRAL[0] + (from[0] - NEUTRAL[0]) * t),
+    Math.round(NEUTRAL[1] + (from[1] - NEUTRAL[1]) * t),
+    Math.round(NEUTRAL[2] + (from[2] - NEUTRAL[2]) * t),
+  ];
+}
+
+/** Texel-variance view data: like UV-stretch, but each face is colored by how
+ * its texel density compares with the model-wide average density (red below,
+ * blue above, ±50% = maximum). Uses the same area math as
+ * `computeAverageTexelDensity`; `width` × `height` (the texture resolution)
+ * cancels out of the ratio, so the coloring is resolution-independent, but is
+ * accepted to mirror the displayed target. */
+export function computeTexelVarianceData(scene: Object3D, width: number, height: number): UVStretchData | null {
+  const data = computeUVStretchData(scene);
+  if (data === null) return null;
+  const averageDensity = Math.sqrt((data.uvAreaSum * width * height) / data.worldAreaSum);
+  const faces = data.faces.map((face): UVStretchFace => {
+    const faceDensity = Math.sqrt((face.uvArea * width * height) / face.worldArea);
+    const ratio = averageDensity > 0 ? faceDensity / averageDensity : 0;
+    return { ...face, color: texelVarianceColor(ratio) };
+  });
+  return { ...data, faces };
+}

@@ -3,6 +3,7 @@ import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Scene 
 import { createRender2D } from '../src/lib/render/render2d';
 import type { RenderShared } from '../src/lib/render/types';
 import type { ModelViewport } from '../src/lib/modelPreview';
+import type { UVStretchData } from '../src/lib/texelDensity';
 import { createRendererDeps, createRenderShared } from './helpers/rendererDeps';
 import { asSourceImage, FakeCanvas, installDomStubs, stubDocument } from './helpers/domStubs';
 
@@ -566,7 +567,7 @@ describe('createRender2D render pipeline', () => {
     const shared = sharedState();
     const render2d = createRender2D(deps, shared);
     await render2d.render();
-    const dataAtIdentity = originalViewport.setUVStretch.mock.calls[0][0];
+    const dataAtIdentity = originalViewport.setUVStretch.mock.calls[0][0] as UVStretchData;
     const canvasAtIdentity = shared.uvStretchCanvas;
 
     deps.state.uvStretchSensitivity = 4;
@@ -575,11 +576,53 @@ describe('createRender2D render pipeline', () => {
     // Raising sensitivity pushes the heatmap off blue toward red: a fresh data
     // reference (so the 3D overlay rebuilds), a fresh rasterized canvas, and a
     // real change in the per-face colors, while the measured distortion stands.
-    const dataAt4x = originalViewport.setUVStretch.mock.calls[1][0];
+    const dataAt4x = originalViewport.setUVStretch.mock.calls[1][0] as UVStretchData;
     expect(dataAt4x).not.toBe(dataAtIdentity);
     expect(dataAt4x.faces.map((face) => face.distortion)).toEqual(dataAtIdentity.faces.map((face) => face.distortion));
     expect(dataAt4x.faces.map((face) => face.color)).not.toEqual(dataAtIdentity.faces.map((face) => face.color));
     expect(shared.uvStretchCanvas).not.toBe(canvasAtIdentity);
+  });
+
+  it('feeds the shared face overlay from texel variance and rasters a variance canvas', async () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([
+      0, 0, 0, 2, 0, 0, 0, 1, 0,
+      0, 0, 0, 1, 0, 0, 0, 1, 0,
+    ], 3));
+    geometry.setAttribute('uv', new Float32BufferAttribute([
+      0, 0, 0.5, 0, 0, 1,
+      0.5, 0, 1, 0, 1, 1,
+    ], 2));
+    const scene = new Scene();
+    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setDirectionalityView: vi.fn() };
+    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setDirectionalityView: vi.fn() };
+    const deps = createRendererDeps({
+      textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } },
+      getAOScene: () => scene,
+      getOriginalViewport: () => originalViewport as unknown as ModelViewport,
+      getProcessedViewport: () => processedViewport as unknown as ModelViewport,
+    });
+    deps.state.viewModeOriginal = 'texel-variance';
+    const shared = sharedState();
+    const render2d = createRender2D(deps, shared);
+    await render2d.render();
+
+    // The original pane feeds the variance-colored overlay, the processed pane
+    // stays clear (its view mode is flat), and the 2D source is the rasterized
+    // variance canvas.
+    const overlay = originalViewport.setUVStretch.mock.calls[0][0] as UVStretchData;
+    expect(overlay).not.toBeNull();
+    expect(overlay.faces).toHaveLength(2);
+    expect(processedViewport.setUVStretch).toHaveBeenCalledWith(null);
+    expect(shared.varianceCanvas).not.toBeNull();
+    expect(deps.originalCanvas).toBeDefined();
+    // The variance view is resolution-independent: recomputing at a different
+    // resolution produces the same per-face colors.
+    deps.state.resolution = 16;
+    await render2d.render();
+    const overlayLarge = originalViewport.setUVStretch.mock.calls[1][0] as UVStretchData;
+    expect(overlayLarge.faces.map((face) => face.color)).toEqual(overlay.faces.map((face) => face.color));
   });
 
   it('feeds the viewports when both are available', () => {

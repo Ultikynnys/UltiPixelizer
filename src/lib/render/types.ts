@@ -97,6 +97,12 @@ export interface RenderShared {
   directionalityCanvas: HTMLCanvasElement | null;
   directionalityCanvasWidth: number;
   directionalityCanvasHeight: number;
+  /** Texel-variance view data, staged per scene like the stretch view. */
+  varianceData: UVStretchData | null;
+  varianceScene: Object3D | null;
+  varianceCanvas: HTMLCanvasElement | null;
+  varianceCanvasWidth: number;
+  varianceCanvasHeight: number;
   /** Set when the user explicitly removes the lightmap (slot X). While set,
    * the implicit auto-bake from sun/ambient and normal-map changes is
    * suppressed so the render stays unlit (pure-white lightmap) until an
