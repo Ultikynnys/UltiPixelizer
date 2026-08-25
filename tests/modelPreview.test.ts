@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnimationClip, BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, MOUSE, Object3D, Scene, ShaderMaterial, Texture } from 'three';
-import { FLOOR_GRID_DIVISION, FLOOR_GRID_RADIUS, loadModel, ModelViewport, upAxisRotation } from '../src/lib/modelPreview';
+import { FLOOR_GRID_DIVISION, FLOOR_GRID_MAJOR_DIVISION, FLOOR_GRID_RADIUS, loadModel, ModelViewport, upAxisRotation } from '../src/lib/modelPreview';
 import { renderModelThumbnail } from '../src/lib/modelScene';
 import type { ModelFileBundle } from '../src/lib/modelFiles';
 import { domStubs, FakeCanvas, flushRaf, installDomStubs, rafCount } from './helpers/domStubs';
@@ -417,7 +417,7 @@ describe('ModelViewport', () => {
     viewport.dispose();
   });
 
-  it('renders a world-anchored 10 cm grid with a horizontal 5 m camera fade', () => {
+  it('renders a world-anchored 10 cm grid with brighter 1 m lines and a horizontal 5 m camera fade', () => {
     const viewport = new ModelViewport(host());
     const internals = viewport as unknown as {
       floorGrid: Mesh<BufferGeometry, ShaderMaterial>;
@@ -425,6 +425,7 @@ describe('ModelViewport', () => {
     };
     const { floorGrid: grid, floorGridMaterial: material } = internals;
     expect(FLOOR_GRID_DIVISION).toBe(0.1);
+    expect(FLOOR_GRID_MAJOR_DIVISION).toBe(1);
     expect(FLOOR_GRID_RADIUS).toBe(5);
     expect(grid.visible).toBe(false);
 
@@ -440,11 +441,15 @@ describe('ModelViewport', () => {
     expect(material.transparent).toBe(true);
     expect(material.depthWrite).toBe(false);
     expect(material.uniforms.uDivision.value).toBe(FLOOR_GRID_DIVISION);
+    expect(material.uniforms.uMajorDivision.value).toBe(FLOOR_GRID_MAJOR_DIVISION);
+    expect(material.uniforms.uMajorOpacity.value).toBeGreaterThan(material.uniforms.uOpacity.value);
     expect(material.uniforms.uRadius.value).toBe(FLOOR_GRID_RADIUS);
     expect(material.uniforms.uFadeStart.value).toBeLessThan(FLOOR_GRID_RADIUS);
     expect(material.uniforms.uCameraXZ.value).toEqual({ x: 2.46, y: 4.04 });
     expect(material.vertexShader).toContain('vWorldXZ = worldPosition.xz');
-    expect(material.fragmentShader).toContain('vWorldXZ / uDivision');
+    expect(material.fragmentShader).toContain('gridLine(vWorldXZ, uDivision)');
+    expect(material.fragmentShader).toContain('gridLine(vWorldXZ, uMajorDivision)');
+    expect(material.fragmentShader).toContain('mix(uColor, uMajorColor, majorBlend)');
     expect(material.fragmentShader).toContain('length(vWorldXZ - uCameraXZ)');
     expect(material.fragmentShader).toContain('discard');
     const positions = grid.geometry.getAttribute('position');

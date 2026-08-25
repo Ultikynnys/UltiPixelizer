@@ -44,12 +44,14 @@ export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
 export type CameraState = { position: Vector3; quaternion: Quaternion; target: Vector3 };
 
 /** Floor reference convention: one Three.js world unit is treated as one metre,
- * and every grid division is 0.1 units (10 cm). */
+ * with 10 cm minor divisions and brighter 1 m major divisions. */
 export const FLOOR_GRID_DIVISION = 0.1;
+export const FLOOR_GRID_MAJOR_DIVISION = 1;
 export const FLOOR_GRID_RADIUS = 5;
 const FLOOR_GRID_SIZE = FLOOR_GRID_RADIUS * 2;
 const FLOOR_GRID_FADE_START = FLOOR_GRID_RADIUS * 0.72;
 const FLOOR_GRID_OPACITY = 0.45;
+const FLOOR_GRID_MAJOR_OPACITY = 0.78;
 
 function overlapLabelTexture(): CanvasTexture {
   const { canvas, context } = createCanvas(256, 64);
@@ -190,10 +192,13 @@ export class ModelViewport {
     uniforms: {
       uCameraXZ: { value: { x: 0, y: 0 } },
       uDivision: { value: FLOOR_GRID_DIVISION },
+      uMajorDivision: { value: FLOOR_GRID_MAJOR_DIVISION },
       uFadeStart: { value: FLOOR_GRID_FADE_START },
       uRadius: { value: FLOOR_GRID_RADIUS },
       uOpacity: { value: FLOOR_GRID_OPACITY },
+      uMajorOpacity: { value: FLOOR_GRID_MAJOR_OPACITY },
       uColor: { value: { r: 0.42, g: 0.48, b: 0.51 } },
+      uMajorColor: { value: { r: 0.72, g: 0.78, b: 0.81 } },
     },
     vertexShader: `
       varying vec2 vWorldXZ;
@@ -206,21 +211,32 @@ export class ModelViewport {
     fragmentShader: `
       uniform vec2 uCameraXZ;
       uniform float uDivision;
+      uniform float uMajorDivision;
       uniform float uFadeStart;
       uniform float uRadius;
       uniform float uOpacity;
+      uniform float uMajorOpacity;
       uniform vec3 uColor;
+      uniform vec3 uMajorColor;
       varying vec2 vWorldXZ;
 
-      void main() {
-        vec2 cell = vWorldXZ / uDivision;
+      float gridLine(vec2 position, float division) {
+        vec2 cell = position / division;
         vec2 distanceToLine = abs(fract(cell - 0.5) - 0.5) / fwidth(cell);
-        float line = 1.0 - min(min(distanceToLine.x, distanceToLine.y), 1.0);
+        return 1.0 - min(min(distanceToLine.x, distanceToLine.y), 1.0);
+      }
+
+      void main() {
+        float minorLine = gridLine(vWorldXZ, uDivision);
+        float majorLine = gridLine(vWorldXZ, uMajorDivision);
         float radialDistance = length(vWorldXZ - uCameraXZ);
         float fade = 1.0 - smoothstep(uFadeStart, uRadius, radialDistance);
-        float alpha = line * fade * uOpacity;
+        float minorAlpha = minorLine * uOpacity;
+        float majorAlpha = majorLine * uMajorOpacity;
+        float alpha = max(minorAlpha, majorAlpha) * fade;
         if (alpha <= 0.0) discard;
-        gl_FragColor = vec4(uColor, alpha);
+        float majorBlend = majorAlpha / max(max(minorAlpha, majorAlpha), 0.0001);
+        gl_FragColor = vec4(mix(uColor, uMajorColor, majorBlend), alpha);
       }
     `,
   });
