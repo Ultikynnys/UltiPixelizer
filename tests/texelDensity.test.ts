@@ -28,17 +28,17 @@ describe('average texel density', () => {
     expect(computeAverageTexelDensity(scene, 200, 100)).toBeCloseTo(100 * Math.SQRT2, 10);
   });
 
-  it('computes mixed density from total UV texel area and total world area', () => {
+  it('weights mixed linear densities by world-space surface area', () => {
     const scene = new Scene();
-    // Face 1: UV area 0.5 and world area 0.5.
+    // Face 1: density 100, world area 0.5.
     scene.add(triMesh());
-    // Face 2: UV area 0.125 and world area 0.5.
+    // Face 2: density 50, world area 0.5.
     scene.add(triMesh(
       [[0, 0], [0.5, 0], [0, 0.5]],
       [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
     ));
-    // Total density = sqrt((0.625 × 100 × 100) / 1).
-    expect(computeAverageTexelDensity(scene, 100, 100)).toBeCloseTo(Math.sqrt(6250), 10);
+    // Equal world areas produce the arithmetic mean, not RMS.
+    expect(computeAverageTexelDensity(scene, 100, 100)).toBe(75);
   });
 
   it('is unaffected by uneven mesh tessellation', () => {
@@ -78,6 +78,21 @@ describe('average texel density', () => {
       computeAverageTexelDensity(coarse, 100, 100)!,
       10,
     );
+  });
+
+  it('does not let a small high-density region dominate the model average', () => {
+    const scene = new Scene();
+    scene.add(
+      // Main surface: world area 0.5 at 100 texels/unit.
+      triMesh(),
+      // Small surface: world area 0.005 at 1000 texels/unit.
+      triMesh(
+        [[0, 0], [1, 0], [0, 1]],
+        [[0, 0, 0], [0.1, 0, 0], [0, 0.1, 0]],
+      ),
+    );
+    const expected = (100 * 0.5 + 1000 * 0.005) / 0.505;
+    expect(computeAverageTexelDensity(scene, 100, 100)).toBeCloseTo(expected, 6);
   });
 
   it('matches for indexed geometry', () => {

@@ -2,12 +2,13 @@ import { BufferAttribute, Object3D, Vector3 } from 'three';
 import { forEachMeshIndexed, forEachTriangle, triangleNormal } from './modelScene';
 
 /**
- * Average texel density of a model: the square root of total UV texel area
- * divided by total world-space surface area, expressed as texels per world
- * unit. Summing both areas before calculating the ratio keeps the result
- * independent of how densely the same surface is tessellated. Degenerate
- * world triangles and collapsed UVs are skipped. Returns null when no
- * measurable face exists (no model, or nothing with usable UVs).
+ * Average texel density of a model, expressed as texels per world unit. Each
+ * measurable triangle contributes its linear density in proportion to its
+ * world-space surface area. World-area weighting keeps the result independent
+ * of tessellation without giving small, unusually dense UV regions the squared
+ * influence they receive from a root-mean-square aggregation. Degenerate world
+ * triangles and collapsed UVs are skipped. Returns null when no measurable
+ * face exists (no model, or nothing with usable UVs).
  */
 export function computeAverageTexelDensity(scene: Object3D, width: number, height: number): number | null {
   scene.updateMatrixWorld(true);
@@ -16,8 +17,8 @@ export function computeAverageTexelDensity(scene: Object3D, width: number, heigh
   const pc = new Vector3();
   const faceNormal = new Vector3();
 
+  let densityAreaSum = 0;
   let worldAreaSum = 0;
-  let uvAreaSum = 0;
   forEachMeshIndexed(scene, (child) => {
     if (!child.visible) return;
     const position = child.geometry.getAttribute('position') as BufferAttribute | undefined;
@@ -42,9 +43,10 @@ export function computeAverageTexelDensity(scene: Object3D, width: number, heigh
       const uvArea = 0.5 * Math.abs((ub - ua) * (vc - va) - (uc - ua) * (vb - va));
       if (uvArea <= 1e-12) return;
 
+      const density = Math.sqrt((uvArea * width * height) / worldArea);
+      densityAreaSum += density * worldArea;
       worldAreaSum += worldArea;
-      uvAreaSum += uvArea;
     });
   });
-  return uvAreaSum === 0 ? null : Math.sqrt((uvAreaSum * width * height) / worldAreaSum);
+  return worldAreaSum === 0 ? null : densityAreaSum / worldAreaSum;
 }
