@@ -271,18 +271,20 @@ app.innerHTML = `
                   <button type="button" data-view="lightmap">Lightmap</button>
                   <button type="button" data-view="lightmap-ao">Lightmap+AO</button>
                 </div>
-                <label class="uv-overlap-control" id="navigationToggle" hidden title="Left-drag camera action. On: pan moves the camera sideways. Off: orbit rotates around the target. The middle button always zooms.">
-                  <span>Alt controls</span>
-                  ${toggleControl('navigationPan', 'Pan the camera on left-drag (off: orbit)')}
-                </label>
-                <label class="uv-overlap-control" id="floorGridToggle" hidden title="Show a floor scale reference in both 3D views. Each division is 0.1 world units (10 cm when 1 unit = 1 metre).">
-                  <span>10 cm grid</span>
-                  ${toggleControl('showFloorGrid', 'Show the 10 cm floor grid in both 3D views')}
-                </label>
-                <label class="uv-overlap-control" id="worldAxisToggle" hidden title="Up axis for FBX/OBJ models. On: Y-up (Maya). Off: Z-up (Blender).">
-                  <span>Y-Up</span>
-                  ${toggleControl('worldAxisYUp', 'Use Y-up as the model up axis (off: Z-up)')}
-                </label>
+                <div class="viewport-control-stack">
+                  <label class="uv-overlap-control" id="navigationToggle" hidden title="Left-drag camera action. On: pan moves the camera sideways. Off: orbit rotates around the target. The middle button always zooms.">
+                    <span>Alt controls</span>
+                    ${toggleControl('navigationPan', 'Pan the camera on left-drag (off: orbit)')}
+                  </label>
+                  <label class="uv-overlap-control" id="worldAxisToggle" hidden title="Up axis for FBX/OBJ models. On: Y-up (Maya). Off: Z-up (Blender).">
+                    <span>Y-Up</span>
+                    ${toggleControl('worldAxisYUp', 'Use Y-up as the model up axis (off: Z-up)')}
+                  </label>
+                  <label class="uv-overlap-control" id="floorGridToggle" hidden title="Show a transparent floor scale reference in both 3D views. Divisions are 10 cm and repeat to 5 m from the camera.">
+                    <span>10 cm grid</span>
+                    ${toggleControl('showFloorGrid', 'Show the 10 cm floor grid in both 3D views')}
+                  </label>
+                </div>
               </div>
             </figure>
             <figure class="preview-pane processed-pane">

@@ -305,9 +305,12 @@ select option { background: var(--card); color: var(--paper); }
   display: flex; gap: 2px; padding: 3px; position: absolute; right: 8px; top: 8px; z-index: 10;
 }
 .preview-mode-toggle[hidden] { display: none; }
-#uvOverlapControl, #uvWireframeControl, #repeatTextureControl, #processedUVOverlapControl, #processedUVWireframeControl, #processedRepeatTextureControl, #navigationToggle, #worldAxisToggle { background: color-mix(in srgb, var(--ink) 92%, transparent); padding: 3px 6px; position: absolute; right: 8px; z-index: 10; }
-#uvOverlapControl, #repeatTextureControl, #processedUVOverlapControl, #processedRepeatTextureControl, #navigationToggle { top: 42px; }
-#uvWireframeControl, #processedUVWireframeControl, #worldAxisToggle { top: 62px; }
+#uvOverlapControl, #uvWireframeControl, #repeatTextureControl, #processedUVOverlapControl, #processedUVWireframeControl, #processedRepeatTextureControl { background: color-mix(in srgb, var(--ink) 92%, transparent); padding: 3px 6px; position: absolute; right: 8px; z-index: 10; }
+#uvOverlapControl, #repeatTextureControl, #processedUVOverlapControl, #processedRepeatTextureControl { top: 42px; }
+#uvWireframeControl, #processedUVWireframeControl { top: 62px; }
+.viewport-control-stack { align-items: stretch; display: grid; gap: 2px; position: absolute; right: 8px; top: 42px; z-index: 10; }
+.viewport-control-stack .uv-overlap-control { background: color-mix(in srgb, var(--ink) 92%, transparent); justify-content: space-between; min-width: 112px; padding: 3px 6px; position: static; }
+.viewport-control-stack .uv-overlap-control[hidden] { display: none; }
 .preview-mode-toggle button {
   background: transparent; border: 0; color: inherit; cursor: pointer;
   font: 700 9px 'Manrope', system-ui, sans-serif; letter-spacing: .08em; padding: 6px 12px;

@@ -47,7 +47,10 @@ export type CameraState = { position: Vector3; quaternion: Quaternion; target: V
 /** Floor reference convention: one Three.js world unit is treated as one metre,
  * and every grid division is 0.1 units (10 cm). */
 export const FLOOR_GRID_DIVISION = 0.1;
-const FLOOR_GRID_MINIMUM_SIZE = 2;
+export const FLOOR_GRID_RADIUS = 5;
+const FLOOR_GRID_SIZE = FLOOR_GRID_RADIUS * 2;
+const FLOOR_GRID_DIVISIONS = FLOOR_GRID_SIZE / FLOOR_GRID_DIVISION;
+const FLOOR_GRID_OPACITY = 0.35;
 
 function overlapLabelTexture(): CanvasTexture {
   const { canvas, context } = createCanvas(256, 64);
@@ -175,7 +178,8 @@ export class ModelViewport {
   // implicitly baked) lighting, so the viewport never re-lights it in realtime.
   // The full-intensity white ambient displays the texture unmodulated.
   private readonly ambient = new AmbientLight(0xffffff, Math.PI);
-  private floorGrid = new GridHelper(FLOOR_GRID_MINIMUM_SIZE, FLOOR_GRID_MINIMUM_SIZE / FLOOR_GRID_DIVISION, 0x7f8c8d, 0x46525a);
+  private readonly floorGrid = new GridHelper(FLOOR_GRID_SIZE, FLOOR_GRID_DIVISIONS, 0x7f8c8d, 0x46525a);
+  private floorGridY = 0;
   private readonly axes = new AxesHelper(1);
   private readonly gizmoScene = new Scene();
   private readonly gizmoCamera = new OrthographicCamera(-1.3, 1.3, 1.3, -1.3, 0.1, 10);
@@ -244,11 +248,12 @@ export class ModelViewport {
       : { LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN };
   }
 
-  /** Shows a floor reference in both app viewports. Spacing is always 0.1
-   * world units (10 cm under the app's 1 unit = 1 metre convention); only the
-   * total extent changes to contain the current model. */
+  /** Shows a transparent floor reference in both app viewports. Spacing is
+   * always 0.1 world units (10 cm under the app's 1 unit = 1 metre convention)
+   * and the grid repeats to a 5 m radius around the camera. */
   setFloorGrid(visible: boolean): void {
     this.floorGrid.visible = visible;
+    if (visible) this.updateFloorGridPosition();
   }
 
   private updateFloorGrid(): void {
@@ -256,20 +261,16 @@ export class ModelViewport {
     this.model.updateMatrixWorld(true);
     const bounds = new Box3().setFromObject(this.model);
     if (bounds.isEmpty()) return;
-    const size = bounds.getSize(new Vector3());
-    const center = bounds.getCenter(new Vector3());
-    const requiredSize = Math.max(FLOOR_GRID_MINIMUM_SIZE, size.x, size.z) + FLOOR_GRID_DIVISION * 2;
-    const divisions = Math.ceil(requiredSize / FLOOR_GRID_DIVISION);
-    const gridSize = divisions * FLOOR_GRID_DIVISION;
-    const visible = this.floorGrid.visible;
-    this.scene.remove(this.floorGrid);
-    this.floorGrid.geometry.dispose();
-    const materials = Array.isArray(this.floorGrid.material) ? this.floorGrid.material : [this.floorGrid.material];
-    materials.forEach((material) => material.dispose());
-    this.floorGrid = new GridHelper(gridSize, divisions, 0x7f8c8d, 0x46525a);
-    this.floorGrid.position.set(center.x, bounds.min.y, center.z);
-    this.floorGrid.visible = visible;
-    this.scene.add(this.floorGrid);
+    this.floorGridY = bounds.min.y;
+    this.updateFloorGridPosition();
+  }
+
+  private updateFloorGridPosition(): void {
+    this.floorGrid.position.set(
+      Math.round(this.camera.position.x / FLOOR_GRID_DIVISION) * FLOOR_GRID_DIVISION,
+      this.floorGridY,
+      Math.round(this.camera.position.z / FLOOR_GRID_DIVISION) * FLOOR_GRID_DIVISION,
+    );
   }
 
   constructor(private readonly host: HTMLElement) {
@@ -295,6 +296,12 @@ export class ModelViewport {
     };
     host.addEventListener('pointerdown', this.modifierStripper, true);
     this.floorGrid.visible = false;
+    const floorMaterials = Array.isArray(this.floorGrid.material) ? this.floorGrid.material : [this.floorGrid.material];
+    floorMaterials.forEach((material) => {
+      material.transparent = true;
+      material.opacity = FLOOR_GRID_OPACITY;
+      material.depthWrite = false;
+    });
     this.scene.add(this.ambient, this.floorGrid);
     this.axes.renderOrder = 1;
     // The gizmo lives in its own scene — rendered last, scissored into the
@@ -590,6 +597,7 @@ export class ModelViewport {
     this.timer.update(timestamp);
     this.mixer?.update(this.timer.getDelta());
     this.controls.update();
+    if (this.floorGrid.visible) this.updateFloorGridPosition();
     if (this.overlapOverlay) {
       (this.overlapOverlay.material as ShaderMaterial).uniforms.uTime.value = (timestamp ?? 0) / 1000;
     }
