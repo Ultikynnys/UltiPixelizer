@@ -310,13 +310,12 @@ select option { background: var(--card); color: var(--paper); }
   background: transparent; border: 0; color: inherit; cursor: pointer;
   font: 700 9px 'Manrope', system-ui, sans-serif; letter-spacing: .08em; padding: 6px 12px;
 }
-/* The view-mode enum scales with the window so all six segments fit inside
-   one pane: the pane is ~0.34×window wide in the two-pane layout and
-   window − 260px in the single-pane layout, and the fluid font/padding/gap
-   (0.72vw core) tracks the tighter of the two, clamped to stay legible. */
+/* Keep the full view-mode enum inside its pane. It stays on one line when
+   space permits and wraps only when its seven segments outgrow the frame. */
 .preview-view-toggle {
   align-items: center; background: color-mix(in srgb, var(--ink) 92%, transparent);
-  bottom: 8px; display: flex; gap: clamp(1px, 0.15vw, 2px); left: 8px; padding: clamp(2px, 0.3vw, 3px); position: absolute; z-index: 10;
+  bottom: 8px; display: flex; flex-wrap: wrap; gap: clamp(1px, 0.15vw, 2px); left: 8px;
+  max-width: calc(100% - 16px); padding: clamp(2px, 0.3vw, 3px); position: absolute; width: max-content; z-index: 10;
 }
 .preview-view-toggle[hidden] { display: none; }
 .preview-view-toggle button {
@@ -664,8 +663,9 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
   /* The five resolution preset chips can't fit a row once the control column
      hits its 260px floor; the resolution slider above remains the control. */
   .resolution-presets { display: none; }
-  /* Export PNG takes the bottom-right corner; the relocated view-mode enum
-     owns the bottom-left edge, so the corners don't collide. */
+  /* Export PNG takes the bottom-right corner. The relocated view-mode enum
+     wraps within the remaining bottom-left space instead of crossing it. */
+  .preview-view-toggle { max-width: calc(100% - 174px); }
   #exportButton { bottom: 8px; left: auto; right: 8px; }
   /* The texel density chip stacks directly under the 2D/3D toggle; the
      2D-view toggles (Image repeat, UV overlap, UV islands) drop below it to
