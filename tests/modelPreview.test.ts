@@ -417,7 +417,7 @@ describe('ModelViewport', () => {
     viewport.dispose();
   });
 
-  it('renders a world-anchored 10 cm grid with brighter 1 m lines and a horizontal 5 m camera fade', () => {
+  it('renders a world-anchored 10 cm grid with brighter 1 m lines and a horizontal 5 m pivot fade', () => {
     const viewport = new ModelViewport(host());
     const internals = viewport as unknown as {
       floorGrid: Mesh<BufferGeometry, ShaderMaterial>;
@@ -436,7 +436,9 @@ describe('ModelViewport', () => {
     viewport.setFloorGrid(true);
 
     expect(grid.visible).toBe(true);
-    expect(grid.position).toMatchObject({ x: 2.46, y: 0, z: 4.04 });
+    // The grid is a reference floor under the model, so it centers on the orbit
+    // pivot (2, 0, 4), not the camera (2.46, 0, 4.04).
+    expect(grid.position).toMatchObject({ x: 2, y: 0, z: 4 });
     expect(grid.rotation.x).toBeCloseTo(-Math.PI / 2);
     expect(material.transparent).toBe(true);
     expect(material.depthWrite).toBe(false);
@@ -445,7 +447,7 @@ describe('ModelViewport', () => {
     expect(material.uniforms.uMajorOpacity.value).toBeGreaterThan(material.uniforms.uOpacity.value);
     expect(material.uniforms.uRadius.value).toBe(FLOOR_GRID_RADIUS);
     expect(material.uniforms.uFadeStart.value).toBeLessThan(FLOOR_GRID_RADIUS);
-    expect(material.uniforms.uCameraXZ.value).toEqual({ x: 2.46, y: 4.04 });
+    expect(material.uniforms.uCameraXZ.value).toEqual({ x: 2, y: 4 });
     expect(material.vertexShader).toContain('vWorldXZ = worldPosition.xz');
     expect(material.fragmentShader).toContain('gridLine(vWorldXZ, uDivision)');
     expect(material.fragmentShader).toContain('gridLine(vWorldXZ, uMajorDivision)');
