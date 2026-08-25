@@ -35,7 +35,7 @@ export interface RendererDeps {
 }
 
 export interface RendererApi {
-  render: () => void;
+  render: () => Promise<void>;
   /** Re-applies the last rendered frames to both 3D viewports — call right
    * after swapping a viewport's model/quad so the fresh materials pick up the
    * texture synchronously instead of flashing white until the next render. */

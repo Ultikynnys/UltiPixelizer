@@ -8,7 +8,7 @@ beforeAll(() => {
 });
 
 describe('createRenderer wiring', () => {
-  it('exposes the full API surface and routes through the submodules', () => {
+  it('exposes the full API surface and routes through the submodules', async () => {
     const deps = createRendererDeps({ getAOScene: () => null });
     const base = new FakeCanvas();
     base.width = 2;

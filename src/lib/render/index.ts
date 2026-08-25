@@ -20,8 +20,13 @@ export function createRenderer(deps: RendererDeps): RendererApi {
   const bake = createBake(deps, shared, render2d);
 
   return {
-    render: () => {
-      render2d.render();
+    render: async () => {
+      // render2d.render() is async: on the WebGPU dither path it awaits the
+      // GPU pass before resizing the display canvases. The wireframe overlay
+      // must be rasterized at the *post-resize* resolution, so await the render
+      // to completion before syncing — otherwise the overlay is drawn at the
+      // previous resolution and CSS-upscaled into a blurry mess.
+      await render2d.render();
       // The wireframe overlay's letterbox rect depends on the texture bitmap
       // size, which only changes in render — keep the overlays aligned.
       overlay.syncWireframeOverlays();
