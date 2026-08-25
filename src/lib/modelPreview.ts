@@ -601,7 +601,6 @@ export class ModelViewport {
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
       vertexShader: `
-        attribute vec3 color;
         varying vec3 vColor;
         void main() {
           vColor = color;
