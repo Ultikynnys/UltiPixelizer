@@ -40,6 +40,10 @@ export interface BakeApi {
    * the user's unlit choice until Orient Sun with Camera, a loaded lightmap,
    * or a reset re-engages it. */
   isLightmapCleared: () => boolean;
+  /** Clears the lightmap-cleared flag so the implicit re-bake scheduler runs
+   * again — a deliberate sun/ambient light adjustment re-engages lighting even
+   * after the slot X. Does not start a bake itself. */
+  reengageLighting: () => void;
   invalidateBakeScene: () => void;
   /** Replaces the bake geometry used when no model is loaded — the quad view's
    * tessellated tile (or the full 3×3 grid in grid mode, whose neighbors are
@@ -237,6 +241,14 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     render2d.render();
   }
 
+  function reengageLighting(): void {
+    // A sun/ambient slider or color change is a deliberate lighting action:
+    // re-enable the implicit scheduler even after the slot X silenced it, so
+    // the sliders can never be left stuck-unlit. The bake itself, a reset, or
+    // a loaded lightmap still re-engages independently via bakeLighting/reset.
+    shared.lightmapCleared = false;
+  }
+
   function reset(): void {
     explicitBakeToken += 1;
     explicitBakeController?.abort();
@@ -254,6 +266,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     bakeLighting,
     clearLightmap,
     isLightmapCleared: () => shared.lightmapCleared,
+    reengageLighting,
     invalidateBakeScene: invalidateBakeSceneCache,
     setFallbackQuad: (scene: Object3D) => {
       fallbackQuad = scene;

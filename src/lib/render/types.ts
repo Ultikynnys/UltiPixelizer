@@ -48,6 +48,11 @@ export interface RendererApi {
    * implicit re-bake scheduler (sun/ambient sliders, normal-map slot edits)
    * stays quiet; see RenderShared.lightmapCleared. */
   isLightmapCleared: () => boolean;
+  /** Clears the lightmap-cleared flag so the implicit re-bake scheduler runs
+   * again. Called when the user adjusts a sun/ambient light control — a
+   * deliberate lighting action must never leave the sliders silently dead
+   * after the slot's X. Does not start a bake itself. */
+  reengageLighting: () => void;
   /** Drops cached bake scenes (world transforms, BVH) after any in-place
    * change to the AO scene's geometry: UV channel, LOD visibility, world-axis
    * rotation, model import/close. Without this the next bake would reuse stale

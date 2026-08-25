@@ -421,9 +421,23 @@ describe('isLightmapCleared', () => {
     expect(bake.isLightmapCleared()).toBe(true);
 
     // The flag is sticky: a plain clear drops the map but does not re-engage
-    // the implicit scheduler — only an explicit bake or a reset does.
+    // the implicit scheduler — only an explicit bake, a reset, or a deliberate
+    // lighting action (reengageLighting) does.
     bake.clearLightmap();
     expect(bake.isLightmapCleared()).toBe(true);
+  });
+
+  it('reengageLighting re-engages the scheduler without starting a bake', () => {
+    const { bake } = setup({ getAOScene: () => new Scene() });
+    bake.clearLightmap(true);
+    expect(bake.isLightmapCleared()).toBe(true);
+
+    bake.reengageLighting();
+    expect(bake.isLightmapCleared()).toBe(false);
+    // Re-engaging must not itself start a bake — the scheduler that follows
+    // the slider change owns that.
+    vi.advanceTimersByTime(1000);
+    expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
   });
 
   it('tracks the flag through an explicit bake and a reset', async () => {

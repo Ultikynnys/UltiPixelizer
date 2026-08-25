@@ -1112,8 +1112,11 @@ function syncLightControls(
 ): void {
   color.value = light.color;
   syncColorChip(color);
-  intensity.value = String(light.intensity);
-  intensityValue.textContent = light.intensity.toFixed(2);
+  // Guard against a non-finite intensity ever reaching the range input — a
+  // range input given an invalid value can freeze its thumb at an endpoint.
+  const value = Number.isFinite(light.intensity) ? light.intensity : 0;
+  intensity.value = String(value);
+  intensityValue.textContent = value.toFixed(2);
 }
 
 // Lightmap bakes — Orient Sun with Camera's explicit re-bake and the implicit
@@ -3237,17 +3240,29 @@ function bindSunControl(): void {
     // while the user drags, and a bake per move freezes the UI on heavy grids
     // (scene collection and normal prep run on the main thread). 'change'
     // fires on release with the final value.
+    // Re-engaging on commit means a deliberate color change un-sticks the
+    // sliders even after the lightmap slot's X silenced the scheduler.
     input.addEventListener('change', () => {
+      renderer.reengageLighting();
       scheduleImplicitLightmapBake();
     });
   };
   const bindLightIntensity = (input: HTMLInputElement, target: LightState): void => {
     input.addEventListener('input', () => {
-      target.intensity = Number(input.value);
+      // Clamp to the slider's min/max and drop NaN before it reaches state:
+      // an out-of-range or invalid value written into a range input can lock
+      // its thumb, so never let one through.
+      const min = input.min !== '' ? Number(input.min) : -Infinity;
+      const max = input.max !== '' ? Number(input.max) : Infinity;
+      const value = clamp(Number(input.value), min, max);
+      if (!Number.isFinite(value)) return;
+      target.intensity = value;
       applySun();
     });
     // See bindLightColor — the bake is release-triggered, not per-drag-move.
+    // Re-engage on release so the sliders always re-light after an X.
     input.addEventListener('change', () => {
+      renderer.reengageLighting();
       scheduleImplicitLightmapBake();
     });
   };
