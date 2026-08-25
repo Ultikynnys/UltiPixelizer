@@ -340,8 +340,8 @@ select option { background: var(--card); color: var(--paper); }
 }
 #exportButton svg { height: 20px; width: 20px; }
 #exportButton:hover, #exportButton:focus-visible { background: var(--paper); color: var(--ink); }
-/* Average texel density chip on the dithered preview's top-left corner — UV
-   face size compared with mesh face size in world space. Inside the
+/* Linear texel density chip on the dithered preview's top-left corner — summed
+   UV triangle area compared with corresponding world-space area. Inside the
    canvas-frame, above whichever pane (2D canvas or 3D model) fills it, so it
    stays visible in both preview modes. Same dark-ink chip language as the
    other corner overlays. */

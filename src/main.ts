@@ -295,7 +295,7 @@ app.innerHTML = `
                   </div>
                 </figure>
                 <div class="model-host" id="processedModelHost" hidden></div>
-                <div class="texel-density" id="processedTexelDensity" hidden title="Average texture pixels per world unit — UV face size compared with mesh face size in world space">
+                <div class="texel-density" id="processedTexelDensity" hidden title="Texels per world unit — summed UV triangle area, including stacking and UVs outside 0–1, compared with mapped world-space area">
                   <span>Texel density</span>
                   <output id="processedTexelDensityValue">—</output>
                 </div>
@@ -857,13 +857,13 @@ function updatePreviewBadge(width?: number, height?: number): void {
 }
 
 const formatDimensions = (width: number, height: number): string => `${width} × ${height}`;
-// Texel density scales exponentially with resolution (UV area grows as the
-// texel count), so the decimals adapt: whole numbers at 100+, one at 10–100,
-// two below. World units are arbitrary (three.js units), hence px/u.
+// Linear density follows the square root of UV texel area over world area, so
+// the decimals adapt: whole numbers at 100+, one at 10–100, two below. World
+// units are arbitrary (three.js units), hence px/u.
 const formatTexelDensity = (value: number): string => `${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2)} px/u`;
 
-// Top-left HUD chip on the dithered preview: average texels per world unit,
-// from the UV face size compared with the mesh face size in world space. The
+// Top-left HUD chip on the dithered preview: square root of summed UV triangle
+// texel area divided by the corresponding mapped world-space surface area. The
 // AO bake scene always mirrors the current UV channel and LOD level, so it is
 // the measure source; the dithered output resolution sizes the texel count.
 // Without a model the chip shows a plane message — the fallback quad spans
@@ -883,7 +883,7 @@ function updateTexelDensity(): void {
     texelDensityCache = null;
     return;
   }
-  processedTexelDensity.title = 'Average texture pixels per world unit — UV face size compared with mesh face size in world space';
+  processedTexelDensity.title = 'Texels per world unit — summed UV triangle area, including stacking and UVs outside 0–1, compared with mapped world-space area';
   const { width, height } = dimensions();
   if (texelDensityCache && texelDensityCache.scene === aoBakeScene && texelDensityCache.width === width && texelDensityCache.height === height) return;
   texelDensityCache = { scene: aoBakeScene, width, height };

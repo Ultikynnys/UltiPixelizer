@@ -11,138 +11,105 @@ function triMesh(uv: [number, number][] = [[0, 0], [1, 0], [0, 1]], position: [n
   return new Mesh(geometry, new MeshBasicMaterial());
 }
 
+function quadMesh(): Mesh {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+  geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0], 3));
+  geometry.setIndex([0, 1, 2, 0, 2, 3]);
+  return new Mesh(geometry, new MeshBasicMaterial());
+}
+
 describe('average texel density', () => {
-  it('computes texels per world unit from the UV face size vs world face size', () => {
+  it('uses sqrt(summed UV area × texture area / summed world area)', () => {
     const scene = new Scene();
-    scene.add(triMesh());
-    // UV texel area = 0.5 × 100 × 100 = 5000 texels; world area = 0.5.
-    // density = sqrt(5000 / 0.5) = sqrt(10000) = 100 texels per unit.
+    scene.add(quadMesh());
+    expect(computeAverageTexelDensity(scene, 100, 50)).toBeCloseTo(Math.sqrt(5000), 10);
+  });
+
+  it('scales linearly when both texture dimensions scale equally', () => {
+    const scene = new Scene();
+    scene.add(quadMesh());
+    expect(computeAverageTexelDensity(scene, 200, 100)).toBeCloseTo(Math.sqrt(20000), 10);
+  });
+
+  it('sums stacked UV and corresponding world area per mapped layer', () => {
+    const scene = new Scene();
+    scene.add(quadMesh(), quadMesh());
+    // UV area and world area both double, preserving density.
     expect(computeAverageTexelDensity(scene, 100, 100)).toBe(100);
   });
 
-  it('scales density with the texture resolution', () => {
+  it('includes UV shell area outside the 0–1 square', () => {
     const scene = new Scene();
-    scene.add(triMesh());
-    // Doubling the total texel count (200×100 vs 100×100) doubles the texel
-    // area, so the linear density grows by sqrt(2).
-    expect(computeAverageTexelDensity(scene, 200, 100)).toBeCloseTo(100 * Math.SQRT2, 10);
+    scene.add(triMesh([[-1, -1], [3, -1], [-1, 3]], [[0, 0, 0], [1, 0, 0], [0, 2, 0]]));
+    // Unclipped UV area is 8 and world area is 1.
+    expect(computeAverageTexelDensity(scene, 32, 16)).toBe(64);
   });
 
-  it('weights mixed linear densities by world-space surface area', () => {
-    const scene = new Scene();
-    // Face 1: density 100, world area 0.5.
-    scene.add(triMesh());
-    // Face 2: density 50, world area 0.5.
-    scene.add(triMesh(
-      [[0, 0], [0.5, 0], [0, 0.5]],
-      [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
-    ));
-    // Equal world areas produce the arithmetic mean, not RMS.
-    expect(computeAverageTexelDensity(scene, 100, 100)).toBe(75);
-  });
-
-  it('is unaffected by uneven mesh tessellation', () => {
+  it('is unaffected by tessellation of the same UV and world surface', () => {
     const coarse = new Scene();
-    coarse.add(
-      triMesh(),
-      triMesh(
-        [[0, 0], [0.5, 0], [0, 0.5]],
-        [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
-      ),
-    );
+    coarse.add(quadMesh());
 
     const dense = new Scene();
-    dense.add(
-      // The first coarse face split into four triangles with interpolated UVs.
-      triMesh(
-        [
-          [0, 0], [0.5, 0], [0, 0.5],
-          [0.5, 0], [1, 0], [0.5, 0.5],
-          [0, 0.5], [0.5, 0.5], [0, 1],
-          [0.5, 0], [0.5, 0.5], [0, 0.5],
-        ],
-        [
-          [0, 0, 0], [0.5, 0, 0], [0, 0.5, 0],
-          [0.5, 0, 0], [1, 0, 0], [0.5, 0.5, 0],
-          [0, 0.5, 0], [0.5, 0.5, 0], [0, 1, 0],
-          [0.5, 0, 0], [0.5, 0.5, 0], [0, 0.5, 0],
-        ],
-      ),
-      triMesh(
-        [[0, 0], [0.5, 0], [0, 0.5]],
-        [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
-      ),
-    );
+    dense.add(triMesh(
+      [
+        [0, 0], [0.5, 0], [0, 0.5],
+        [0.5, 0], [1, 0], [1, 0.5],
+        [0.5, 0], [1, 0.5], [0.5, 0.5],
+        [0.5, 0], [0.5, 0.5], [0, 0.5],
+        [0.5, 0.5], [1, 0.5], [1, 1],
+        [0.5, 0.5], [1, 1], [0.5, 1],
+        [0, 0.5], [0.5, 0.5], [0.5, 1],
+        [0, 0.5], [0.5, 1], [0, 1],
+      ],
+      [
+        [0, 0, 0], [0.5, 0, 0], [0, 0.5, 0],
+        [0.5, 0, 0], [1, 0, 0], [1, 0.5, 0],
+        [0.5, 0, 0], [1, 0.5, 0], [0.5, 0.5, 0],
+        [0.5, 0, 0], [0.5, 0.5, 0], [0, 0.5, 0],
+        [0.5, 0.5, 0], [1, 0.5, 0], [1, 1, 0],
+        [0.5, 0.5, 0], [1, 1, 0], [0.5, 1, 0],
+        [0, 0.5, 0], [0.5, 0.5, 0], [0.5, 1, 0],
+        [0, 0.5, 0], [0.5, 1, 0], [0, 1, 0],
+      ],
+    ));
 
-    expect(computeAverageTexelDensity(dense, 100, 100)).toBeCloseTo(
-      computeAverageTexelDensity(coarse, 100, 100)!,
-      10,
+    expect(computeAverageTexelDensity(dense, 64, 64)).toBe(
+      computeAverageTexelDensity(coarse, 64, 64),
     );
   });
 
-  it('does not let a small high-density region dominate the model average', () => {
+  it('excludes UV-less surfaces from the corresponding area sums', () => {
     const scene = new Scene();
-    scene.add(
-      // Main surface: world area 0.5 at 100 texels/unit.
-      triMesh(),
-      // Small surface: world area 0.005 at 1000 texels/unit.
-      triMesh(
-        [[0, 0], [1, 0], [0, 1]],
-        [[0, 0, 0], [0.1, 0, 0], [0, 0.1, 0]],
-      ),
-    );
-    const expected = (100 * 0.5 + 1000 * 0.005) / 0.505;
-    expect(computeAverageTexelDensity(scene, 100, 100)).toBeCloseTo(expected, 6);
-  });
-
-  it('matches for indexed geometry', () => {
-    const geometry = new BufferGeometry();
-    geometry.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
-    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
-    geometry.setIndex([0, 1, 2]);
-    const scene = new Scene();
-    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+    const uvless = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    uvless.geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0], 3));
+    uvless.geometry.setIndex([0, 1, 2, 0, 2, 3]);
+    scene.add(quadMesh(), uvless);
     expect(computeAverageTexelDensity(scene, 100, 100)).toBe(100);
   });
 
-  it('divides density by scale: world area grows with scale²', () => {
+  it('uses transformed world-space surface area', () => {
     const scene = new Scene();
-    const mesh = triMesh();
+    const mesh = quadMesh();
     mesh.scale.set(2, 2, 2);
     scene.add(mesh);
-    // World area ×4 → density /2.
     expect(computeAverageTexelDensity(scene, 100, 100)).toBe(50);
   });
 
-  it('ignores UV-less and invisible meshes', () => {
+  it('ignores invisible and degenerate world triangles', () => {
     const scene = new Scene();
-    const withoutUV = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
-    withoutUV.geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
-    const invisible = triMesh();
+    const invisible = quadMesh();
     invisible.visible = false;
-    scene.add(withoutUV, invisible, triMesh());
+    const degenerate = triMesh([[0, 0], [1, 0], [0, 1]], [[0, 0, 0], [1, 0, 0], [2, 0, 0]]);
+    scene.add(quadMesh(), invisible, degenerate);
     expect(computeAverageTexelDensity(scene, 100, 100)).toBe(100);
   });
 
-  it('skips degenerate world triangles and collapsed UVs', () => {
-    const scene = new Scene();
-    // Collinear world corners (zero area) and a collapsed UV shell (zero UV
-    // area) must not contribute — only the unit face sets the result.
-    const degenerateWorld = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
-    degenerateWorld.geometry.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
-    degenerateWorld.geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 2, 0, 0], 3));
-    const collapsedUv = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
-    collapsedUv.geometry.setAttribute('uv', new Float32BufferAttribute([0, 0, 0, 0, 1, 1], 2));
-    collapsedUv.geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
-    scene.add(degenerateWorld, collapsedUv, triMesh());
-    expect(computeAverageTexelDensity(scene, 100, 100)).toBe(100);
-  });
-
-  it('returns null when no measurable face exists', () => {
+  it('returns null without measurable mapped surface', () => {
     expect(computeAverageTexelDensity(new Scene(), 100, 100)).toBeNull();
     const uvless = new Scene();
-    const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
-    mesh.geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    const mesh = triMesh();
+    mesh.geometry.deleteAttribute('uv');
     uvless.add(mesh);
     expect(computeAverageTexelDensity(uvless, 100, 100)).toBeNull();
   });
