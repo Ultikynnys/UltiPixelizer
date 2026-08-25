@@ -186,6 +186,24 @@ describe('conversion presets', () => {
     expect(parsed.normalFormat).toBe('opengl');
   });
 
+  it('backfills the UV stretch sensitivity default into settings saved before it existed', () => {
+    const current = createPreset('Legacy stretch sensitivity', '', config);
+    const { uvStretchSensitivity: _sensitivity, ...legacy } = current;
+    expect(parsePreset(JSON.stringify(legacy)).uvStretchSensitivity).toBe(1);
+  });
+
+  it('round-trips and validates the UV stretch sensitivity setting', () => {
+    const current = createPreset('Stretch sensitivity', '', config);
+    // Save carries the value; load restores it exactly.
+    const parsed = parsePreset(serializePreset(current));
+    expect(parsed.uvStretchSensitivity).toBe(config.uvStretchSensitivity);
+    // Bounds: allowed 0..4, rejected outside that range.
+    expect(isConversionPreset({ ...current, uvStretchSensitivity: 0 })).toBe(true);
+    expect(isConversionPreset({ ...current, uvStretchSensitivity: 4 })).toBe(true);
+    expect(isConversionPreset({ ...current, uvStretchSensitivity: 4.01 })).toBe(false);
+    expect(isConversionPreset({ ...current, uvStretchSensitivity: -0.1 })).toBe(false);
+  });
+
   it('tolerates the removed bake resolution key in legacy presets', () => {
     const current = createPreset('Legacy bake res', '', config);
     // Old preset files may still carry the removed bake-resolution setting;
