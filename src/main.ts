@@ -1366,7 +1366,9 @@ function applyPreviewMode(): void {
   processedLuminosityHistogram.hidden = !showHistograms || processedPreviewMode !== '2d';
   // Shared viewport controls live on the Original pane and affect both 3D views.
   navigationToggle.hidden = originalPreviewMode !== '3d';
-  floorGridToggle.hidden = originalPreviewMode !== '3d' && processedPreviewMode !== '3d';
+  // The floor grid toggle lives in the Original pane's control stack, so it
+  // only shows while that pane is in 3D — never in the 2D texture view.
+  floorGridToggle.hidden = originalPreviewMode !== '3d';
   renderFloorGridControl();
   renderWorldAxisControl();
   renderSunControl();
