@@ -11,9 +11,8 @@ export interface OverlayApi {
   /** Forces the next refreshUVOverlap to recompute — call after any in-place
    * change to the AO scene's UVs/visibility/rotation. */
   invalidateUVOverlap: () => void;
-  /** Re-draws the display-resolution UV wireframe overlays — visibility,
-   * letterbox mapping, and strokes — after the toggle, pane mode, frame
-   * resize, or texture bitmap size changes. */
+  /** Synchronizes the cached UV wireframe canvases after the toggle, pane
+   * mode, frame resize, or texture bitmap size changes. */
   syncWireframeOverlays: () => void;
   reset: () => void;
 }
@@ -35,6 +34,8 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
 
   let uvOverlapMaskCanvas: HTMLCanvasElement | null = null;
   let uvWireframeTriangles: UVTriangle[] | null = null;
+  let uvWireframeGeneration = 0;
+  const wireframeCache = new WeakMap<HTMLCanvasElement, { generation: number; width: number; height: number }>();
   let uvWaveCanvas: HTMLCanvasElement | null = null;
   let uvOverlayComposite: HTMLCanvasElement | null = null;
   let uvOverlayFrame = 0;
@@ -62,6 +63,7 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
   function refreshUVWireframe(): void {
     const scene = getAOScene();
     uvWireframeTriangles = scene ? collectUVTriangles(scene) : null;
+    uvWireframeGeneration += 1;
     syncWireframeOverlays();
   }
 
@@ -164,32 +166,48 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
     context.restore();
   }
 
-  /** Builds one texture-space path using the exact normalized-UV → top-left
-   * texture-pixel mapping used by UV-overlap rasterization. SVG remains vector
-   * geometry; the bitmap-sized viewBox only establishes the shared coordinate
-   * system and aspect ratio. */
-  function wireframePath(triangles: UVTriangle[], width: number, height: number): string {
-    return triangles.map((triangle) => {
-      const [a, b, c] = triangle.uv.map((uv) => uvToTexturePoint(uv, width, height));
-      return `M${a[0]} ${a[1]}L${b[0]} ${b[1]}L${c[0]} ${c[1]}Z`;
-    }).join('');
+  /** Rasterizes all UV edges into one reusable texture-space bitmap. Unlike
+   * the former SVG path, this does not leave tens of thousands of vector
+   * segments for the browser to tessellate again while the preview is
+   * transformed. The bitmap deliberately scales with preview zoom: this trades
+   * constant-width vector strokes for responsive interaction on dense meshes. */
+  function drawWireframe(overlay: HTMLCanvasElement, triangles: UVTriangle[], width: number, height: number): void {
+    overlay.width = width;
+    overlay.height = height;
+    const context = overlay.getContext('2d');
+    if (!context) return;
+    context.clearRect(0, 0, width, height);
+    context.beginPath();
+    for (const triangle of triangles) {
+      const a = uvToTexturePoint(triangle.uv[0], width, height);
+      const b = uvToTexturePoint(triangle.uv[1], width, height);
+      const c = uvToTexturePoint(triangle.uv[2], width, height);
+      context.moveTo(a[0], a[1]);
+      context.lineTo(b[0], b[1]);
+      context.lineTo(c[0], c[1]);
+      context.closePath();
+    }
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.strokeStyle = '#0a0c10';
+    context.lineWidth = 2;
+    context.stroke();
+    context.strokeStyle = '#ffffff';
+    context.lineWidth = 1;
+    context.stroke();
   }
 
-  function syncWireframeOverlay(overlay: SVGSVGElement, canvas: HTMLCanvasElement, showWireframe: boolean): void {
+  function syncWireframeOverlay(overlay: HTMLCanvasElement, canvas: HTMLCanvasElement, showWireframe: boolean): void {
     const triangles = uvWireframeTriangles;
     if (!showWireframe || canvas.hidden || !triangles || triangles.length === 0 || canvas.width <= 0 || canvas.height <= 0) {
-      overlay.toggleAttribute('hidden', true);
-      overlay.replaceChildren();
+      overlay.hidden = true;
       return;
     }
-    overlay.toggleAttribute('hidden', false);
-    overlay.setAttribute('viewBox', `0 0 ${canvas.width} ${canvas.height}`);
-    overlay.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-    const path = wireframePath(triangles, canvas.width, canvas.height);
-    overlay.innerHTML = [
-      `<path d="${path}" stroke="#0a0c10" stroke-width="2" vector-effect="non-scaling-stroke"/>`,
-      `<path d="${path}" stroke="#ffffff" stroke-width="1" vector-effect="non-scaling-stroke"/>`,
-    ].join('');
+    overlay.hidden = false;
+    const cached = wireframeCache.get(overlay);
+    if (cached?.generation === uvWireframeGeneration && cached.width === canvas.width && cached.height === canvas.height) return;
+    drawWireframe(overlay, triangles, canvas.width, canvas.height);
+    wireframeCache.set(overlay, { generation: uvWireframeGeneration, width: canvas.width, height: canvas.height });
   }
 
   function syncWireframeOverlays(): void {
@@ -250,6 +268,7 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
   function reset(): void {
     uvOverlapMaskCanvas = null;
     uvWireframeTriangles = null;
+    uvWireframeGeneration += 1;
     stopUVOverlayAnimation();
     uvOverlapCache = null;
     syncWireframeOverlays();

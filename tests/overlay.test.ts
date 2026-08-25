@@ -3,7 +3,7 @@ import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Scene 
 import { createOverlay } from '../src/lib/render/overlay';
 import type { ModelViewport } from '../src/lib/modelPreview';
 import { createRendererDeps, createRenderShared } from './helpers/rendererDeps';
-import { asSourceImage, domStubs, FakeCanvas, FakeSvg, flushRaf, installDomStubs, rafCount } from './helpers/domStubs';
+import { asSourceImage, domStubs, FakeCanvas, flushRaf, installDomStubs, rafCount } from './helpers/domStubs';
 
 beforeAll(() => {
   installDomStubs();
@@ -40,38 +40,40 @@ function setup(overrides: Parameters<typeof createRendererDeps>[0] = {}) {
   return { deps, shared, overlay };
 }
 
-function sizeOriginalPane(deps: ReturnType<typeof setup>['deps']): FakeSvg {
-  const overlaySvg = deps.wireframeOverlays.original;
-  overlaySvg.clientWidth = 200;
-  overlaySvg.clientHeight = 100;
+function sizeOriginalPane(deps: ReturnType<typeof setup>['deps']): FakeCanvas {
+  const overlayCanvas = deps.wireframeOverlays.original;
+  overlayCanvas.clientWidth = 200;
+  overlayCanvas.clientHeight = 100;
   deps.originalCanvas.offsetWidth = 200;
   deps.originalCanvas.offsetHeight = 100;
   deps.originalCanvas.width = 200;
   deps.originalCanvas.height = 100;
-  return overlaySvg;
+  return overlayCanvas;
 }
 
 describe('UV wireframe', () => {
-  it('renders vector paths in the same texture-pixel coordinates as UV overlap', () => {
+  it('rasterizes edges in the same texture-pixel coordinates as UV overlap', () => {
     const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
-    const overlaySvg = sizeOriginalPane(deps);
+    const overlayCanvas = sizeOriginalPane(deps);
     deps.state.showUVWireframeOriginal = true;
 
     overlay.refreshUVWireframe();
-    expect(overlaySvg.hidden).toBe(false);
-    expect(overlaySvg.getAttribute('viewBox')).toBe('0 0 200 100');
-    expect(overlaySvg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
-    expect(overlaySvg.innerHTML).toContain('d="M0 100L200 100L0 0ZM0 100L200 100L0 0Z"');
-    expect(overlaySvg.innerHTML).toContain('stroke="#0a0c10" stroke-width="2"');
-    expect(overlaySvg.innerHTML).toContain('stroke="#ffffff" stroke-width="1"');
-    expect(overlaySvg.innerHTML.match(/vector-effect="non-scaling-stroke"/g)).toHaveLength(2);
+    expect(overlayCanvas.hidden).toBe(false);
+    expect(overlayCanvas.width).toBe(200);
+    expect(overlayCanvas.height).toBe(100);
+    expect(overlayCanvas.context.moveTo).toHaveBeenNthCalledWith(1, 0, 100);
+    expect(overlayCanvas.context.lineTo).toHaveBeenNthCalledWith(1, 200, 100);
+    expect(overlayCanvas.context.lineTo).toHaveBeenNthCalledWith(2, 0, 0);
+    expect(overlayCanvas.context.stroke).toHaveBeenCalledTimes(2);
+    expect(overlayCanvas.context.strokeStyle).toBe('#ffffff');
+    expect(overlayCanvas.context.lineWidth).toBe(1);
   });
 
   it('uses the bitmap aspect ratio instead of a separately measured layout rect', () => {
     const { deps, overlay } = setup({ getAOScene: () => overlappingScene() });
-    const overlaySvg = deps.wireframeOverlays.original;
-    overlaySvg.clientWidth = 300;
-    overlaySvg.clientHeight = 180;
+    const overlayCanvas = deps.wireframeOverlays.original;
+    overlayCanvas.clientWidth = 300;
+    overlayCanvas.clientHeight = 180;
     deps.originalCanvas.offsetLeft = 37;
     deps.originalCanvas.offsetTop = 21;
     deps.originalCanvas.offsetWidth = 100;
@@ -81,8 +83,9 @@ describe('UV wireframe', () => {
     deps.state.showUVWireframeOriginal = true;
 
     overlay.refreshUVWireframe();
-    expect(overlaySvg.getAttribute('viewBox')).toBe('0 0 200 100');
-    expect(overlaySvg.innerHTML).toContain('M0 100L200 100L0 0Z');
+    expect(overlayCanvas.width).toBe(200);
+    expect(overlayCanvas.height).toBe(100);
+    expect(overlayCanvas.context.moveTo).toHaveBeenCalledWith(0, 100);
   });
 
   it('syncs both panes', () => {
@@ -101,7 +104,8 @@ describe('UV wireframe', () => {
     overlay.refreshUVWireframe();
     expect(originalOverlay.hidden).toBe(false);
     expect(processedOverlay.hidden).toBe(false);
-    expect(processedOverlay.innerHTML.match(/<path/g)).toHaveLength(2);
+    expect(originalOverlay.context.stroke).toHaveBeenCalledTimes(2);
+    expect(processedOverlay.context.stroke).toHaveBeenCalledTimes(2);
   });
 
   it('drives each pane independently', () => {
@@ -159,13 +163,43 @@ describe('UV wireframe', () => {
     deps.state.showUVWireframeProcessed = true;
     overlay.syncWireframeOverlays(); // main.ts calls this on the toggle
     expect(overlayCanvas.hidden).toBe(false);
-    expect(overlayCanvas.innerHTML.match(/<path/g)).toHaveLength(2);
+    expect(overlayCanvas.context.stroke).toHaveBeenCalledTimes(2);
 
-    overlayCanvas.innerHTML = '';
-    overlayCanvas.clientWidth = 300; // frame grows
+    // Repeated syncs and layout-only frame resizes reuse the rasterized bitmap.
+    overlay.syncWireframeOverlays();
+    overlayCanvas.clientWidth = 300;
     overlayCanvas.clientHeight = 150;
     domStubs.resizeObservers[0].callback([], domStubs.resizeObservers[0] as unknown as ResizeObserver);
-    expect(overlayCanvas.innerHTML.match(/<path/g)).toHaveLength(2);
+    expect(overlayCanvas.context.stroke).toHaveBeenCalledTimes(2);
+
+    // A texture bitmap resize invalidates the cache and redraws at that size.
+    deps.originalCanvas.width = 300;
+    deps.originalCanvas.height = 150;
+    overlay.syncWireframeOverlays();
+    expect(overlayCanvas.width).toBe(300);
+    expect(overlayCanvas.height).toBe(150);
+    expect(overlayCanvas.context.stroke).toHaveBeenCalledTimes(4);
+  });
+
+  it('reuses one rasterized layer for a 48k-triangle mesh', () => {
+    const triangleCount = 48_000;
+    const mesh = triMesh([[0, 0], [1, 0], [0, 1]]);
+    mesh.geometry.setIndex(Array.from({ length: triangleCount * 3 }, (_, index) => index % 3));
+    const scene = new Scene();
+    scene.add(mesh);
+    const { deps, overlay } = setup({ getAOScene: () => scene });
+    const overlayCanvas = sizeOriginalPane(deps);
+    deps.state.showUVWireframeOriginal = true;
+
+    overlay.refreshUVWireframe();
+    expect(overlayCanvas.context.moveTo).toHaveBeenCalledTimes(triangleCount);
+    expect(overlayCanvas.context.lineTo).toHaveBeenCalledTimes(triangleCount * 2);
+    expect(overlayCanvas.context.stroke).toHaveBeenCalledTimes(2);
+
+    overlay.syncWireframeOverlays();
+    overlay.syncWireframeOverlays();
+    expect(overlayCanvas.context.moveTo).toHaveBeenCalledTimes(triangleCount);
+    expect(overlayCanvas.context.stroke).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -388,7 +422,7 @@ describe('UV overlap overlay', () => {
     // Wireframe triangles are still collected and drawn on the overlay even
     // though the overlap wave animation stays off.
     expect(overlayCanvas.hidden).toBe(false);
-    expect(overlayCanvas.innerHTML.match(/<path/g)).toHaveLength(2);
+    expect(overlayCanvas.context.stroke).toHaveBeenCalledTimes(2);
   });
 
   it('stops the animation when the scene disappears', () => {

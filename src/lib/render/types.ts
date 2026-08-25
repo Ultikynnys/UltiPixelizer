@@ -12,9 +12,9 @@ export interface RendererDeps {
   luminosityHistograms: { original: HTMLCanvasElement; processed: HTMLCanvasElement };
   /** False in the compact single-pane layout, where histogram overlays are hidden. */
   showLuminosityHistograms: () => boolean;
-  /** Vector overlays for the UV wireframe — one per 2D pane, positioned over
-   * the texture canvas and sharing its zoom transform. */
-  wireframeOverlays: { original: SVGSVGElement; processed: SVGSVGElement };
+  /** Cached bitmap overlays for the UV wireframe, one per 2D pane, positioned
+   * over the texture canvas and sharing its zoom transform. */
+  wireframeOverlays: { original: HTMLCanvasElement; processed: HTMLCanvasElement };
   getAOScene: () => Object3D | null;
   forEachViewport: (callback: (viewport: ModelViewport) => void) => void;
   getOriginalViewport: () => ModelViewport | null;
@@ -67,8 +67,8 @@ export interface RendererApi {
   /** Forces the next refreshUVOverlap to recompute — call after any in-place
    * change to the AO scene's UVs/visibility/rotation. */
   invalidateUVOverlap: () => void;
-  /** Re-draws the display-resolution UV wireframe overlays — call after the
-   * toggle, pane mode, frame resize, or texture bitmap size changes. */
+  /** Synchronizes the cached UV wireframe overlays after the toggle, pane
+   * mode, frame resize, or texture bitmap size changes. */
   syncWireframeOverlays: () => void;
   resetPreview: () => void;
   getRenderedCanvas: () => HTMLCanvasElement;

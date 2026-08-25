@@ -276,26 +276,21 @@ select option { background: var(--card); color: var(--paper); }
 .luminosity-axis-labels span:nth-child(3) { left: 50%; }
 .luminosity-axis-labels span:nth-child(4) { left: 75%; }
 .luminosity-axis-labels span:nth-child(5) { right: 0; transform: none; }
-/* UV island wireframe: true SVG vectors over the texture. The viewBox uses
-   the same texture-pixel coordinate system as UV-overlap rasterization, while
-   non-scaling strokes stay crisp and constant-width through preview zoom. */
-.preview-pane svg.wireframe-overlay {
+/* UV island wireframe: a cached texture-space bitmap. Keeping this as one
+   composited layer avoids re-tessellating a huge SVG path during pan/zoom. */
+.preview-pane canvas.wireframe-overlay {
   cursor: default;
   height: 100%;
+  image-rendering: auto;
   inset: 0;
+  max-height: none;
   min-width: 0;
-  overflow: visible;
+  object-fit: contain;
   pointer-events: none;
   position: absolute;
   touch-action: auto;
   width: 100%;
   z-index: 5;
-}
-.wireframe-overlay path {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
 }
 .model-host { height: clamp(280px, 52vh, 560px); min-height: 0; width: 100%; }
 .model-canvas { cursor: grab; display: block; height: 100%; width: 100%; }

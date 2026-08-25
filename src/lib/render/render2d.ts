@@ -348,9 +348,8 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       drawLuminosityHistogram(shared.renderedCanvas, luminosityHistograms.processed);
     }
 
-    // The UV wireframe is drawn on display-resolution overlay canvases
-    // (overlay.syncWireframeOverlays) — never into the low-res texture
-    // bitmaps, where antialiased lines would upscale into dithered speckles.
+    // The UV wireframe is rasterized into a separate cached overlay canvas
+    // (overlay.syncWireframeOverlays), never into the texture bitmap itself.
 
     updatePreviewBadge(width, height);
     applyViewportImages();

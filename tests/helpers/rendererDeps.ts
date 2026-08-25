@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
 import type { RendererDeps, RenderShared } from '../../src/lib/render/types';
 import type { State, TextureChannelId, TextureSlot } from '../../src/lib/state';
-import { FakeCanvas, FakeSvg } from './domStubs';
+import { FakeCanvas } from './domStubs';
 import { computeOutputDimensions } from '../../src/lib/canvas';
 
 /** A RenderShared with the usual defaults — a fresh FakeCanvas for the
@@ -85,11 +85,11 @@ export function emptyTextures(): RendererDeps['textures'] {
 export function createRendererDeps(overrides: Omit<Partial<RendererDeps>, 'textures'> & { textures?: Partial<Record<TextureChannelId, TextureSlot>> } = {}): RendererDeps & {
   previewCanvas: FakeCanvas;
   originalCanvas: FakeCanvas;
-  wireframeOverlays: { original: FakeSvg; processed: FakeSvg };
+  wireframeOverlays: { original: FakeCanvas; processed: FakeCanvas };
   luminosityHistograms: { original: FakeCanvas; processed: FakeCanvas };
 } {
-  const originalWireframeOverlay = new FakeSvg();
-  const processedWireframeOverlay = new FakeSvg();
+  const originalWireframeOverlay = new FakeCanvas();
+  const processedWireframeOverlay = new FakeCanvas();
   const originalLuminosityHistogram = new FakeCanvas();
   const processedLuminosityHistogram = new FakeCanvas();
   const { textures: texturesOverride, ...restOverrides } = overrides;
@@ -104,8 +104,8 @@ export function createRendererDeps(overrides: Omit<Partial<RendererDeps>, 'textu
     },
     showLuminosityHistograms: () => true,
     wireframeOverlays: {
-      original: originalWireframeOverlay as unknown as SVGSVGElement,
-      processed: processedWireframeOverlay as unknown as SVGSVGElement,
+      original: originalWireframeOverlay as unknown as HTMLCanvasElement,
+      processed: processedWireframeOverlay as unknown as HTMLCanvasElement,
     },
     getAOScene: () => null,
     forEachViewport: vi.fn(),
@@ -132,7 +132,7 @@ export function createRendererDeps(overrides: Omit<Partial<RendererDeps>, 'textu
   } as unknown as RendererDeps & {
     previewCanvas: FakeCanvas;
     originalCanvas: FakeCanvas;
-    wireframeOverlays: { original: FakeSvg; processed: FakeSvg };
+    wireframeOverlays: { original: FakeCanvas; processed: FakeCanvas };
     luminosityHistograms: { original: FakeCanvas; processed: FakeCanvas };
   };
   return deps;
