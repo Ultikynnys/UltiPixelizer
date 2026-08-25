@@ -28,20 +28,56 @@ describe('average texel density', () => {
     expect(computeAverageTexelDensity(scene, 200, 100)).toBeCloseTo(100 * Math.SQRT2, 10);
   });
 
-  it('weights per-face densities by their UV footprint area', () => {
+  it('computes mixed density from total UV texel area and total world area', () => {
     const scene = new Scene();
-    // Face 1: unit UV shell (area 0.5) on a unit world triangle → 100 texels/unit.
+    // Face 1: UV area 0.5 and world area 0.5.
     scene.add(triMesh());
-    // Face 2: same unit world triangle (area 0.5), but a half-scale UV shell
-    // (0,0)-(0.5,0)-(0,0.5), area 0.125 → 0.125 × 100×100 = 1250 texels →
-    // sqrt(1250 / 0.5) = 50 texels/unit. It owns 1/5 of the total UV area.
+    // Face 2: UV area 0.125 and world area 0.5.
     scene.add(triMesh(
       [[0, 0], [0.5, 0], [0, 0.5]],
       [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
     ));
-    // UV-area-weighted: (100 × 0.5 + 50 × 0.125) / 0.625 = 90. A plain mean
-    // would report 75, letting the small face pull the average toward itself.
-    expect(computeAverageTexelDensity(scene, 100, 100)).toBe(90);
+    // Total density = sqrt((0.625 × 100 × 100) / 1).
+    expect(computeAverageTexelDensity(scene, 100, 100)).toBeCloseTo(Math.sqrt(6250), 10);
+  });
+
+  it('is unaffected by uneven mesh tessellation', () => {
+    const coarse = new Scene();
+    coarse.add(
+      triMesh(),
+      triMesh(
+        [[0, 0], [0.5, 0], [0, 0.5]],
+        [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
+      ),
+    );
+
+    const dense = new Scene();
+    dense.add(
+      // The first coarse face split into four triangles with interpolated UVs.
+      triMesh(
+        [
+          [0, 0], [0.5, 0], [0, 0.5],
+          [0.5, 0], [1, 0], [0.5, 0.5],
+          [0, 0.5], [0.5, 0.5], [0, 1],
+          [0.5, 0], [0.5, 0.5], [0, 0.5],
+        ],
+        [
+          [0, 0, 0], [0.5, 0, 0], [0, 0.5, 0],
+          [0.5, 0, 0], [1, 0, 0], [0.5, 0.5, 0],
+          [0, 0.5, 0], [0.5, 0.5, 0], [0, 1, 0],
+          [0.5, 0, 0], [0.5, 0.5, 0], [0, 0.5, 0],
+        ],
+      ),
+      triMesh(
+        [[0, 0], [0.5, 0], [0, 0.5]],
+        [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
+      ),
+    );
+
+    expect(computeAverageTexelDensity(dense, 100, 100)).toBeCloseTo(
+      computeAverageTexelDensity(coarse, 100, 100)!,
+      10,
+    );
   });
 
   it('matches for indexed geometry', () => {
