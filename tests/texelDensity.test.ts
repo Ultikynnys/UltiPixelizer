@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Scene } from 'three';
-import { computeAverageTexelDensity } from '../src/lib/texelDensity';
+import { computeAverageTexelDensity, computeUVStretchData, uvStretchColor } from '../src/lib/texelDensity';
 
 /** Single-triangle mesh: world triangle (0,0,0)-(1,0,0)-(0,1,0) (area 0.5)
  * mapped onto UV triangle (0,0)-(1,0)-(0,1) (UV area 0.5). */
@@ -112,5 +112,65 @@ describe('average texel density', () => {
     mesh.geometry.deleteAttribute('uv');
     uvless.add(mesh);
     expect(computeAverageTexelDensity(uvless, 100, 100)).toBeNull();
+  });
+});
+
+describe('UV stretch data', () => {
+  it('reports zero distortion when every face preserves relative area', () => {
+    const scene = new Scene();
+    scene.add(quadMesh());
+    const data = computeUVStretchData(scene)!;
+    expect(data.faces).toHaveLength(2);
+    expect(data.faces.every((face) => face.distortion === 0)).toBe(true);
+    expect(data.faces.every((face) => face.color.join(',') === uvStretchColor(0).join(','))).toBe(true);
+  });
+
+  it('reports symmetric compression and expansion relative to the model average', () => {
+    const scene = new Scene();
+    scene.add(
+      triMesh([[0, 0], [1, 0], [0, 1]], [[0, 0, 0], [2, 0, 0], [0, 1, 0]]),
+      triMesh([[0, 0], [2, 0], [0, 1]], [[0, 0, 0], [1, 0, 0], [0, 1, 0]]),
+    );
+    const data = computeUVStretchData(scene)!;
+    expect(data.faces[0].distortion).toBeCloseTo(data.faces[1].distortion, 10);
+    expect(data.faces[0].distortion).toBeGreaterThan(0);
+  });
+
+  it('is invariant to uniform world and UV scaling', () => {
+    const original = new Scene();
+    original.add(
+      triMesh([[0, 0], [1, 0], [0, 1]]),
+      triMesh([[0, 0], [2, 0], [0, 2]]),
+    );
+    const scaled = original.clone(true);
+    scaled.scale.setScalar(4);
+    scaled.traverse((object) => {
+      if (!(object instanceof Mesh)) return;
+      const uv = object.geometry.getAttribute('uv');
+      for (let i = 0; i < uv.count; i += 1) uv.setXY(i, uv.getX(i) * 3, uv.getY(i) * 3);
+    });
+    expect(computeUVStretchData(scaled)!.faces.map((face) => face.distortion)).toEqual(
+      computeUVStretchData(original)!.faces.map((face) => face.distortion),
+    );
+  });
+
+  it('retains finite metrics while clamping extreme display colors', () => {
+    expect(uvStretchColor(100)).toEqual(uvStretchColor(2));
+    const scene = new Scene();
+    scene.add(
+      triMesh([[0, 0], [0.0001, 0], [0, 0.0001]]),
+      triMesh([[0, 0], [1, 0], [0, 1]]),
+    );
+    expect(computeUVStretchData(scene)!.faces.every((face) => Number.isFinite(face.distortion))).toBe(true);
+  });
+
+  it('returns null for unavailable or degenerate mapped geometry', () => {
+    const scene = new Scene();
+    const uvless = triMesh();
+    uvless.geometry.deleteAttribute('uv');
+    const degenerateUv = triMesh([[0, 0], [1, 0], [2, 0]]);
+    const degenerateWorld = triMesh([[0, 0], [1, 0], [0, 1]], [[0, 0, 0], [1, 0, 0], [2, 0, 0]]);
+    scene.add(uvless, degenerateUv, degenerateWorld);
+    expect(computeUVStretchData(scene)).toBeNull();
   });
 });

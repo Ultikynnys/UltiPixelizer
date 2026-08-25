@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnimationClip, BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, MOUSE, Object3D, Scene, ShaderMaterial, Texture } from 'three';
 import { FLOOR_GRID_DIVISION, FLOOR_GRID_MAJOR_DIVISION, FLOOR_GRID_RADIUS, loadModel, ModelViewport, upAxisRotation } from '../src/lib/modelPreview';
 import { renderModelThumbnail } from '../src/lib/modelScene';
+import { computeUVStretchData } from '../src/lib/texelDensity';
 import type { ModelFileBundle } from '../src/lib/modelFiles';
 import { domStubs, FakeCanvas, flushRaf, installDomStubs, rafCount } from './helpers/domStubs';
 
@@ -643,6 +644,41 @@ describe('ModelViewport', () => {
     // A full setNormalMap would have rebuilt the texture; the live strength
     // update must leave it in place.
     expect(uniforms.uNormalMap.value).toBe(texture);
+    viewport.dispose();
+  });
+
+  it('setUVStretch builds flat per-face color geometry and disposes it when cleared', () => {
+    const viewport = new ModelViewport(host());
+    const model = meshScene();
+    viewport.setModel(model, []);
+    const data = computeUVStretchData(model)!;
+    viewport.setUVStretch(data);
+    const scene = (viewport as unknown as { scene: Scene }).scene;
+    const overlay = scene.children.find((child) => child.renderOrder === 2) as Mesh;
+    expect(overlay).toBeDefined();
+    expect(overlay.geometry.getAttribute('position').count).toBe(data.faces.length * 3);
+    expect(overlay.geometry.getAttribute('color').count).toBe(data.faces.length * 3);
+    const disposeGeometry = vi.spyOn(overlay.geometry, 'dispose');
+    const disposeMaterial = vi.spyOn(overlay.material as ShaderMaterial, 'dispose');
+
+    viewport.setUVStretch(null);
+    expect(scene.children).not.toContain(overlay);
+    expect(disposeGeometry).toHaveBeenCalledOnce();
+    expect(disposeMaterial).toHaveBeenCalledOnce();
+    viewport.dispose();
+  });
+
+  it('keeps UV stretch and overlap overlays independent', () => {
+    const viewport = new ModelViewport(host());
+    const model = meshScene();
+    viewport.setModel(model, []);
+    viewport.setUVStretch(computeUVStretchData(model));
+    viewport.setUVOverlap(new Map([[0, [0]]]));
+    const scene = (viewport as unknown as { scene: Scene }).scene;
+    expect(scene.children.some((child) => child.renderOrder === 1)).toBe(true);
+    expect(scene.children.some((child) => child.renderOrder === 2)).toBe(true);
+    viewport.setUVStretch(null);
+    expect(scene.children.some((child) => child.renderOrder === 1)).toBe(true);
     viewport.dispose();
   });
 

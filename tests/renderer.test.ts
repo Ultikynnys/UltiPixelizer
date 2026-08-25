@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { createRenderer } from '../src/lib/render';
 import { createRendererDeps } from './helpers/rendererDeps';
 import { asSourceImage, FakeCanvas, installDomStubs } from './helpers/domStubs';
@@ -36,6 +36,10 @@ describe('createRenderer wiring', () => {
 
     api.refreshUVWireframe();
     api.refreshUVOverlap();
+    const setUVStretch = vi.fn();
+    deps.forEachViewport = (callback) => callback({ setUVStretch } as never);
+    api.invalidateUVStretch();
+    expect(setUVStretch).toHaveBeenCalledWith(null);
     // Even with the overlap view disabled, both panes' viewports get cleared.
     expect(deps.getOriginalViewport).toHaveBeenCalled();
     expect(deps.getProcessedViewport).toHaveBeenCalled();

@@ -12,6 +12,11 @@ export function createRenderer(deps: RendererDeps): RendererApi {
     originalBaseCanvas: null,
     implicitLightmapCanvas: null,
     implicitLightmapTimer: 0,
+    uvStretchData: null,
+    uvStretchScene: null,
+    uvStretchCanvas: null,
+    uvStretchCanvasWidth: 0,
+    uvStretchCanvasHeight: 0,
     lightmapCleared: false,
   };
 
@@ -42,6 +47,14 @@ export function createRenderer(deps: RendererDeps): RendererApi {
     refreshUVWireframe: overlay.refreshUVWireframe,
     refreshUVOverlap: overlay.refreshUVOverlap,
     invalidateUVOverlap: overlay.invalidateUVOverlap,
+    invalidateUVStretch: () => {
+      shared.uvStretchData = null;
+      shared.uvStretchScene = null;
+      shared.uvStretchCanvas = null;
+      shared.uvStretchCanvasWidth = 0;
+      shared.uvStretchCanvasHeight = 0;
+      deps.forEachViewport((viewport) => viewport.setUVStretch(null));
+    },
     syncWireframeOverlays: overlay.syncWireframeOverlays,
     resetPreview: () => {
       overlay.reset();

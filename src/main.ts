@@ -14,7 +14,7 @@ import { collectModelTextures, type ExtractedModelTextures } from './lib/modelTe
 import { applyDisplacement, applyUVChannel, cloneModelScene, createFallbackQuadScene, disposeModel, geometryUVChannels, getFallbackQuadScene, renderModelThumbnail, type HeightSampler } from './lib/modelScene';
 import { applyLodLevel, prepareModelLods } from './lib/modelLod';
 import { loadModel, ModelViewport, upAxisRotation } from './lib/modelPreview';
-import { computeAverageTexelDensity } from './lib/texelDensity';
+import { computeAverageTexelDensity, computeUVStretchData } from './lib/texelDensity';
 import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, upscaleMethods, type ConversionPreset, type SavedCamera } from './lib/presets';
 import { lightmapMatchesBaseColor } from './lib/lightmap';
 import { imageHeightmapPixels, sampleHeightmap, type NormalFormat } from './lib/normal';
@@ -270,6 +270,7 @@ app.innerHTML = `
                   <button type="button" data-view="ao">AO</button>
                   <button type="button" data-view="lightmap">Lightmap</button>
                   <button type="button" data-view="lightmap-ao">Lightmap+AO</button>
+                  <button type="button" data-view="uv-stretch" title="Compare each UV face area with its world-space face area">UV Stretch</button>
                 </div>
                 <div class="viewport-control-stack">
                   <label class="uv-overlap-control" id="navigationToggle" hidden title="Left-drag camera action. On: pan moves the camera sideways. Off: orbit rotates around the target. The middle button always zooms.">
@@ -882,6 +883,14 @@ const formatTexelDensity = (value: number): string => `${value.toFixed(value >= 
 // Memoized: density depends only on the model's UVs and the target resolution,
 // so basecolor swaps (which don't touch the scene) skip the 60k-tri walk.
 let texelDensityCache: { scene: Object3D | null; width: number; height: number } | null = null;
+let uvStretchAvailabilityCache: { scene: Object3D; available: boolean } | null = null;
+function uvStretchIsAvailable(): boolean {
+  if (!aoBakeScene) return false;
+  if (uvStretchAvailabilityCache?.scene === aoBakeScene) return uvStretchAvailabilityCache.available;
+  const available = computeUVStretchData(aoBakeScene) !== null;
+  uvStretchAvailabilityCache = { scene: aoBakeScene, available };
+  return available;
+}
 function updateTexelDensity(): void {
   if (!aoBakeScene) {
     // The fallback plane maps the whole UV square onto the whole quad, so
@@ -920,7 +929,9 @@ let modelThumbnailCanvas: HTMLCanvasElement | null = null;
 function invalidateModelCaches(): void {
   invalidateBakeScene();
   invalidateUVOverlap();
+  invalidateUVStretch();
   texelDensityCache = null;
+  uvStretchAvailabilityCache = null;
 }
 const formatPercent = (value: number): string => `${value}%`;
 const formatDegrees = (value: number): string => `${value}°`;
@@ -947,6 +958,9 @@ function renderViewToggle(): void {
   // re-bake on sun/ambient/normal changes.
   const lightmapDefined = lightmapIsActive(textures) || renderer.getImplicitLightmapCanvas() !== null;
   const lightmapAoDefined = aoDefined && lightmapDefined;
+  const uvStretchDefined = uvStretchIsAvailable();
+  if (!uvStretchDefined && state.viewModeOriginal === 'uv-stretch') state.viewModeOriginal = 'flat';
+  if (!uvStretchDefined && state.viewModeProcessed === 'uv-stretch') state.viewModeProcessed = 'flat';
   if (!aoDefined && state.viewModeOriginal === 'ao') state.viewModeOriginal = 'flat';
   if (!lightmapDefined && state.viewModeOriginal === 'lightmap') state.viewModeOriginal = 'flat';
   if (!normalDefined && state.viewModeOriginal === 'normals') state.viewModeOriginal = 'flat';
@@ -960,21 +974,22 @@ function renderViewToggle(): void {
   // and viewports exactly as they do to a loaded model. The per-button
   // `disabled` states below already handle missing sources.
   originalViewToggle.hidden = false;
-  syncViewToggle(originalViewToggle, state.viewModeOriginal, normalDefined, aoDefined, lightmapDefined, lightmapAoDefined);
+  syncViewToggle(originalViewToggle, state.viewModeOriginal, normalDefined, aoDefined, lightmapDefined, lightmapAoDefined, uvStretchDefined);
   // A view-mode fallback above (e.g. the normal map was removed) must reach the
   // 3D viewports too — they render the Normals view via setNormalsView and
   // would otherwise stay latched on the stale showcase.
   applyViewNormals();
 }
 
-function syncViewToggle(toggle: HTMLDivElement, viewMode: PreviewViewMode, normalDefined: boolean, aoDefined: boolean, lightmapDefined: boolean, lightmapAoDefined: boolean): void {
+function syncViewToggle(toggle: HTMLDivElement, viewMode: PreviewViewMode, normalDefined: boolean, aoDefined: boolean, lightmapDefined: boolean, lightmapAoDefined: boolean, uvStretchDefined: boolean): void {
   syncActiveButton(toggle, '[data-view]', (button) => button.dataset.view === viewMode);
   for (const button of toggle.querySelectorAll<HTMLButtonElement>('[data-view]')) {
     const view = button.dataset.view as PreviewViewMode;
     button.disabled = (view === 'normals' && !normalDefined)
       || (view === 'ao' && !aoDefined)
       || (view === 'lightmap' && !lightmapDefined)
-      || (view === 'lightmap-ao' && !lightmapAoDefined);
+      || (view === 'lightmap-ao' && !lightmapAoDefined)
+      || (view === 'uv-stretch' && !uvStretchDefined);
   }
 }
 
@@ -2118,6 +2133,7 @@ const {
   refreshUVOverlap,
   invalidateBakeScene,
   invalidateUVOverlap,
+  invalidateUVStretch,
   syncWireframeOverlays,
   resetPreview,
 } = renderer;
@@ -3327,6 +3343,8 @@ function bindViewToggle(toggle: HTMLDivElement, getView: () => PreviewViewMode, 
 function applyViewMode(): void {
   renderViewToggle();
   applyViewNormals();
+  if (state.viewModeOriginal !== 'uv-stretch') originalViewport?.setUVStretch(null);
+  if (state.viewModeProcessed !== 'uv-stretch') processedViewport?.setUVStretch(null);
   render();
 }
 bindViewToggle(originalViewToggle, () => state.viewModeOriginal, (view) => {
@@ -3356,6 +3374,7 @@ const EXPORT_VIEW_SUFFIX: Record<PreviewViewMode, string> = {
   ao: 'AO',
   lightmap: 'Lightmap',
   'lightmap-ao': 'LightmapAO',
+  'uv-stretch': 'UVStretch',
 };
 document.querySelector('#exportButton')!.addEventListener('click', async () => {
   // Flush the debounced render first so the export always matches what the

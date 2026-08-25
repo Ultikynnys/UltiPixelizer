@@ -38,6 +38,7 @@ import { applyLodLevel } from './modelLod';
 import { applyDisplacement, applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, forEachMeshIndexed, materialsOf, triangleIndices, type HeightSampler } from './modelScene';
 import { cameraForwardFromQuaternion, normalizeDirection, type DirectionVector } from './sunDirection';
 import { UV_OVERLAP_LABEL } from './uvOverlap';
+import type { UVStretchData } from './texelDensity';
 
 export type LoadedModel = { scene: Object3D; animations: AnimationClip[] };
 
@@ -247,6 +248,8 @@ export class ModelViewport {
   private model: Object3D | null = null;
   private mixer: AnimationMixer | null = null;
   private overlapOverlay: Mesh | null = null;
+  private stretchOverlay: Mesh | null = null;
+  private stretchData: UVStretchData | null = null;
   private normalMapTexture: Texture | null = null;
   // Normals view material — samples the model's normal-map texture at UV and
   // outputs the decoded tangent-space normal as color, using the same decode
@@ -376,6 +379,7 @@ export class ModelViewport {
       disposeModel(this.model);
     }
     this.removeOverlapOverlay();
+    this.removeStretchOverlay();
     this.model = model;
     this.scene.add(model);
     // Keep the gizmo aligned with the model's world-axis convention — the model
@@ -572,6 +576,59 @@ export class ModelViewport {
     this.overlapOverlay = null;
   }
 
+  /** Colors each world-space face with the same flat heatmap color used in the
+   * UV-space view. Triangle-local vertices prevent interpolation across faces. */
+  setUVStretch(data: UVStretchData | null): void {
+    if (this.stretchData === data) return;
+    this.removeStretchOverlay();
+    this.stretchData = data;
+    if (!data || data.faces.length === 0) return;
+    const positions: number[] = [];
+    const colors: number[] = [];
+    for (const face of data.faces) {
+      for (const point of face.world) {
+        positions.push(point[0], point[1], point[2]);
+        colors.push(face.color[0] / 255, face.color[1] / 255, face.color[2] / 255);
+      }
+    }
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new Float32BufferAttribute(colors, 3));
+    const material = new ShaderMaterial({
+      side: DoubleSide,
+      vertexColors: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+      vertexShader: `
+        attribute vec3 color;
+        varying vec3 vColor;
+        void main() {
+          vColor = color;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vColor;
+        void main() {
+          gl_FragColor = vec4(vColor, 1.0);
+        }
+      `,
+    });
+    this.stretchOverlay = new Mesh(geometry, material);
+    this.stretchOverlay.renderOrder = 2;
+    this.scene.add(this.stretchOverlay);
+  }
+
+  private removeStretchOverlay(): void {
+    if (!this.stretchOverlay) return;
+    this.scene.remove(this.stretchOverlay);
+    this.stretchOverlay.geometry.dispose();
+    (this.stretchOverlay.material as Material).dispose();
+    this.stretchOverlay = null;
+    this.stretchData = null;
+  }
+
   getCameraForward(): DirectionVector {
     const worldQuaternion = this.camera.getWorldQuaternion(new Quaternion());
     return cameraForwardFromQuaternion(worldQuaternion);
@@ -692,6 +749,7 @@ export class ModelViewport {
     this.host.removeEventListener('pointerdown', this.modifierStripper, true);
     this.timer.dispose();
     this.removeOverlapOverlay();
+    this.removeStretchOverlay();
     this.setNormalsView(false);
     if (this.model) disposeModel(this.model);
     this.normalMapMaterial.dispose();

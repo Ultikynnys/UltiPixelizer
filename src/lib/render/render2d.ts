@@ -1,9 +1,11 @@
 import { applyAO, aoMultiplier, imageAOFactors, redChannelFactors } from '../ao';
-import { cloneImageData, drawImageToCanvas, imagePixels, pixelateCanvas, pixelsToCanvas, resampleAndPixelate, resizeImage } from '../canvas';
+import { cloneImageData, createCanvas, drawImageToCanvas, imagePixels, pixelateCanvas, pixelsToCanvas, resampleAndPixelate, resizeImage } from '../canvas';
 import { processImageData, type ProcessOptions } from '../dither';
 import { webgpuUsable } from '../gpuCommon';
 import { gpuDitherCovers, processImageDataAsync } from '../gpuDither';
 import { applyLightmap } from '../lightmap';
+import { rasterizeBake } from '../bakeGeometry';
+import { computeUVStretchData, type UVStretchData } from '../texelDensity';
 import { createBoundedLru } from '../lru';
 import { drawLuminosityHistogram } from '../luminosityHistogram';
 import { LUMA } from '../math';
@@ -27,6 +29,21 @@ function drawTiled(context: CanvasRenderingContext2D, source: CanvasImageSource,
   }
 }
 
+export function renderUVStretchCanvas(data: UVStretchData, width: number, height: number): HTMLCanvasElement {
+  const { canvas, context } = createCanvas(width, height);
+  if (!context) return canvas;
+  const image = context.createImageData(width, height);
+  rasterizeBake(width, height, data.faces, (px, py, _w0, _w1, _w2, face) => {
+    const offset = (py * width + px) * 4;
+    image.data[offset] = face.color[0];
+    image.data[offset + 1] = face.color[1];
+    image.data[offset + 2] = face.color[2];
+    image.data[offset + 3] = 255;
+  });
+  context.putImageData(image, 0, 0);
+  return canvas;
+}
+
 export function createRender2D(deps: RendererDeps, shared: RenderShared): Render2DApi {
   const {
     state,
@@ -42,6 +59,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     getProcessedViewport,
     repeatTextureOriginal,
     repeatTextureProcessed,
+    getAOScene,
   } = deps;
 
   /** Supersedes an in-flight async GPU dither: every render bumps the token,
@@ -181,6 +199,22 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     // Lightmap+AO inspection shows the combined map — AO visibility (remapped
     // by bias/scale exactly as the lighting pass applies it) multiplied into
     // the lightmap on white, staged at the target resolution.
+    const stretchSelected = state.viewModeOriginal === 'uv-stretch' || state.viewModeProcessed === 'uv-stretch';
+    const stretchScene = stretchSelected ? getAOScene() : null;
+    if (stretchScene !== shared.uvStretchScene) {
+      shared.uvStretchScene = stretchScene;
+      shared.uvStretchData = stretchScene ? computeUVStretchData(stretchScene) : null;
+    }
+    const stretchData = shared.uvStretchData;
+    if (stretchData && (!shared.uvStretchCanvas || shared.uvStretchCanvasWidth !== width || shared.uvStretchCanvasHeight !== height)) {
+      shared.uvStretchCanvas = renderUVStretchCanvas(stretchData, width, height);
+      shared.uvStretchCanvasWidth = width;
+      shared.uvStretchCanvasHeight = height;
+    }
+    const stretchSource = stretchData ? shared.uvStretchCanvas : null;
+    getOriginalViewport()?.setUVStretch(state.viewModeOriginal === 'uv-stretch' ? stretchData : null);
+    getProcessedViewport()?.setUVStretch(state.viewModeProcessed === 'uv-stretch' ? stretchData : null);
+
     const lightmapCanvas = textures.lightmap.image ?? shared.implicitLightmapCanvas;
     const lightmapAoSelected = state.viewModeOriginal === 'lightmap-ao' || state.viewModeProcessed === 'lightmap-ao';
     let lightmapAoSource: SourceImage | null = null;
@@ -234,6 +268,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       : viewMode === 'ao' ? aoInspectionSource
       : viewMode === 'lightmap' ? lightmapCanvas
       : viewMode === 'lightmap-ao' ? lightmapAoSource
+      : viewMode === 'uv-stretch' ? stretchSource
       : null;
     const originalOnlySource = inspectionSource(state.viewModeOriginal);
     const processedOnlySource = inspectionSource(state.viewModeProcessed);
@@ -243,9 +278,9 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     // pixelized with nearest-neighbor at the target resolution instead (the
     // same map the 3D processed viewport displays).
     const processedSource = processedOnlySource ?? textures.base.image!;
-    const normalsInspection = state.viewModeProcessed === 'normals' && processedOnlySource !== null;
+    const directInspection = (state.viewModeProcessed === 'normals' || state.viewModeProcessed === 'uv-stretch') && processedOnlySource !== null;
     let nextCanvas: HTMLCanvasElement;
-    if (normalsInspection) {
+    if (directInspection) {
       // The normals inspection shows the same chunky blocks as the dithered
       // base: the downscale/upscale pixelization applies on top of the
       // target-resolution resample (normals can't be palette-dithered).
@@ -263,7 +298,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     if (!renderContext) return;
     // The pixelized normals map is already final; the dither pass would
     // corrupt it.
-    if (!normalsInspection) {
+    if (!directInspection) {
       const sourceData = renderContext.getImageData(0, 0, width, height);
 
       const processedOptions = {

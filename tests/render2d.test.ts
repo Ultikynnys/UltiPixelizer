@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Scene } from 'three';
 import { createRender2D } from '../src/lib/render/render2d';
 import type { RenderShared } from '../src/lib/render/types';
 import type { ModelViewport } from '../src/lib/modelPreview';
@@ -479,9 +480,40 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 
+  it('renders matching UV and world faces with the shared stretch colors', async () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([
+      0, 0, 0, 2, 0, 0, 0, 1, 0,
+      0, 0, 0, 1, 0, 0, 0, 1, 0,
+    ], 3));
+    geometry.setAttribute('uv', new Float32BufferAttribute([
+      0, 0, 0.5, 0, 0, 1,
+      0.5, 0, 1, 0, 1, 1,
+    ], 2));
+    const scene = new Scene();
+    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn() };
+    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn() };
+    const deps = createRendererDeps({
+      textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } },
+      getAOScene: () => scene,
+      getOriginalViewport: () => originalViewport as unknown as ModelViewport,
+      getProcessedViewport: () => processedViewport as unknown as ModelViewport,
+    });
+    deps.state.viewModeOriginal = 'uv-stretch';
+    deps.state.viewModeProcessed = 'uv-stretch';
+    await createRender2D(deps, sharedState()).render();
+
+    const data = originalViewport.setUVStretch.mock.calls[0][0];
+    expect(data.faces).toHaveLength(2);
+    expect(data.faces[0].color).not.toEqual(data.faces[1].color);
+    expect(processedViewport.setUVStretch).toHaveBeenCalledWith(data);
+    expect(Array.from(deps.originalCanvas.context.pixels)).toEqual(Array.from(deps.previewCanvas.context.pixels));
+  });
+
   it('feeds the viewports when both are available', () => {
-    const originalViewport = { applyImage: vi.fn() };
-    const processedViewport = { applyImage: vi.fn() };
+    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn() };
+    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn() };
     const deps = createRendererDeps({
       textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } },
       getOriginalViewport: () => originalViewport as unknown as ModelViewport,

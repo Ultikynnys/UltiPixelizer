@@ -1,6 +1,7 @@
 import type { Object3D } from 'three';
 import type { ModelViewport } from '../modelPreview';
 import type { PreviewMode, State, TextureChannelId, TextureSlot } from '../state';
+import type { UVStretchData } from '../texelDensity';
 
 export interface RendererDeps {
   state: State;
@@ -67,6 +68,7 @@ export interface RendererApi {
   /** Forces the next refreshUVOverlap to recompute — call after any in-place
    * change to the AO scene's UVs/visibility/rotation. */
   invalidateUVOverlap: () => void;
+  invalidateUVStretch: () => void;
   /** Synchronizes the cached UV wireframe overlays after the toggle, pane
    * mode, frame resize, or texture bitmap size changes. */
   syncWireframeOverlays: () => void;
@@ -81,6 +83,11 @@ export interface RenderShared {
   originalBaseCanvas: HTMLCanvasElement | null;
   implicitLightmapCanvas: HTMLCanvasElement | null;
   implicitLightmapTimer: number;
+  uvStretchData: UVStretchData | null;
+  uvStretchScene: Object3D | null;
+  uvStretchCanvas: HTMLCanvasElement | null;
+  uvStretchCanvasWidth: number;
+  uvStretchCanvasHeight: number;
   /** Set when the user explicitly removes the lightmap (slot X). While set,
    * the implicit auto-bake from sun/ambient and normal-map changes is
    * suppressed so the render stays unlit (pure-white lightmap) until an

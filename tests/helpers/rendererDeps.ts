@@ -14,6 +14,11 @@ export function createRenderShared(overrides: Partial<RenderShared> = {}): Rende
     originalBaseCanvas: null,
     implicitLightmapCanvas: null,
     implicitLightmapTimer: 0,
+    uvStretchData: null,
+    uvStretchScene: null,
+    uvStretchCanvas: null,
+    uvStretchCanvasWidth: 0,
+    uvStretchCanvasHeight: 0,
     lightmapCleared: false,
     ...overrides,
   };

@@ -371,11 +371,11 @@ function rasterizeTrianglePixels(
 
 /** Maps one normalized model UV into the top-left-origin texture-pixel space
  * shared by UV overlap, bakes, and the vector wireframe overlay. */
-export function uvToTexturePoint(uv: UvPair, width: number, height: number): UvPair {
+export function uvToTexturePoint(uv: readonly [number, number], width: number, height: number): UvPair {
   return [uv[0] * width, (1 - uv[1]) * height];
 }
 
-export function rasterizeBake<T extends { uv: [UvPair, UvPair, UvPair] }>(
+export function rasterizeBake<T extends { uv: readonly [readonly [number, number], readonly [number, number], readonly [number, number]] }>(
   width: number,
   height: number,
   triangles: readonly T[],
