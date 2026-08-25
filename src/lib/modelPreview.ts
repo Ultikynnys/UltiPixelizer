@@ -311,17 +311,19 @@ export class ModelViewport {
 
   /** Shows a transparent floor reference in both app viewports. Spacing is
    * always 0.1 world units (10 cm under the app's 1 unit = 1 metre convention)
-   * and the grid repeats to a 5 m radius around the camera. */
+   * and the grid repeats to a 5 m radius around the orbit pivot. */
   setFloorGrid(visible: boolean): void {
     this.floorGrid.visible = visible;
     if (visible) this.updateFloorGridPosition();
   }
 
   private updateFloorGridPosition(): void {
-    const x = this.camera.position.x;
-    const z = this.camera.position.z;
-    // Only the finite carrier follows the camera. The shader derives line phase
-    // from absolute world X/Z, so moving this mesh never moves the visible grid.
+    // The grid is a reference floor under the model, so both the finite carrier
+    // and the fadeout center track the orbit pivot (controls.target), not the
+    // camera. The shader derives line phase from absolute world X/Z, so moving
+    // this mesh never moves the visible grid.
+    const x = this.controls.target.x;
+    const z = this.controls.target.z;
     this.floorGrid.position.set(x, 0, z);
     this.floorGridMaterial.uniforms.uCameraXZ.value.x = x;
     this.floorGridMaterial.uniforms.uCameraXZ.value.y = z;
