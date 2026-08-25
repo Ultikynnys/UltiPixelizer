@@ -88,6 +88,9 @@ export interface RenderShared {
   uvStretchCanvas: HTMLCanvasElement | null;
   uvStretchCanvasWidth: number;
   uvStretchCanvasHeight: number;
+  gradientCanvas: HTMLCanvasElement | null;
+  gradientCanvasWidth: number;
+  gradientCanvasHeight: number;
   /** Set when the user explicitly removes the lightmap (slot X). While set,
    * the implicit auto-bake from sun/ambient and normal-map changes is
    * suppressed so the render stays unlit (pure-white lightmap) until an

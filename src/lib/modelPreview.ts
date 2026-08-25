@@ -291,8 +291,29 @@ export class ModelViewport {
       }
     `,
   });
+  // Gradient-view material  outputs a grayscale gradient from the mesh's
+  // interpolated UV V (Y) coordinate: black at V=0, white at V=1. Reveals UV
+  // directionality / orientation across the surface; flipped or inverted UV
+  // shells read as a reversed gradient.
+  private readonly gradientMaterial = new ShaderMaterial({
+    side: DoubleSide,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec2 vUv;
+      void main() {
+        gl_FragColor = vec4(vec3(clamp(vUv.y, 0.0, 1.0)), 1.0);
+      }
+    `,
+  });
   private readonly originalMaterials = new WeakMap<Mesh, Material | Material[]>();
   private normalsView = false;
+  private gradientView = false;
   private frame = 0;
   // Strips Ctrl/Cmd/Shift from pointerdown so three's built-in modifier swap
   // (orbit-left becomes pan, pan-left becomes orbit) can never fire. The
@@ -375,6 +396,7 @@ export class ModelViewport {
   setModel(model: Object3D, animations: AnimationClip[]): void {
     if (this.model) {
       this.setNormalsView(false);
+      this.setGradientView(false);
       this.scene.remove(this.model);
       disposeModel(this.model);
     }
@@ -426,7 +448,7 @@ export class ModelViewport {
   /** The materials that carry the baked texture  the live materials, or the
    * originals stashed while the normals debug view is active. */
   private texturableMaterials(mesh: Mesh): Material[] {
-    if (this.normalsView) {
+    if (this.normalsView || this.gradientView) {
       const original = this.originalMaterials.get(mesh);
       return original ? (Array.isArray(original) ? original : [original]) : [];
     }
@@ -454,12 +476,39 @@ export class ModelViewport {
    * originals when disabled. */
   setNormalsView(enabled: boolean): void {
     if (!this.model || this.normalsView === enabled) return;
+    // The two showcase views share the material-stash map; enabling one must
+    // first restore the other so stashed originals can't be confused.
+    if (enabled) this.setGradientView(false);
     this.normalsView = enabled;
     this.model.traverse((child) => {
       if (!(child instanceof Mesh)) return;
       if (enabled) {
         this.originalMaterials.set(child, child.material);
         child.material = this.normalMapMaterial;
+      } else {
+        const original = this.originalMaterials.get(child);
+        if (original) {
+          child.material = original;
+          this.originalMaterials.delete(child);
+        }
+      }
+    });
+  }
+
+  /** Swaps every mesh to the UV-V gradient showcase material  gray = the
+   * mesh's interpolated V (Y) UV coordinate (black at V=0, white at V=1) 
+   * revealing UV directionality / orientation across the surface, and restores
+   * the originals when disabled. Mutually exclusive with the Normals view (the
+   * two share the material-stash map). */
+  setGradientView(enabled: boolean): void {
+    if (!this.model || this.gradientView === enabled) return;
+    if (enabled) this.setNormalsView(false);
+    this.gradientView = enabled;
+    this.model.traverse((child) => {
+      if (!(child instanceof Mesh)) return;
+      if (enabled) {
+        this.originalMaterials.set(child, child.material);
+        child.material = this.gradientMaterial;
       } else {
         const original = this.originalMaterials.get(child);
         if (original) {
@@ -750,8 +799,10 @@ export class ModelViewport {
     this.removeOverlapOverlay();
     this.removeStretchOverlay();
     this.setNormalsView(false);
+    this.setGradientView(false);
     if (this.model) disposeModel(this.model);
     this.normalMapMaterial.dispose();
+    this.gradientMaterial.dispose();
     this.normalMapTexture?.dispose();
     this.floorGrid.geometry.dispose();
     this.floorGridMaterial.dispose();

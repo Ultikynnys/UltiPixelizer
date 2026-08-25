@@ -11,7 +11,7 @@ export type TextureChannelId = 'base' | 'ao' | 'normal' | 'lightmap' | 'displace
 
 export type PreviewMode = '2d' | '3d';
 
-export type PreviewViewMode = 'flat' | 'basecolor' | 'normals' | 'ao' | 'lightmap' | 'lightmap-ao' | 'uv-stretch';
+export type PreviewViewMode = 'flat' | 'basecolor' | 'normals' | 'ao' | 'lightmap' | 'lightmap-ao' | 'uv-stretch' | 'gradient';
 
 /** Palette-library search sort: name A–Z (default), fewest colors, most colors. */
 export type PaletteSearchSort = 'name' | 'fewest' | 'most';

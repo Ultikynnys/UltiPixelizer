@@ -44,6 +44,29 @@ export function renderUVStretchCanvas(data: UVStretchData, width: number, height
   return canvas;
 }
 
+/** The 2D UV-space reference for the Gradient view mode: a vertical grayscale
+ * gradient over the V (Y) UV coordinate, white at the top (V=1) fading to
+ * black at the bottom (V=0). The 3D viewports color each surface point by the
+ * same gray = V mapping, so a model's gradient view lines up with this canvas. */
+function renderGradientCanvas(width: number, height: number): HTMLCanvasElement {
+  const { canvas, context } = createCanvas(width, height);
+  if (!context) return canvas;
+  const image = context.createImageData(width, height);
+  for (let py = 0; py < height; py += 1) {
+    // Row 0 is the canvas top = V=1 (white); the bottom row = V=0 (black).
+    const gray = Math.round(((height - 1 - py) / Math.max(height - 1, 1)) * 255);
+    for (let px = 0; px < width; px += 1) {
+      const offset = (py * width + px) * 4;
+      image.data[offset] = gray;
+      image.data[offset + 1] = gray;
+      image.data[offset + 2] = gray;
+      image.data[offset + 3] = 255;
+    }
+  }
+  context.putImageData(image, 0, 0);
+  return canvas;
+}
+
 export function createRender2D(deps: RendererDeps, shared: RenderShared): Render2DApi {
   const {
     state,
@@ -215,6 +238,19 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     getOriginalViewport()?.setUVStretch(state.viewModeOriginal === 'uv-stretch' ? stretchData : null);
     getProcessedViewport()?.setUVStretch(state.viewModeProcessed === 'uv-stretch' ? stretchData : null);
 
+    // Gradient view: stage a vertical V-gradient canvas for the 2D panes and
+    // feed each 3D viewport's UV-directionality material.
+    const gradientSelected = state.viewModeOriginal === 'gradient' || state.viewModeProcessed === 'gradient';
+    let gradientSource: SourceImage | null = null;
+    if (gradientSelected && (!shared.gradientCanvas || shared.gradientCanvasWidth !== width || shared.gradientCanvasHeight !== height)) {
+      shared.gradientCanvas = renderGradientCanvas(width, height);
+      shared.gradientCanvasWidth = width;
+      shared.gradientCanvasHeight = height;
+    }
+    if (gradientSelected) gradientSource = shared.gradientCanvas;
+    getOriginalViewport()?.setGradientView(state.viewModeOriginal === 'gradient');
+    getProcessedViewport()?.setGradientView(state.viewModeProcessed === 'gradient');
+
     const lightmapCanvas = textures.lightmap.image ?? shared.implicitLightmapCanvas;
     const lightmapAoSelected = state.viewModeOriginal === 'lightmap-ao' || state.viewModeProcessed === 'lightmap-ao';
     let lightmapAoSource: SourceImage | null = null;
@@ -269,6 +305,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       : viewMode === 'lightmap' ? lightmapCanvas
       : viewMode === 'lightmap-ao' ? lightmapAoSource
       : viewMode === 'uv-stretch' ? stretchSource
+      : viewMode === 'gradient' ? gradientSource
       : null;
     const originalOnlySource = inspectionSource(state.viewModeOriginal);
     const processedOnlySource = inspectionSource(state.viewModeProcessed);
@@ -278,7 +315,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     // pixelized with nearest-neighbor at the target resolution instead (the
     // same map the 3D processed viewport displays).
     const processedSource = processedOnlySource ?? textures.base.image!;
-    const directInspection = (state.viewModeProcessed === 'normals' || state.viewModeProcessed === 'uv-stretch') && processedOnlySource !== null;
+    const directInspection = (state.viewModeProcessed === 'normals' || state.viewModeProcessed === 'uv-stretch' || state.viewModeProcessed === 'gradient') && processedOnlySource !== null;
     let nextCanvas: HTMLCanvasElement;
     if (directInspection) {
       // The normals inspection shows the same chunky blocks as the dithered

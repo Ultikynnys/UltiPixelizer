@@ -480,6 +480,31 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 
+  it('renders the vertical V-gradient in the 2D panes and feeds the viewports', () => {
+    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setGradientView: vi.fn() };
+    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setGradientView: vi.fn() };
+    const deps = createRendererDeps({
+      textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } },
+      getOriginalViewport: () => originalViewport as unknown as ModelViewport,
+      getProcessedViewport: () => processedViewport as unknown as ModelViewport,
+    });
+    deps.state.viewModeOriginal = 'gradient';
+    deps.state.viewModeProcessed = 'gradient';
+    const shared = sharedState();
+    createRender2D(deps, shared).render();
+
+    // The staged reference gradient goes white (V=1, top) to black (V=0, bottom).
+    expect(shared.gradientCanvas).not.toBeNull();
+    const w = deps.originalCanvas.width;
+    const pixels = deps.originalCanvas.context.pixels;
+    const h = pixels.length / 4 / w;
+    expect(Array.from(pixels.slice(0, 4))).toEqual([255, 255, 255, 255]); // top row = V=1
+    const bottomLeft = (h - 1) * w * 4;
+    expect(Array.from(pixels.slice(bottomLeft, bottomLeft + 4))).toEqual([0, 0, 0, 255]); // bottom row = V=0
+    expect(originalViewport.setGradientView).toHaveBeenCalledWith(true);
+    expect(processedViewport.setGradientView).toHaveBeenCalledWith(true);
+  });
+
   it('renders matching UV and world faces with the shared stretch colors', async () => {
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new Float32BufferAttribute([
@@ -492,8 +517,8 @@ describe('createRender2D render pipeline', () => {
     ], 2));
     const scene = new Scene();
     scene.add(new Mesh(geometry, new MeshBasicMaterial()));
-    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn() };
-    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn() };
+    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setGradientView: vi.fn() };
+    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setGradientView: vi.fn() };
     const deps = createRendererDeps({
       textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } },
       getAOScene: () => scene,
@@ -512,8 +537,8 @@ describe('createRender2D render pipeline', () => {
   });
 
   it('feeds the viewports when both are available', () => {
-    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn() };
-    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn() };
+    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setGradientView: vi.fn() };
+    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setGradientView: vi.fn() };
     const deps = createRendererDeps({
       textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } },
       getOriginalViewport: () => originalViewport as unknown as ModelViewport,
