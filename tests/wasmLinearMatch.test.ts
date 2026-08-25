@@ -43,7 +43,7 @@ describe('wasm palette scan', () => {
       const buf = readFileSync(fileURLToPath(new URL('../src/wasm/dither.wasm', import.meta.url)));
       bytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
     } catch {
-      // wasm not built — `available` stays false and the test skips below.
+      // wasm not built  `available` stays false and the test skips below.
     }
     if (bytes) {
       await initDitherWasm(bytes);

@@ -7,7 +7,7 @@ import type { SourceImage } from '../../src/lib/state';
  * The lib layer (canvas.ts, render/*, modelPreview.ts) reaches for
  * `document.createElement('canvas')`, 2D contexts, `ImageData`,
  * `requestAnimationFrame`, `ResizeObserver`, `matchMedia`, `getComputedStyle`
- * and friends — all absent in node. Installing these stubs once per test file
+ * and friends  all absent in node. Installing these stubs once per test file
  * keeps those tests deterministic and free of a jsdom dependency.
  */
 

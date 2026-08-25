@@ -202,7 +202,7 @@ describe('dithering engine', () => {
     expect([...bright.data]).toEqual([255, 255, 255, 255]);
   });
 
-  it('the empty pattern passes the source through — lighting only', () => {
+  it('the empty pattern passes the source through  lighting only', () => {
     const source = imageData(sourcePixels, 3);
     const result = processImageData(source, options('none'));
     expect(result.width).toBe(3);
@@ -250,10 +250,10 @@ describe('seamless error-diffusion padding', () => {
     }
   });
 
-  it('does not pad stateless modes — their patterns stay coordinate-locked', () => {
+  it('does not pad stateless modes  their patterns stay coordinate-locked', () => {
     // Ordered dithering carries no error across borders, so the wrapper must
     // delegate straight to the core. The first column of uniform gray is
-    // exactly the Bayer phase at x=0 — black/white alternating with y%4.
+    // exactly the Bayer phase at x=0  black/white alternating with y%4.
     // Padding would shift the phase by the tile height mod 4 (here +1), so
     // this assertion also catches an accidental pad of a stateless mode.
     const source = imageData(Array.from({ length: 16 * 5 }, () => [128, 128, 128, 255]), 16);
@@ -263,8 +263,8 @@ describe('seamless error-diffusion padding', () => {
     expect(column).toEqual([0, 255, 0, 255, 0]);
   });
 
-  /** The pre-optimization seamless path — a 3×3 grid of full tile copies,
-   * dither, crop the center — kept here as the reference the streaming scan
+  /** The pre-optimization seamless path  a 3×3 grid of full tile copies,
+   * dither, crop the center  kept here as the reference the streaming scan
    * must reproduce byte-for-byte. */
   const referenceTiled = (source: ImageData): ImageData => {
     const { width, height } = source;
@@ -350,7 +350,7 @@ describe('seamless error-diffusion padding', () => {
     }
   });
 
-  /** Clean ascending hex palette — 6-digit channels so hexToRgb round-trips. */
+  /** Clean ascending hex palette  6-digit channels so hexToRgb round-trips. */
   const paletteOf = (count: number): string[] => {
     const colors: string[] = [];
     for (let i = 0; i < count; i += 1) {
@@ -360,8 +360,8 @@ describe('seamless error-diffusion padding', () => {
     return colors;
   };
 
-  /** Linear-scan oracle replicating `linearMatch` exactly — same expression,
-   * same float32 weights — so the k-d tree's output can be asserted
+  /** Linear-scan oracle replicating `linearMatch` exactly  same expression,
+   * same float32 weights  so the k-d tree's output can be asserted
    * byte-for-byte (the exported nearestColor uses double-precision weights
    * and can differ from the matcher on near-ties). */
   const linearMatchOracle = (r: number, g: number, b: number, palette: string[]): number => {
@@ -485,7 +485,7 @@ describe('seamless error-diffusion padding', () => {
   });
 
   it('the k-d matcher resolves a 64-color palette exactly like the linear scan', () => {
-    // strength 0 removes the ordered pattern offset — the pipeline reduces to
+    // strength 0 removes the ordered pattern offset  the pipeline reduces to
     // tone-adjust (identity at 0/0/0) + palette mapping, isolating the matcher.
     const source = textured(48, 32);
     const palette = paletteOf(64);

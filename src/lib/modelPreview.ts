@@ -183,7 +183,7 @@ export class ModelViewport {
   private readonly controls: OrbitControls;
   private readonly timer = new Timer();
   private readonly resizeObserver: ResizeObserver;
-  // Lighting is baked only — the model texture already carries the baked (or
+  // Lighting is baked only  the model texture already carries the baked (or
   // implicitly baked) lighting, so the viewport never re-lights it in realtime.
   // The full-intensity white ambient displays the texture unmodulated.
   private readonly ambient = new AmbientLight(0xffffff, Math.PI);
@@ -251,7 +251,7 @@ export class ModelViewport {
   private stretchOverlay: Mesh | null = null;
   private stretchData: UVStretchData | null = null;
   private normalMapTexture: Texture | null = null;
-  // Normals view material — samples the model's normal-map texture at UV and
+  // Normals view material  samples the model's normal-map texture at UV and
   // outputs the decoded tangent-space normal as color, using the same decode
   // the lightmap bake applies (rgb*2-1, DirectX green flip, strength, tz
   // reconstruction). Without a map every fragment is the neutral flat normal
@@ -358,8 +358,8 @@ export class ModelViewport {
     this.floorGrid.rotation.x = -Math.PI / 2;
     this.scene.add(this.ambient, this.floorGrid);
     this.axes.renderOrder = 1;
-    // The gizmo lives in its own scene — rendered last, scissored into the
-    // bottom-right corner — so the model can never occlude it. It renders with
+    // The gizmo lives in its own scene  rendered last, scissored into the
+    // bottom-right corner  so the model can never occlude it. It renders with
     // auto-clear disabled (see renderGizmo), so no background plane is needed
     // and the model shows through. The axis lines skip depth testing so the
     // stale model depth buffer can't hide them.
@@ -382,7 +382,7 @@ export class ModelViewport {
     this.removeStretchOverlay();
     this.model = model;
     this.scene.add(model);
-    // Keep the gizmo aligned with the model's world-axis convention — the model
+    // Keep the gizmo aligned with the model's world-axis convention  the model
     // arrives pre-oriented from loadModel, so mirror its root rotation.
     this.axes.rotation.copy(model.rotation);
     this.mixer = animations.length ? new AnimationMixer(model) : null;
@@ -423,7 +423,7 @@ export class ModelViewport {
     return count;
   }
 
-  /** The materials that carry the baked texture — the live materials, or the
+  /** The materials that carry the baked texture  the live materials, or the
    * originals stashed while the normals debug view is active. */
   private texturableMaterials(mesh: Mesh): Material[] {
     if (this.normalsView) {
@@ -442,15 +442,15 @@ export class ModelViewport {
   }
 
   /** Displaces the model's vertices along their original normals by the
-   * heightmap sample at each vertex's UV — see modelScene.applyDisplacement.
+   * heightmap sample at each vertex's UV  see modelScene.applyDisplacement.
    * Pass null (or zero strength) to restore the pristine geometry. */
   applyDisplacement(height: HeightSampler | null, strength: number): void {
     if (!this.model) return;
     applyDisplacement(this.model, height, strength);
   }
 
-  /** Swaps every mesh to the normal-map showcase material — the actual normal
-   * map sampled at UV, not the mesh's vertex normals — and restores the
+  /** Swaps every mesh to the normal-map showcase material  the actual normal
+   * map sampled at UV, not the mesh's vertex normals  and restores the
    * originals when disabled. */
   setNormalsView(enabled: boolean): void {
     if (!this.model || this.normalsView === enabled) return;
@@ -493,7 +493,7 @@ export class ModelViewport {
     uniforms.uFlipY.value = flipY ? 1 : 0;
   }
 
-  /** Live strength update for the Normals-view showcase — cheaper than a full
+  /** Live strength update for the Normals-view showcase  cheaper than a full
    * `setNormalMap`, since only the shader uniform moves and the texture stays
    * untouched. Mirrors the lightmap bake's `normalStrength` decode. */
   setNormalStrength(strength: number): void {
@@ -647,7 +647,7 @@ export class ModelViewport {
     this.onCameraChange?.();
   }
 
-  /** Snapshot of the orbit camera — position, orientation, and orbit target —
+  /** Snapshot of the orbit camera  position, orientation, and orbit target 
    * so the user's view can survive a model swap (setModel refits the camera). */
   captureCamera(): CameraState {
     return {
@@ -668,7 +668,7 @@ export class ModelViewport {
 
   /** Re-aims the orbit camera from a saved view (world position + orbit
    * target). The viewport up axis is fixed, so position + target fully
-   * determine the orientation — angle and position survive the round-trip
+   * determine the orientation  angle and position survive the round-trip
    * without storing the camera quaternion. Fires the camera-change callback
    * so the orientation readout follows. Used when loading saved settings. */
   restoreCameraView(position: DirectionVector, target: DirectionVector): void {

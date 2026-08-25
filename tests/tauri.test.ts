@@ -61,7 +61,7 @@ describe('disableWebviewContextMenu', () => {
     return handlers;
   }
 
-  it('registers in the plain browser and under Tauri — the tool UI never shows the native menu', () => {
+  it('registers in the plain browser and under Tauri  the tool UI never shows the native menu', () => {
     // The suppression is not desktop-only: the web build's own right-click
     // menu (Back/Refresh/Save As/Print) is equally unwanted on UI controls.
     expect(withWindowListener(() => {

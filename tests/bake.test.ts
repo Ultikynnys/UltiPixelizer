@@ -15,7 +15,7 @@ vi.mock('../src/lib/aoBake', () => ({
 vi.mock('../src/lib/lightmapBake', () => ({
   bakeMeshLightmap: mocks.bakeMeshLightmap,
   // bake.ts routes both the explicit and implicit bakes through the async
-  // wrapper — point it at the same spy so call-count assertions hold.
+  // wrapper  point it at the same spy so call-count assertions hold.
   bakeLightmapAsync: mocks.bakeMeshLightmap,
 }));
 
@@ -67,7 +67,7 @@ describe('setFallbackQuad', () => {
 
       expect(mocks.bakeMeshAOAsync.mock.calls[0][0]).toBe(custom);
     } finally {
-      // The fallback is a module-level singleton shared across bakes — restore
+      // The fallback is a module-level singleton shared across bakes  restore
       // the default quad so later tests see the pristine fallback.
       bake.setFallbackQuad(createFallbackQuadScene());
     }
@@ -85,7 +85,7 @@ describe('setFallbackQuad', () => {
       vi.advanceTimersByTime(30);
       await promise;
 
-      // The AO bake receives the whole grid — collectBakeScene marks the
+      // The AO bake receives the whole grid  collectBakeScene marks the
       // neighbors occluder-only, so they occlude the middle tile's hemisphere
       // rays without ever rasterizing over its texture.
       expect(mocks.bakeMeshAOAsync.mock.calls[0][0]).toBe(grid);
@@ -164,7 +164,7 @@ describe('generateAo', () => {
     vi.advanceTimersByTime(30);
     await promise;
 
-    // 256 × 512 dithers to 64 × 128 — the width is capped, not the longest
+    // 256 × 512 dithers to 64 × 128  the width is capped, not the longest
     // side, so the bake stays identical to the dithered texture.
     expect(mocks.bakeMeshAOAsync).toHaveBeenCalledWith(scene, 64, 128, { samples: 64, distance: 2, normalStrength: 1, normalFlipY: false }, undefined, expect.any(Object));
   });
@@ -421,7 +421,7 @@ describe('isLightmapCleared', () => {
     expect(bake.isLightmapCleared()).toBe(true);
 
     // The flag is sticky: a plain clear drops the map but does not re-engage
-    // the implicit scheduler — only an explicit bake, a reset, or a deliberate
+    // the implicit scheduler  only an explicit bake, a reset, or a deliberate
     // lighting action (reengageLighting) does.
     bake.clearLightmap();
     expect(bake.isLightmapCleared()).toBe(true);
@@ -434,7 +434,7 @@ describe('isLightmapCleared', () => {
 
     bake.reengageLighting();
     expect(bake.isLightmapCleared()).toBe(false);
-    // Re-engaging must not itself start a bake — the scheduler that follows
+    // Re-engaging must not itself start a bake  the scheduler that follows
     // the slider change owns that.
     vi.advanceTimersByTime(1000);
     expect(mocks.bakeMeshLightmap).not.toHaveBeenCalled();
@@ -471,7 +471,7 @@ describe('fallback bake scene', () => {
 
     const scene = mocks.bakeMeshAOAsync.mock.calls[0][0] as Mesh;
     // The fallback quad's contract (flat +Y normal, full 0..1 UV span) is
-    // asserted once in the factory test — this test only checks the wiring.
+    // asserted once in the factory test  this test only checks the wiring.
     expectFallbackQuad(scene);
   });
 });

@@ -32,7 +32,7 @@ describe('createBoundedLru', () => {
     const cache = createBoundedLru<string, number>(2);
     cache.set('a', 1);
     cache.set('b', 2);
-    // Bump 'a' to the tail, then insert 'c' — 'b' becomes the oldest.
+    // Bump 'a' to the tail, then insert 'c'  'b' becomes the oldest.
     cache.delete('a');
     cache.set('a', 1);
     cache.set('c', 3);

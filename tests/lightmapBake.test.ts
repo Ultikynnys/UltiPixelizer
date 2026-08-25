@@ -177,7 +177,7 @@ describe('bakeMeshLightmap', () => {
     const scene = new Scene();
     const plane = new PlaneGeometry(1, 1);
     // Tilt every vertex normal toward +Y so the smoothed normal no longer matches
-    // the +Z face normal — the sun must use this, not the geometric normal.
+    // the +Z face normal  the sun must use this, not the geometric normal.
     const tilt = 1 / Math.SQRT2;
     const normals: number[] = [];
     for (let i = 0; i < plane.getAttribute('normal').count; i += 1) normals.push(0, tilt, tilt);
@@ -201,9 +201,9 @@ describe('bakeMeshLightmap', () => {
     geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
     geometry.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
     geometry.setAttribute('normal', new Float32BufferAttribute([
-      0, 0, 1, // +Z — fully lit
-      1, 0, 0, // +X — dark
-      0, 1, 0, // +Y — dark
+      0, 0, 1, // +Z  fully lit
+      1, 0, 0, // +X  dark
+      0, 1, 0, // +Y  dark
     ], 3));
     scene.add(new Mesh(geometry, new MeshBasicMaterial()));
 
@@ -217,7 +217,7 @@ describe('bakeMeshLightmap', () => {
     });
     const unmapped = bakeMeshLightmap(scene, 8, 8, { ...defaults, sunColor: '#ffffff' });
 
-    // The unmapped bake must now match the per-pixel reference everywhere — it
+    // The unmapped bake must now match the per-pixel reference everywhere  it
     // used to average the three vertex lights instead.
     for (let i = 0; i < unmapped.length; i += 4) {
       for (let channel = 0; channel < 3; channel += 1) {
@@ -289,7 +289,7 @@ describe('bakeLightmapAsync', () => {
   });
 
   it('matches the sync bake with a normal map', async () => {
-    // Flat-blue normal map built directly (no canvas — this suite runs in a
+    // Flat-blue normal map built directly (no canvas  this suite runs in a
     // node environment without DOM stubs).
     const data = new Uint8ClampedArray(4 * 4 * 4);
     for (let i = 0; i < 4 * 4; i += 1) {

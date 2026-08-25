@@ -190,7 +190,7 @@ a18a64
   it('rejects invalid, empty, and unsupported imports', () => {
     expect(() => paletteFromImport('', 'empty.hex')).toThrow('no valid colors');
     expect(() => paletteFromImport('#ffffff', 'one.hex')).toThrow('no valid colors');
-    // JSON payloads are not a palette format anymore — they yield no hex colors.
+    // JSON payloads are not a palette format anymore  they yield no hex colors.
     expect(() => paletteFromImport('{bad', 'bad.json')).toThrow('no valid colors');
     expect(() => paletteFromImport('{}', 'empty.json')).toThrow('no valid colors');
     expect(() => paletteFromImport('{"colors":["nothex"]}', 'bad.json')).toThrow('no valid colors');
@@ -312,7 +312,7 @@ describe('watchPalettesFolder', () => {
     const store = new FakeFileStore();
     const onChanged = vi.fn();
     const stop = watchPalettesFolder(store, onChanged, { intervalMs: 100 });
-    await vi.advanceTimersByTimeAsync(100); // baseline poll — no callback
+    await vi.advanceTimersByTimeAsync(100); // baseline poll  no callback
     expect(onChanged).not.toHaveBeenCalled();
 
     store.files.set('palettes/New.hex', '000000\nffffff\n');

@@ -55,7 +55,7 @@ fn distance(r: f64, g: f64, b: f64, cr: f64, cg: f64, cb: f64, wr: f64, wg: f64,
     (dr * dr * wr + dg * dg * wg) + db * db * wb
 }
 
-/// Scalar reference scan — byte-identical to JS `linearMatch`. Exported
+/// Scalar reference scan  byte-identical to JS `linearMatch`. Exported
 /// alongside the SIMD path so a mismatched result isolates the SIMD loop from
 /// a marshaling/contract bug.
 #[no_mangle]
@@ -87,7 +87,7 @@ pub extern "C" fn linear_match_scalar(
     best
 }
 
-/// SIMD f64x2 scan — two palette entries per lane. The pair reduction uses
+/// SIMD f64x2 scan  two palette entries per lane. The pair reduction uses
 /// first-wins so it matches the left-to-right strict-less-than order of the
 /// scalar/JS scan.
 ///
@@ -97,7 +97,7 @@ pub extern "C" fn linear_match_scalar(
 /// aligned).
 #[no_mangle]
 // The v128 SIMD intrinsics are gated behind the per-function simd128 target
-// feature — the default wasm32-unknown-unknown toolchain has it disabled, so
+// feature  the default wasm32-unknown-unknown toolchain has it disabled, so
 // calling f64x2_*/v128_* here fails to compile without this attribute.
 #[target_feature(enable = "simd128")]
 pub extern "C" fn linear_match(

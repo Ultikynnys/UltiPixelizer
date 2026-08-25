@@ -250,7 +250,7 @@ export type ComputePassSpec = {
   /** Number of invocations: workgroups = ceil(count / workgroupSize) and the
    * output buffer holds `count` f32s. */
   count: number;
-  /** Workgroup size — MUST match the shader's `@workgroup_size` (a mismatch
+  /** Workgroup size  MUST match the shader's `@workgroup_size` (a mismatch
    * silently under-dispatches and leaves trailing elements unwritten). */
   workgroupSize?: number;
 };

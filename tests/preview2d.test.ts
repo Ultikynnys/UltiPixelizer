@@ -48,7 +48,7 @@ class FakeSurface {
   }
 
   removeEventListener(): void {
-    /* no-op — preview2d never removes its own listeners */
+    /* no-op  preview2d never removes its own listeners */
   }
 
   /** Fires every listener for `type` with `event` merged over defaults
@@ -437,7 +437,7 @@ describe('image-repeat tiled canvas', () => {
   it('maps frame points into the 3× backing buffer', () => {
     const { api } = makePreview({ canvas: { repeatTiled: true } });
     // Box-center origin: at scale 3 the image hangs from (−350, −150), so the
-    // window center (250, 150) hits the buffer center (100, 50) — the center
+    // window center (250, 150) hits the buffer center (100, 50)  the center
     // of the middle tile.
     expect(api.toCanvasPixel(250, 150)).toEqual({ x: 100, y: 50 });
   });

@@ -12,7 +12,7 @@ export function planeScene(): Scene {
   return scene;
 }
 
-/** Serialized bake scene for a plain plane — the shared fixture for the GPU
+/** Serialized bake scene for a plain plane  the shared fixture for the GPU
  * and worker raster tests. */
 export function serializedPlaneScene(samples = 4, distance = 2): SerializedBakeScene {
   return serializeBakeScene(collectBakeScene(planeScene(), distance), samples);
@@ -21,7 +21,7 @@ export function serializedPlaneScene(samples = 4, distance = 2): SerializedBakeS
 /** Occluder-only ceiling quad (no UVs) at z = 0.5 spanning ±`half`, so it
  * occludes bake surfaces but is never baked itself. `mirror` clips the quad
  * to the positive-x half when set to 1 (or negative-x when -1); 0 (default)
- * keeps the full ±`half` span — the mirrored half-quad form the AO mirror
+ * keeps the full ±`half` span  the mirrored half-quad form the AO mirror
  * tests bake. */
 export function ceilingQuad(half = 2, mirror: -1 | 0 | 1 = 0): Mesh {
   const x0 = mirror === 0 ? -half : 0;
@@ -42,7 +42,7 @@ export function uvIsland(): BufferGeometry {
   return island;
 }
 
-/** A unit triangle whose UVs match its local XY (uv (0,0),(1,0),(0,1)) — the
+/** A unit triangle whose UVs match its local XY (uv (0,0),(1,0),(0,1))  the
  * shared fixture for cache/raster tests that need one full-UV triangle. */
 export function uvTriangle(): Mesh {
   const geometry = new BufferGeometry();
@@ -52,7 +52,7 @@ export function uvTriangle(): Mesh {
   return new Mesh(geometry, new MeshBasicMaterial());
 }
 
-/** The 3×3 fallback grid with the +Z neighbor raised to y = 0.6 — the
+/** The 3×3 fallback grid with the +Z neighbor raised to y = 0.6  the
  * displacement scenario shared by the AO and lightmap bake tests. */
 export function raisedNeighborScene(): Object3D {
   const scene = createFallbackQuadScene(4, true);

@@ -7,7 +7,7 @@ export function stubNoWebGpu(): void {
   vi.stubGlobal('navigator', {});
 }
 
-/** Stubs `navigator.gpu` with a `requestAdapter` mock that yields no device —
+/** Stubs `navigator.gpu` with a `requestAdapter` mock that yields no device 
  * the GPU path proceeds far enough to prove it fires the device request, then
  * fails loudly ("adapter unavailable"). */
 export function stubWebGpuAdapter(requestAdapter: ReturnType<typeof vi.fn>): void {

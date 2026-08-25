@@ -37,7 +37,7 @@ export interface RendererDeps {
 
 export interface RendererApi {
   render: () => Promise<void>;
-  /** Re-applies the last rendered frames to both 3D viewports — call right
+  /** Re-applies the last rendered frames to both 3D viewports  call right
    * after swapping a viewport's model/quad so the fresh materials pick up the
    * texture synchronously instead of flashing white until the next render. */
   applyViewportImages: () => void;
@@ -45,12 +45,12 @@ export interface RendererApi {
   bakeLighting: () => Promise<boolean>;
   /** Removes the lightmap and cancels any in-flight lighting bake. */
   clearLightmap: (suppressImplicit?: boolean) => void;
-  /** Whether the lightmap slot was explicitly cleared (X) — while true, the
+  /** Whether the lightmap slot was explicitly cleared (X)  while true, the
    * implicit re-bake scheduler (sun/ambient sliders, normal-map slot edits)
    * stays quiet; see RenderShared.lightmapCleared. */
   isLightmapCleared: () => boolean;
   /** Clears the lightmap-cleared flag so the implicit re-bake scheduler runs
-   * again. Called when the user adjusts a sun/ambient light control — a
+   * again. Called when the user adjusts a sun/ambient light control  a
    * deliberate lighting action must never leave the sliders silently dead
    * after the slot's X. Does not start a bake itself. */
   reengageLighting: () => void;
@@ -59,13 +59,13 @@ export interface RendererApi {
    * rotation, model import/close. Without this the next bake would reuse stale
    * UVs/visibility/rotation. */
   invalidateBakeScene: () => void;
-  /** Replaces the bake geometry used when no model is loaded — the quad view's
+  /** Replaces the bake geometry used when no model is loaded  the quad view's
    * tessellated middle tile. main.ts calls this when tessellation or
    * displacement changes; the bake cache must be invalidated alongside. */
   setFallbackQuad: (scene: Object3D) => void;
   refreshUVWireframe: () => void;
   refreshUVOverlap: () => void;
-  /** Forces the next refreshUVOverlap to recompute — call after any in-place
+  /** Forces the next refreshUVOverlap to recompute  call after any in-place
    * change to the AO scene's UVs/visibility/rotation. */
   invalidateUVOverlap: () => void;
   invalidateUVStretch: () => void;

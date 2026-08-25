@@ -11,18 +11,18 @@ import type { Render2DApi } from './render2d';
 import type { RendererDeps, RenderShared } from './types';
 
 // Hemisphere samples per texel. 64 cosine-weighted symmetric samples is
-// visually near-identical to 128 at a fraction of the bake time — the AO bake
+// visually near-identical to 128 at a fraction of the bake time  the AO bake
 // cost scales linearly with this count (and with texel count, i.e. resolution).
 const AO_BAKE_SAMPLES = 64;
 
 // When no model is loaded the AO scene is null and every bake would otherwise
 // no-op. Substitute a flat quad facing up (see createFallbackQuadScene): the
 // default sun, which travels downward, lights it; a lone plane occludes
-// nothing — the AO bake comes out white, which is exactly correct for a flat
+// nothing  the AO bake comes out white, which is exactly correct for a flat
 // surface. Its UVs span 0..1, so the full texture bakes. main.ts replaces the
 // quad via setFallbackQuad when the quad view's tessellation / grid /
 // displacement settings change. In grid mode the bake scene is the full 3×3
-// grid — the neighbors are occluder-only (see collectBakeScene), so they cast
+// grid  the neighbors are occluder-only (see collectBakeScene), so they cast
 // shadows on the middle tile's bake without rasterizing over its texture.
 // Memoized (see getFallbackQuadScene) so the default quad is generated once
 // and shares its bake-scene cache entry with main.ts's default instance.
@@ -35,17 +35,17 @@ export interface BakeApi {
   generateAo: () => Promise<boolean>;
   bakeLighting: () => Promise<boolean>;
   clearLightmap: (suppressImplicit?: boolean) => void;
-  /** Whether the lightmap slot was explicitly cleared (X) — while set, the
+  /** Whether the lightmap slot was explicitly cleared (X)  while set, the
    * app-level implicit re-bake scheduler must stay quiet so the render keeps
    * the user's unlit choice until Orient Sun with Camera, a loaded lightmap,
    * or a reset re-engages it. */
   isLightmapCleared: () => boolean;
   /** Clears the lightmap-cleared flag so the implicit re-bake scheduler runs
-   * again — a deliberate sun/ambient light adjustment re-engages lighting even
+   * again  a deliberate sun/ambient light adjustment re-engages lighting even
    * after the slot X. Does not start a bake itself. */
   reengageLighting: () => void;
   invalidateBakeScene: () => void;
-  /** Replaces the bake geometry used when no model is loaded — the quad view's
+  /** Replaces the bake geometry used when no model is loaded  the quad view's
    * tessellated tile (or the full 3×3 grid in grid mode, whose neighbors are
    * occluder-only). Callers must invalidate the bake scene alongside
    * (invalidateBakeScene) so the next bake recollects the new quad. */
@@ -71,8 +71,8 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
     return getAOScene() ?? fallbackQuadScene();
   }
 
-  // The processed normal map — resampled to the output resolution and pixelized
-  // with the downscale/upscale amount — is what the bakes sample, so lighting
+  // The processed normal map  resampled to the output resolution and pixelized
+  // with the downscale/upscale amount  is what the bakes sample, so lighting
   // and AO follow the same chunky normals the processed viewports display. The
   // decoded pixels are memoized per (image, bake size, pixelation, upscale):
   // re-baking on a sun or strength tweak shouldn't re-read the whole map off
@@ -132,8 +132,8 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
   async function bakeLightmapCanvas(signal?: AbortSignal): Promise<HTMLCanvasElement | null> {
     if (!textures.base.image) return null;
     const scene = bakeSceneSource();
-    // Baked maps render at the dithered texture resolution — identical to the
-    // processed output — so lighting and occlusion align 1:1 with the texture.
+    // Baked maps render at the dithered texture resolution  identical to the
+    // processed output  so lighting and occlusion align 1:1 with the texture.
     const { width, height } = dimensions();
     const bakeScene = getBakeScene(scene);
     const pixels = await bakeLightmapAsync(scene, width, height, currentLightmapBakeOptions(), bakeScene ?? undefined, signal);
@@ -168,7 +168,7 @@ export function createBake(deps: RendererDeps, shared: RenderShared, render2d: R
 
   // Shared async-bake runner: deferred try/catch. Resolves true when the bake
   // completed, false on early exit or failure (failures are logged to the
-  // console) — callers that need the result, like the texture-slot download
+  // console)  callers that need the result, like the texture-slot download
   // button, can await it. No scene guard: bakeSceneSource guarantees the
   // bakes always have geometry to run against.
   function runBakeTask(failureMessage: string, work: () => boolean | Promise<boolean>): Promise<boolean> {

@@ -8,7 +8,7 @@ import type { RendererDeps, RenderShared } from './types';
 export interface OverlayApi {
   refreshUVWireframe: () => void;
   refreshUVOverlap: () => void;
-  /** Forces the next refreshUVOverlap to recompute — call after any in-place
+  /** Forces the next refreshUVOverlap to recompute  call after any in-place
    * change to the AO scene's UVs/visibility/rotation. */
   invalidateUVOverlap: () => void;
   /** Synchronizes the cached UV wireframe canvases after the toggle, pane
@@ -40,8 +40,8 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
   let uvOverlayComposite: HTMLCanvasElement | null = null;
   let uvOverlayFrame = 0;
   // Last-computed overlap context. The mask depends only on the scene's UVs
-  // (model, UV channel, LOD, world axis) and the mask resolution — both stable
-  // across basecolor swaps and ribbon refreshes — so a warm cache skips the
+  // (model, UV channel, LOD, world axis) and the mask resolution  both stable
+  // across basecolor swaps and ribbon refreshes  so a warm cache skips the
   // ~150ms per-triangle re-rasterization on a 60k-tri model. The overlap map
   // is retained alongside so a cache hit can re-apply the per-pane viewport
   // highlights after a toggle flip.
@@ -96,7 +96,7 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
     // the common warm case (same scene and resolution).
     if (uvOverlapMaskCanvas && uvOverlapCache && uvOverlapCache.scene === scene && uvOverlapCache.width === width && uvOverlapCache.height === height) {
       // The mask is still valid, but the per-pane toggles may have changed
-      // since the last refresh — re-apply each viewport's highlight so only
+      // since the last refresh  re-apply each viewport's highlight so only
       // the pane(s) whose toggle is on show it.
       setViewportOverlap(uvOverlapCache.overlapping);
       startUVOverlayAnimation();
@@ -259,7 +259,7 @@ export function createOverlay(deps: RendererDeps, shared: RenderShared): Overlay
   }
 
   // Frame resizes change the overlay's display resolution and the texture
-  // bitmap's letterbox rect — keep the wireframe aligned. (Bitmap size
+  // bitmap's letterbox rect  keep the wireframe aligned. (Bitmap size
   // changes are covered by the render wrapper re-syncing after every render.)
   const wireframeResizeObserver = new ResizeObserver(() => syncWireframeOverlays());
   wireframeResizeObserver.observe(originalWireframeOverlay);

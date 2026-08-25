@@ -53,7 +53,7 @@ const DITHER_MODE_OPTIONS: ReadonlyArray<{ mode: DitherMode; label: string; patt
   { mode: 'none', label: 'None', pattern: 'none' },
 ];
 
-/** Pattern swatch + label markup for a dither mode — the dropdown trigger and
+/** Pattern swatch + label markup for a dither mode  the dropdown trigger and
  * every option row share the same inner content. */
 function modeRow(mode: DitherMode): string {
   const option = DITHER_MODE_OPTIONS.find((candidate) => candidate.mode === mode);
@@ -64,21 +64,21 @@ function modeRow(mode: DitherMode): string {
 // download buttons, and the Export PNG button, so the markup lives in one place.
 const DOWNLOAD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v7M4.5 6.5L7 9l2.5-2.5M1 11.5h12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-// Expand-icon for the dithered preview's fullscreen toggle — four outward
+// Expand-icon for the dithered preview's fullscreen toggle  four outward
 // corner brackets so it reads as "make bigger" (inverse of a collapse glyph).
 const FULLSCREEN_ICON_SVG = '<svg width="12" height="12" viewBox="0 0 14 14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9"/></svg>';
 
-// Import-arrow icon for the palette import card — the inverse of download:
+// Import-arrow icon for the palette import card  the inverse of download:
 // the tray line stays at the bottom, but the arrowhead flips to the top of
 // the shaft so the arrow points up, out of storage into the app.
 const IMPORT_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 9v-7M4.5 4.5L7 2l2.5 2.5M1 11.5h12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // Eyedropper (pipette) icon for the screen color-picker button in the palette
-// editor — a round bulb, tube, and needle tip so it reads as a dropper (the
+// editor  a round bulb, tube, and needle tip so it reads as a dropper (the
 // previous straight-shaft glyph looked like a sword). Phosphor icons, MIT.
 const EYEDROPPER_ICON_SVG = '<svg width="28" height="28" viewBox="0 0 256 256" aria-hidden="true" fill="currentColor"><path d="M224,67.3a35.79,35.79,0,0,0-11.26-25.66c-14-13.28-36.72-12.78-50.62,1.13L142.8,62.2a24,24,0,0,0-33.14.77l-9,9a16,16,0,0,0,0,22.64l2,2.06-51,51a39.75,39.75,0,0,0-10.53,38l-8,18.41A13.68,13.68,0,0,0,36,219.3a15.92,15.92,0,0,0,17.71,3.35L71.23,215a39.89,39.89,0,0,0,37.06-10.75l51-51,2.06,2.06a16,16,0,0,0,22.62,0l9-9a24,24,0,0,0,.74-33.18l19.75-19.87A35.75,35.75,0,0,0,224,67.3ZM97,193a24,24,0,0,1-24,6,8,8,0,0,0-5.55.31l-18.1,7.91L57,189.41a8,8,0,0,0,.25-5.75A23.88,23.88,0,0,1,63,159l51-51,33.94,34ZM202.13,82l-25.37,25.52a8,8,0,0,0,0,11.3l4.89,4.89a8,8,0,0,1,0,11.32l-9,9L112,83.26l9-9a8,8,0,0,1,11.31,0l4.89,4.89a8,8,0,0,0,11.33,0l24.94-25.09c7.81-7.82,20.5-8.18,28.29-.81a20,20,0,0,1,.39,28.7Z"/></svg>';
 
-// The same pipette as a cursor image (explicit fill — a cursor can't inherit
+// The same pipette as a cursor image (explicit fill  a cursor can't inherit
 // currentColor). Encoded at runtime so no hand-escaped SVG sits in the CSS.
 const EYEDROPPER_CURSOR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 256 256"><path fill="#e8e8e2" d="M224,67.3a35.79,35.79,0,0,0-11.26-25.66c-14-13.28-36.72-12.78-50.62,1.13L142.8,62.2a24,24,0,0,0-33.14.77l-9,9a16,16,0,0,0,0,22.64l2,2.06-51,51a39.75,39.75,0,0,0-10.53,38l-8,18.41A13.68,13.68,0,0,0,36,219.3a15.92,15.92,0,0,0,17.71,3.35L71.23,215a39.89,39.89,0,0,0,37.06-10.75l51-51,2.06,2.06a16,16,0,0,0,22.62,0l9-9a24,24,0,0,0,.74-33.18l19.75-19.87A35.75,35.75,0,0,0,224,67.3ZM97,193a24,24,0,0,1-24,6,8,8,0,0,0-5.55.31l-18.1,7.91L57,189.41a8,8,0,0,0,.25-5.75A23.88,23.88,0,0,1,63,159l51-51,33.94,34ZM202.13,82l-25.37,25.52a8,8,0,0,0,0,11.3l4.89,4.89a8,8,0,0,1,0,11.32l-9,9L112,83.26l9-9a8,8,0,0,1,11.31,0l4.89,4.89a8,8,0,0,0,11.33,0l24.94-25.09c7.81-7.82,20.5-8.18,28.29-.81a20,20,0,0,1,.39,28.7Z"/></svg>';
 // Hotspot (6, 18) sits on the dropper's needle tip (≈64, 192 in the 256²
@@ -102,7 +102,7 @@ const textures: Record<TextureChannelId, TextureSlot> = {
 };
 
 // Posterize ramps adapt to the BaseColor texture's own tonal distribution
-// (see refreshPosterizeStats) — recomputed whenever the base image changes.
+// (see refreshPosterizeStats)  recomputed whenever the base image changes.
 const POSTERIZE_SAMPLE_MAX = 64;
 let posterizeStats: PosterizeStats | null = null;
 refreshPosterizeStats();
@@ -113,8 +113,8 @@ const sunOverlayMarkup = (): string => `
     </div>
     <button class="orient-sun-button" id="orientSunWithCamera" type="button" title="Copy the 3D viewport angle to the sun"><span class="orient-sun-spinner" aria-hidden="true"></span>Orient Sun with Camera</button>
     <div class="orientation-readout" title="World-space direction (x, y, z)">
-      <div class="orientation-row"><span class="orientation-label">Sun</span><output id="sunDirectionValue">—</output></div>
-      <div class="orientation-row"><span class="orientation-label">Cam</span><output id="cameraDirectionValue">—</output></div>
+      <div class="orientation-row"><span class="orientation-label">Sun</span><output id="sunDirectionValue"></output></div>
+      <div class="orientation-row"><span class="orientation-label">Cam</span><output id="cameraDirectionValue"></output></div>
     </div>
     <div class="light-controls">
       <div class="light-group">
@@ -233,7 +233,7 @@ app.innerHTML = `
         <div class="canvas-stage">
           <div class="comparison-grid" aria-label="Original and dithered texture comparison">
             <figure class="preview-pane original-pane">
-              <figcaption><span>01</span> Original <span class="fig-dims" id="sourceDimensions">640 × 461</span><button class="fig-zoom" id="originalZoomBadge" type="button" title="Zoom level — scroll over the preview to zoom, drag to pan, double-click to reset">100%</button></figcaption>
+              <figcaption><span>01</span> Original <span class="fig-dims" id="sourceDimensions">640 × 461</span><button class="fig-zoom" id="originalZoomBadge" type="button" title="Zoom level  scroll over the preview to zoom, drag to pan, double-click to reset">100%</button></figcaption>
               <div class="canvas-frame">
                 <canvas id="originalCanvas" aria-label="Original texture preview"></canvas>
                 <canvas class="wireframe-overlay" id="originalWireframeOverlay" aria-hidden="true" hidden></canvas>
@@ -289,7 +289,7 @@ app.innerHTML = `
               </div>
             </figure>
             <figure class="preview-pane processed-pane">
-              <figcaption><span>02</span> Dithered <span class="fig-dims" id="processedDimensions">128 × 92</span><button class="fig-zoom" id="processedZoomBadge" type="button" title="Zoom level — scroll over the preview to zoom, drag to pan, double-click to reset">100%</button></figcaption>
+              <figcaption><span>02</span> Dithered <span class="fig-dims" id="processedDimensions">128 × 92</span><button class="fig-zoom" id="processedZoomBadge" type="button" title="Zoom level  scroll over the preview to zoom, drag to pan, double-click to reset">100%</button></figcaption>
               <div class="canvas-frame">
                 <canvas id="previewCanvas" aria-label="Dithered texture preview"></canvas>
                 <canvas class="wireframe-overlay" id="processedWireframeOverlay" aria-hidden="true" hidden></canvas>
@@ -302,9 +302,9 @@ app.innerHTML = `
                   </div>
                 </figure>
                 <div class="model-host" id="processedModelHost" hidden></div>
-                <div class="texel-density" id="processedTexelDensity" hidden title="Texels per world unit — summed UV triangle area, including stacking and UVs outside 0–1, compared with mapped world-space area">
+                <div class="texel-density" id="processedTexelDensity" hidden title="Texels per world unit  summed UV triangle area, including stacking and UVs outside 0–1, compared with mapped world-space area">
                   <span>Texel density</span>
-                  <output id="processedTexelDensityValue">—</output>
+                  <output id="processedTexelDensityValue"></output>
                 </div>
                 <button class="fullscreen-toggle" id="processedFullscreenToggle" type="button" title="Expand the dithered preview to fill the whole stage" aria-pressed="false">${FULLSCREEN_ICON_SVG}</button>
                 <div class="preview-mode-toggle" id="processedPreviewToggle" role="group" aria-label="Preview mode">
@@ -425,14 +425,13 @@ app.innerHTML = `
         <section class="panel" id="quadPanel" hidden>
           <div class="panel-heading compact"><div><h2>Fallback plane</h2></div></div>
           ${rangeControl('quadTessellation', 'Tessellation', 2, 128, 1, 16, '16 × 16', 'Subdivisions for the fallback quad')}
-          <label class="control-row quad-grid-row"><span><strong>3×3 grid</strong><small>Middle tile baked — neighbors cast shadows</small></span>${toggleControl('quadGrid', 'Show the quad as a 3×3 grid')}</label>
+          <label class="control-row quad-grid-row"><span><strong>3×3 grid</strong><small>Middle tile baked  neighbors cast shadows</small></span>${toggleControl('quadGrid', 'Show the quad as a 3×3 grid')}</label>
           ${rangeControl('displacementStrength', 'Displacement', 0, 0.2, 0.005, 0.15, '0.15', 'Heightmap push amount')}
-          <label class="control-row quad-grid-row"><span><strong>Flip displacement</strong><small>Invert the heightmap — 1 − height</small></span>${toggleControl('displacementFlip', 'Invert the displacement heightmap')}</label>
+          <label class="control-row quad-grid-row"><span><strong>Flip displacement</strong><small>Invert the heightmap  1 − height</small></span>${toggleControl('displacementFlip', 'Invert the displacement heightmap')}</label>
         </section>
 
         <section class="panel">
           <div class="panel-heading compact"><div><h2>Changelogs</h2></div></div>
-          <p class="panel-description">Release notes from the GitHub repo — newest first.</p>
           <button class="button changelog-fetch" id="changelogFetchButton" type="button">Fetch changelogs</button>
           <div class="changelog-list" id="changelogList"></div>
         </section>
@@ -555,7 +554,7 @@ narrowLayout.addEventListener('change', (event) => {
 });
 
 // Fullscreen toggle on the dithered preview: enters true OS-level fullscreen
-// via the Fullscreen API — the dithered canvas-frame takes over the whole
+// via the Fullscreen API  the dithered canvas-frame takes over the whole
 // screen, not just the app's canvas stage. Because the frame fills the screen,
 // its overlay controls are hidden by the `:fullscreen` CSS rules; the only
 // control left is this toggle, so the user can exit. The pane-independent
@@ -623,13 +622,13 @@ try {
 } catch (error) {
   console.error('Custom palettes could not be loaded from storage.', error);
   // Blocked storage (private mode, disabled storage) breaks every palette
-  // save for the session — say so loudly instead of failing silently.
+  // save for the session  say so loudly instead of failing silently.
   if (error instanceof Error && error.message.includes('Reading stored data')) {
     showStorageNotice('Browser storage is unavailable (private mode or storage disabled). Palettes will not persist after this session.');
   }
 }
 let editingCustomKey: string | null = null;
-// The current draft's palette name lives here — the editable name field moved
+// The current draft's palette name lives here  the editable name field moved
 // onto the palette card, so there's no separate editor input anymore.
 let draftName = '';
 let modelBundle: ModelFileBundle | null = null;
@@ -643,7 +642,7 @@ function forEachViewport(callback: (viewport: ModelViewport) => void): void {
   if (processedViewport) callback(processedViewport);
 }
 
-/** Creates the two 3D viewports once, at boot — they live for the app's
+/** Creates the two 3D viewports once, at boot  they live for the app's
  * lifetime. Without a model they hold the fallback flat quad (facing up), so
  * the 2D/3D toggle stays live in the no-model state; setModel swaps the real
  * model in, closeModelPreview swaps the quad back. */
@@ -663,13 +662,13 @@ function ensureViewports(): void {
   });
 }
 
-// Fallback-quad configuration — persisted with the other settings: the quad
+// Fallback-quad configuration  persisted with the other settings: the quad
 // is the implicit model when none is loaded, so its tessellation, grid and
 // displacement parameters are saved (and restored) like any other setting.
 // The repeat-texture diagnostic below is view state (not a conversion
 // parameter) and stays module-level.
 // Image-repeat diagnostic: tiles the texture 3×3 in the 2D panes so seams at
-// tile boundaries show. Fallback-quad view only, module-level — not
+// tile boundaries show. Fallback-quad view only, module-level  not
 // persisted. Each pane tiles independently.
 let repeatTextureOriginal = false;
 let repeatTextureProcessed = false;
@@ -679,7 +678,7 @@ function displacementSampler(): HeightSampler | null {
   if (!image) return null;
   const source = imageHeightmapPixels(image);
   // The flip inverts the heightmap (1 − height). Applied at this single
-  // sampler so every consumer — both viewports and the bake quad — reads the
+  // sampler so every consumer  both viewports and the bake quad  reads the
   // flipped map, and no consumer needs to know about it.
   return (u, v) => {
     const height = sampleHeightmap(source, u, v);
@@ -694,10 +693,10 @@ function installViewportQuads(): void {
   forEachViewport((viewport) => viewport.applyDisplacement(sampler, state.displacementStrength));
 }
 
-// Persistent bake quad — the middle tile alone outside grid mode, the full
+// Persistent bake quad  the middle tile alone outside grid mode, the full
 // 3×3 grid in grid mode (the neighbors are occluder-only: they cast shadows
 // on the middle tile's bake but never rasterize into it). Memoized by
-// (tessellation, grid) via getFallbackQuadScene — re-selecting a previously
+// (tessellation, grid) via getFallbackQuadScene  re-selecting a previously
 // visited combo reuses the same scene instance, so the bake-scene cache hits
 // without re-collecting the mesh. Rebuilt only when tessellation or grid
 // changes; displacement applies in place so strength drags don't reallocate
@@ -713,12 +712,12 @@ let bakeFallbackQuad: Object3D = getFallbackQuadScene(1, false);
 let bakeQuadDisplacement: { image: unknown; flip: boolean; strength: number } = { image: null, flip: false, strength: 0 };
 
 /** Refreshes every fallback-quad consumer after a quad-view setting changed.
- * In grid mode the bake quad is the full 3×3 grid — `collectBakeScene` marks
+ * In grid mode the bake quad is the full 3×3 grid  `collectBakeScene` marks
  * the neighbors occluder-only, so they shadow the middle tile's bake without
  * rasterizing over its texture. `rebuildViewport` replaces the viewport quads
  * (tessellation / grid changes, camera refits); otherwise the displacement is
  * applied in place so strength drags don't jump the camera. `keepCamera`
- * snapshots and restores both viewport cameras around the swap — the grid
+ * snapshots and restores both viewport cameras around the swap  the grid
  * toggle changes the scene extent but must not move the view.
  * Quad-view tweaks are visualization adjustments and never start a lightmap
  * bake. The bake scene cache is still invalidated here, so the next Orient Sun
@@ -745,7 +744,7 @@ function refreshFallbackQuads(rebuildViewport: boolean, keepCamera = false): voi
   // The bake scene cache is keyed by scene identity + the geometry it was
   // collected with. It goes stale only when the installed quad's instance
   // changed (new geometry) or the displacement inputs changed (world
-  // positions moved) — a refresh that changes neither (boot re-installs, grid
+  // positions moved)  a refresh that changes neither (boot re-installs, grid
   // toggles back and forth, redundant strength calls) skips the invalidation,
   // so the next bake reuses the cached collection of the tessellated mesh.
   const displacementChanged = bakeQuadDisplacement.image !== textures.displacement.image
@@ -755,13 +754,13 @@ function refreshFallbackQuads(rebuildViewport: boolean, keepCamera = false): voi
   if (quadInstanceChanged || displacementChanged) renderer.invalidateBakeScene();
   if (rebuildViewport) {
     // The grid toggle changes the scene extent (1 tile ↔ 9), so the rebuild's
-    // refit would zoom the camera in or out — snapshot both viewport cameras
+    // refit would zoom the camera in or out  snapshot both viewport cameras
     // and restore them after the swap instead.
     const snapshots = keepCamera
       ? [originalViewport?.captureCamera() ?? null, processedViewport?.captureCamera() ?? null]
       : null;
     installViewportQuads();
-    // The swap installed fresh quads whose materials carry no map — re-apply
+    // The swap installed fresh quads whose materials carry no map  re-apply
     // the last rendered frames synchronously so the viewport never shows
     // white while waiting for the next (debounced) pipeline render.
     applyViewportImages();
@@ -769,7 +768,7 @@ function refreshFallbackQuads(rebuildViewport: boolean, keepCamera = false): voi
       if (originalViewport && snapshots[0]) originalViewport.restoreCamera(snapshots[0]);
       if (processedViewport && snapshots[1]) processedViewport.restoreCamera(snapshots[1]);
       // The rebuild's refit fired the camera-change listener with the fit
-      // camera — re-sync the readout with the restored view.
+      // camera  re-sync the readout with the restored view.
       renderOrientationReadout();
     }
   } else {
@@ -778,7 +777,7 @@ function refreshFallbackQuads(rebuildViewport: boolean, keepCamera = false): voi
 }
 
 /** Re-applies displacement in place after the map or strength changed.
- * Displacement is a fallback-plane-only feature — the ribbon slot is disabled
+ * Displacement is a fallback-plane-only feature  the ribbon slot is disabled
  * while a model is loaded, and `refreshFallbackQuads` (where the no-op guard
  * lives) skips everything while a model is loaded, so a mid-model clear or
  * strength change only updates dormant quad state. Closing the model rebuilds
@@ -798,7 +797,7 @@ let modelUVChannels: string[] = [];
 let modelLodLevels: number[] = [];
 let aoBakeScene: Object3D | null = null;
 // Retained clone of the loaded model used for the ribbon's mesh-slot
-// thumbnail — the loaded scene is disposed after the viewports take clones.
+// thumbnail  the loaded scene is disposed after the viewports take clones.
 let modelThumbScene: Object3D | null = null;
 let pendingTextureChannel: TextureChannelId | null = null;
 
@@ -850,7 +849,7 @@ function setPaletteKey(key: string): void {
 }
 
 function dimensions(): { width: number; height: number } {
-  // The pixel grid resamples the source to the requested width — smaller
+  // The pixel grid resamples the source to the requested width  smaller
   // sources upscale (nearest-neighbor in the render pipeline), so 2k output
   // is reachable regardless of the source size.
   return computeOutputDimensions(state.resolution, textures.base.image!);
@@ -877,7 +876,7 @@ const formatTexelDensity = (value: number): string => `${value.toFixed(value >= 
 // texel area divided by the corresponding mapped world-space surface area. The
 // AO bake scene always mirrors the current UV channel and LOD level, so it is
 // the measure source; the dithered output resolution sizes the texel count.
-// Without a model the chip shows a plane message — the fallback quad spans
+// Without a model the chip shows a plane message  the fallback quad spans
 // the full UV square, so every texel covers the same world area. Hidden only
 // when a loaded model has no face carrying a usable UV.
 // Memoized: density depends only on the model's UVs and the target resolution,
@@ -894,15 +893,15 @@ function uvStretchIsAvailable(): boolean {
 function updateTexelDensity(): void {
   if (!aoBakeScene) {
     // The fallback plane maps the whole UV square onto the whole quad, so
-    // every texel covers the same world area — a per-face average is
+    // every texel covers the same world area  a per-face average is
     // meaningless. Show a plane-specific message instead of hiding the chip.
     processedTexelDensity.hidden = false;
     processedTexelDensityValue.textContent = 'Full UV';
-    processedTexelDensity.title = 'The fallback plane spans the full UV square — uniform texel density, no islands to average';
+    processedTexelDensity.title = 'The fallback plane spans the full UV square  uniform texel density, no islands to average';
     texelDensityCache = null;
     return;
   }
-  processedTexelDensity.title = 'Texels per world unit — summed UV triangle area, including stacking and UVs outside 0–1, compared with mapped world-space area';
+  processedTexelDensity.title = 'Texels per world unit  summed UV triangle area, including stacking and UVs outside 0–1, compared with mapped world-space area';
   const { width, height } = dimensions();
   if (texelDensityCache && texelDensityCache.scene === aoBakeScene && texelDensityCache.width === width && texelDensityCache.height === height) return;
   texelDensityCache = { scene: aoBakeScene, width, height };
@@ -916,7 +915,7 @@ function updateTexelDensity(): void {
 }
 
 // The rendered mesh-slot thumbnail is a pure function of the loaded model, and
-// the model doesn't change between ribbon refreshes — re-rendering it (a sync
+// the model doesn't change between ribbon refreshes  re-rendering it (a sync
 // WebGL frame + readPixels) on every basecolor/normal/lightmap change wasted
 // tens of ms for an identical picture. Invalidate on import/close only.
 let modelThumbnailCanvas: HTMLCanvasElement | null = null;
@@ -924,7 +923,7 @@ let modelThumbnailCanvas: HTMLCanvasElement | null = null;
 // One invalidation point for every cached result derived from the AO scene's
 // geometry. The bake scene (BVH + world transforms), the UV-overlap mask, and
 // the texel density only change when the model, UV channel, LOD visibility, or
-// world-axis rotation change — all in-place mutations that identity-keyed
+// world-axis rotation change  all in-place mutations that identity-keyed
 // caches cannot see.
 function invalidateModelCaches(): void {
   invalidateBakeScene();
@@ -976,7 +975,7 @@ function renderViewToggle(): void {
   originalViewToggle.hidden = false;
   syncViewToggle(originalViewToggle, state.viewModeOriginal, normalDefined, aoDefined, lightmapDefined, lightmapAoDefined, uvStretchDefined);
   // A view-mode fallback above (e.g. the normal map was removed) must reach the
-  // 3D viewports too — they render the Normals view via setNormalsView and
+  // 3D viewports too  they render the Normals view via setNormalsView and
   // would otherwise stay latched on the stale showcase.
   applyViewNormals();
 }
@@ -1002,7 +1001,7 @@ function applyViewNormals(): void {
 // green-flip decode) into the 3D viewports, so the Normals view showcases the
 // actual map rather than the mesh's vertex normals. The original viewport gets
 // the native-resolution map; the dithered viewport gets a nearest-neighbor
-// copy at the target resolution with the pixelation amount applied —
+// copy at the target resolution with the pixelation amount applied 
 // normals can't be palette-dithered, so downscale/upscale pixelization is the
 // processed analogue of the quantized base texture.
 function applyViewportNormalMap(): void {
@@ -1068,7 +1067,7 @@ function renderUVOverlapControl(): void {
   syncCheckboxControl(processedUVOverlapControl, processedUVOverlapInput, modelUVChannels.length > 0 && processedPreviewMode === '2d', state.showUVOverlapProcessed);
 }
 
-// Image-repeat is a fallback-quad diagnostic — hidden while a model is loaded
+// Image-repeat is a fallback-quad diagnostic  hidden while a model is loaded
 // and outside the panes' 2D views. Each pane toggles independently.
 function renderRepeatControl(): void {
   syncCheckboxControl(repeatTextureControl, repeatTextureInput, modelBundle === null && originalPreviewMode === '2d', repeatTextureOriginal);
@@ -1122,12 +1121,12 @@ function orientCameraPreviewMode(): PreviewMode {
 function renderOrientationReadout(): void {
   const viewport = orientCameraViewport();
   sunDirectionValue.textContent = formatDirection(state.sun.direction);
-  cameraDirectionValue.textContent = viewport ? formatDirection(viewport.getCameraForward()) : '—';
+  cameraDirectionValue.textContent = viewport ? formatDirection(viewport.getCameraForward()) : '';
 }
 
 // Shared sync for a sun/ambient light group (color picker + chip, intensity
-// slider + readout). These controls feed the lighting bake — the viewports
-// carry no realtime lights — so `renderSunControl` syncs both groups through
+// slider + readout). These controls feed the lighting bake  the viewports
+// carry no realtime lights  so `renderSunControl` syncs both groups through
 // this one place.
 function syncLightControls(
   light: LightState,
@@ -1137,15 +1136,15 @@ function syncLightControls(
 ): void {
   color.value = light.color;
   syncColorChip(color);
-  // Guard against a non-finite intensity ever reaching the range input — a
+  // Guard against a non-finite intensity ever reaching the range input  a
   // range input given an invalid value can freeze its thumb at an endpoint.
   const value = Number.isFinite(light.intensity) ? light.intensity : 0;
   intensity.value = String(value);
   intensityValue.textContent = value.toFixed(2);
 }
 
-// Lightmap bakes — Orient Sun with Camera's explicit re-bake and the implicit
-// re-bakes from sun/ambient slider moves and normal-map slot edits — can on a
+// Lightmap bakes  Orient Sun with Camera's explicit re-bake and the implicit
+// re-bakes from sun/ambient slider moves and normal-map slot edits  can on a
 // heavy grid take long enough that a second trigger would start a redundant
 // bake. While one runs the button is held disabled with a throbber (see
 // .orient-sun-button.busy); the flag clears when the latest bake settles.
@@ -1173,7 +1172,7 @@ function runLightmapBake(): void {
 // move, so a drag never starts a mid-drag bake. The 200ms debounce coalesces
 // rapid successive triggers (consecutive slider commits, slot mutations)
 // into one bake. While the lightmap slot was explicitly cleared (X) the
-// scheduler stays quiet — lighting remains absent until Orient Sun with
+// scheduler stays quiet  lighting remains absent until Orient Sun with
 // Camera, a loaded lightmap, or a reset re-engages it (see
 // renderer.isLightmapCleared).
 let implicitBakeTimer = 0;
@@ -1241,7 +1240,7 @@ function updateAOControls(): void {
   renderLightmapControls();
 }
 
-// Shared active-state sync for button groups — every data-driven toggle in the app
+// Shared active-state sync for button groups  every data-driven toggle in the app
 // (dither modes, preview modes, palette filters, resolution presets) goes through this.
 function syncActiveButton(root: ParentNode | null, selector: string, isActive: (element: HTMLElement) => boolean): void {
   root?.querySelectorAll<HTMLElement>(selector).forEach((element) => element.classList.toggle('active', isActive(element)));
@@ -1272,7 +1271,7 @@ function renderTextureRibbon(): void {
       : textures[channel.id].image;
     const preview = slotElement.querySelector<HTMLElement>('.texture-slot-preview');
     const label = slotElement.querySelector<HTMLElement>('.texture-slot-label');
-    // Displacement is a fallback-plane-only feature — hide the slot entirely
+    // Displacement is a fallback-plane-only feature  hide the slot entirely
     // while a model is loaded (models are never displaced) so it can't be
     // mistaken for a usable-but-locked slot. With no model it behaves like
     // the rest: the fallback quad's bakes consume every slot, so nothing is
@@ -1302,7 +1301,7 @@ function renderTextureRibbon(): void {
     if (preview) {
       if (modelBundle && modelThumbScene) {
         // Small rendered preview of the mesh replaces the empty-slot mark.
-        // Rendered once per import — the model doesn't change between ribbon
+        // Rendered once per import  the model doesn't change between ribbon
         // refreshes, so the canvas is reused instead of re-rendering a sync
         // WebGL frame (with gl.finish + readPixels) on every refresh.
         if (!modelThumbnailCanvas) modelThumbnailCanvas = renderModelThumbnail(modelThumbScene, 40);
@@ -1341,7 +1340,7 @@ function applyModelLod(level: number): void {
   updateTexelDensity();
 }
 
-// Sun/ambient state feeds the bake only — the 3D viewports never light the model
+// Sun/ambient state feeds the bake only  the 3D viewports never light the model
 // in realtime. The baked lightmap (explicit or implicit) is multiplied into the
 // texture by the 2D pipeline, and the viewport displays it under a neutral white
 // fill; routing light state to the viewports would re-light an already-lit
@@ -1365,10 +1364,10 @@ function applyPreviewMode(): void {
     const threeD = mode === '3d';
     host.hidden = !threeD;
     canvas.hidden = threeD;
-    // The zoom badge is a 2D-only control — pan/zoom live on the texture
+    // The zoom badge is a 2D-only control  pan/zoom live on the texture
     // canvas, so a stale "100%" must not sit over the 3D view.
     badge.hidden = threeD;
-    // The 2D/3D toggle is always visible — it switches between the flat
+    // The 2D/3D toggle is always visible  it switches between the flat
     // texture canvas and the 3D viewport, which holds either the loaded
     // model or the fallback quad when no model is present.
     toggle.hidden = false;
@@ -1382,7 +1381,7 @@ function applyPreviewMode(): void {
   // Shared viewport controls live on the Original pane and affect both 3D views.
   navigationToggle.hidden = originalPreviewMode !== '3d';
   // The floor grid toggle lives in the Original pane's control stack, so it
-  // only shows while that pane is in 3D — never in the 2D texture view.
+  // only shows while that pane is in 3D  never in the 2D texture view.
   floorGridToggle.hidden = originalPreviewMode !== '3d';
   renderFloorGridControl();
   renderWorldAxisControl();
@@ -1397,11 +1396,11 @@ function applyPreviewMode(): void {
 
 function closeModelPreview(): void {
   modelBundle?.revoke();
-  // The model is gone from this point on — the quad rebuild below must run
+  // The model is gone from this point on  the quad rebuild below must run
   // with `modelBundle` cleared, since quad-view settings are a no-op while a
   // model is loaded (they must never touch non-fallback meshes).
   modelBundle = null;
-  // The viewports stay alive for the app's lifetime — rebuild the configured
+  // The viewports stay alive for the app's lifetime  rebuild the configured
   // fallback quad (tessellation / grid / displacement) so the 2D/3D toggle
   // keeps working without a model, and rebuild the persistent bake quad so a
   // displacement change made while the model was loaded (e.g. a slot clear)
@@ -1423,7 +1422,7 @@ function closeModelPreview(): void {
   state.viewModeOriginal = 'flat';
   state.viewModeProcessed = 'flat';
   renderLightmapControls();
-  // The fallback quad is the no-model default — clear the panes into the 3D
+  // The fallback quad is the no-model default  clear the panes into the 3D
   // view so the flat quad is what remains after removing a model, instead of
   // dropping back to the 2D canvas.
   originalPreviewMode = '3d';
@@ -1453,17 +1452,17 @@ async function setModel(files: File[]): Promise<void> {
     const missingReferences = bundle.manager.missing;
     if (missingReferences.length) {
       const fileLabel = missingReferences.length === 1 ? 'file' : 'files';
-      console.warn(`${bundle.primary.name} references ${missingReferences.length} ${fileLabel} not included with it — skipped`);
+      console.warn(`${bundle.primary.name} references ${missingReferences.length} ${fileLabel} not included with it  skipped`);
     }
     ensureViewports();
     forEachViewport((viewport) => viewport.setModel(cloneModelScene(loaded.scene), loaded.animations));
     forEachViewport((viewport) => viewport.applyLOD(state.lodLevel));
     applyViewNormals();
     applyViewportNormalMap();
-    // Displacement is a fallback-plane-only feature — a map set before loading
+    // Displacement is a fallback-plane-only feature  a map set before loading
     // the model stays in state and re-applies to the quad when the model is
     // closed, but the model itself is never displaced.
-    // Keep a clone for the ribbon's mesh thumbnail — the loaded scene is
+    // Keep a clone for the ribbon's mesh thumbnail  the loaded scene is
     // disposed once the viewports hold their own clones.
     modelThumbScene = cloneModelScene(loaded.scene);
     modelThumbnailCanvas = null;
@@ -1505,7 +1504,7 @@ function applyExtractedModelTextures(extracted: ExtractedModelTextures, modelNam
     textures.normal.image = extracted.normal;
     textures.normal.name = `${stem}_Normal.png`;
     renderNormalControls();
-    // A model-carried normal map lands in the slot — re-bake the lightmap
+    // A model-carried normal map lands in the slot  re-bake the lightmap
     // with the existing sun angle.
     scheduleImplicitLightmapBake();
   }
@@ -1524,14 +1523,14 @@ function activePaletteIsCustom(): boolean {
   return state.customColors.length > 0 || savedCustomPalettes.some((palette) => palette.key === state.paletteKey);
 }
 
-// Search-category view state — persisted with the settings (CONFIG_FIELDS) so
+// Search-category view state  persisted with the settings (CONFIG_FIELDS) so
 // the last filter, query, and sort survive app and browser restarts. The sort
 // toggle cycles name A–Z → fewest colors first → most colors first.
 
 function renderPalettes(): void {
   const catalog = paletteCatalog();
   const searching = state.paletteFilter === 'search';
-  // The active chip always mirrors state.paletteFilter — restored settings,
+  // The active chip always mirrors state.paletteFilter  restored settings,
   // revealPalette, and clicks all land here.
   syncActiveButton(paletteFilters, '[data-filter]', (button) => button.dataset.filter === state.paletteFilter);
   customPaletteSection.hidden = state.paletteFilter !== 'custom';
@@ -1596,7 +1595,7 @@ function rangeDefaultAttrs(key: string, min: number, max: number): string {
   return `data-default="${value}" style="--default-position:${position}%" title="Double-click to reset to ${value}"`;
 }
 
-// Single slider generator — every range control in the app goes through this.
+// Single slider generator  every range control in the app goes through this.
 // Renders a .control-row (title + optional hint + output) above a .range input.
 function rangeControl(key: string, label: string, min: number, max: number, step: number | 'any', value: number, display: string = String(value), hint = ''): string {
   return `
@@ -1607,7 +1606,7 @@ function rangeControl(key: string, label: string, min: number, max: number, step
   `;
 }
 
-// Single color-picker generator — visually-hidden input + live --swatch chip, matching the palette editor.
+// Single color-picker generator  visually-hidden input + live --swatch chip, matching the palette editor.
 // Every color input in the app goes through this; syncColorChip keeps the chip in lockstep with the value.
 function colorControl(value: string, ariaLabel: string, attrs: string = ''): string {
   return `<input class="hidden-input" type="color" value="${value}" aria-label="${ariaLabel}" ${attrs}/><span class="color-chip" style="--swatch:${value}"></span>`;
@@ -1616,7 +1615,7 @@ function syncColorChip(input: HTMLInputElement): void {
   input.nextElementSibling?.setAttribute('style', `--swatch:${input.value}`);
 }
 
-// Single toggle-switch generator — every checkbox toggle in the app goes through
+// Single toggle-switch generator  every checkbox toggle in the app goes through
 // this. `wrapper` is 'label' when the switch is the whole control (AO-only /
 // lightmap-only, preserving label click-to-toggle) and 'span' when nested inside
 // a label row (UV / normals controls).
@@ -1683,7 +1682,7 @@ function persistCustomDraft(): void {
       ? updateCustomPalette(existing, draftName, currentColors())
       : createCustomPalette(draftName, currentColors(), new Date(), editingCustomKey ?? undefined);
     if (tauriStore) {
-      // Desktop: one .hex file per palette — the file name IS the palette
+      // Desktop: one .hex file per palette  the file name IS the palette
       // name. Renaming deletes the old file; identity (key) follows the name.
       const filePalette = persistPaletteFile(palette, existing?.name);
       commitPaletteSelection(filePalette.key, filePalette);
@@ -1752,7 +1751,7 @@ function revealPalette(key: string): void {
 
 function duplicatePaletteByKey(key: string): void {
   const source = paletteCatalog()[key];
-  // Posterize is adaptive — duplicating it copies the *generated* colors as a
+  // Posterize is adaptive  duplicating it copies the *generated* colors as a
   // normal custom palette, snapshotting the ramp derived from the current
   // BaseColor so it stays fixed even if the texture changes later.
   if (!source) return;
@@ -1766,7 +1765,7 @@ function exportPaletteByKey(key: string): void {
   try {
     const palette = customPaletteByKey(key);
     if (!palette) return;
-    // The .hex file is named after the palette — importing it back derives
+    // The .hex file is named after the palette  importing it back derives
     // the palette name from the file name.
     downloadText(serializePaletteHex(palette), paletteFileName(palette.name), 'text/plain');
   } catch (error) {
@@ -1852,13 +1851,13 @@ type RangeBinding = {
   output: HTMLElement;
   format: (value: number) => string;
   apply: (value: number) => void;
-  /** Trailing debounce for the apply — the readout updates live while the
+  /** Trailing debounce for the apply  the readout updates live while the
    * value changes, but the (possibly heavy) apply runs once at rest. Used by
    * the quad-tessellation slider, which rebuilds geometry per change. */
   debounce?: number;
 };
 
-// Shared render-side sync for a range input + its value output — the mirror of
+// Shared render-side sync for a range input + its value output  the mirror of
 // `bindRange` (listener side). Every control render that writes both fields in
 // lockstep goes through this.
 function syncRangeValue(input: HTMLInputElement, output: HTMLElement, value: number, format: (value: number) => string): void {
@@ -1906,7 +1905,7 @@ function bindRange({ input, output, format, apply, debounce }: RangeBinding): vo
     }
     renderScheduler.flush();
   });
-  // Direct numeric entry — every generated slider gets click-to-edit for free.
+  // Direct numeric entry  every generated slider gets click-to-edit for free.
   bindRangeValueEdit(input, output, apply, format);
 }
 
@@ -1920,7 +1919,7 @@ function bindRangeValueEdit(input: HTMLInputElement, output: HTMLElement, apply:
   const edit = document.querySelector<HTMLInputElement>(`#${output.id.replace(/Value$/, '')}Edit`);
   if (!edit) return;
   const commit = (): void => {
-    // 'change' and 'blur' both fire when the input loses focus — the hidden
+    // 'change' and 'blur' both fire when the input loses focus  the hidden
     // flag makes the second arrival a no-op.
     if (edit.hidden) return;
     edit.hidden = true;
@@ -1939,7 +1938,7 @@ function bindRangeValueEdit(input: HTMLInputElement, output: HTMLElement, apply:
   };
   output.addEventListener('click', (event) => {
     // preventDefault stops the wrapping <label for> from forwarding the click
-    // to the range input — the edit field takes focus instead.
+    // to the range input  the edit field takes focus instead.
     event.preventDefault();
     edit.value = String(input.valueAsNumber);
     edit.hidden = false;
@@ -1991,7 +1990,7 @@ async function applyConfigFile(file: File): Promise<void> {
 }
 
 /** Captures an orbit viewport's camera as a serializable view: world position
- * plus the orbit target — together they determine both the camera angle and
+ * plus the orbit target  together they determine both the camera angle and
  * its position (the up axis is fixed, so the quaternion is implied). */
 function savedCameraOf(viewport: ModelViewport | null | undefined): SavedCamera | undefined {
   if (!viewport) return undefined;
@@ -2074,7 +2073,7 @@ async function applyPreset(preset: ConversionPreset): Promise<void> {
   applySun();
   updateResolution(preset.resolution, true);
   // The UV-channel selection is model-specific (like LOD and the model up
-  // axis) and intentionally not part of the saved settings — it is left
+  // axis) and intentionally not part of the saved settings  it is left
   // untouched when a settings file loads.
   // The fallback quad is the implicit model when none is loaded: sync its
   // panel and rebuild the installed quad with the loaded settings (both are
@@ -2082,7 +2081,7 @@ async function applyPreset(preset: ConversionPreset): Promise<void> {
   renderQuadControl();
   refreshFallbackQuads(true, true);
   // Saved orbit-camera views (angle + position) for both viewports, restored
-  // only when the file carries them — files saved before camera capture
+  // only when the file carries them  files saved before camera capture
   // existed leave the current view alone.
   if (preset.originalCamera && originalViewport) {
     originalViewport.restoreCameraView(preset.originalCamera.position, preset.originalCamera.target);
@@ -2140,14 +2139,14 @@ const {
 
 // Every state change funnels through `render` (sync) or the render scheduler
 // (debounced, wrapping the same function), so this single wrapper catches all
-// of them. A debounced settings auto-save piggybacks on it — the config file
+// of them. A debounced settings auto-save piggybacks on it  the config file
 // on desktop, localStorage in the web build (Save/Load stays for sharing).
 function render(): void {
   renderPipeline();
   scheduleSettingsSave();
 }
 
-// AO bakes rasterize the texture in worker bands — the AO slot's Bake button
+// AO bakes rasterize the texture in worker bands  the AO slot's Bake button
 // holds a gray-out + throbber while the bands finish (same treatment as Orient
 // Sun with Camera), so the workspace stays clickable. The disabled button also
 // blocks a redundant second bake; the flag clears when the bake settles, on
@@ -2250,7 +2249,7 @@ function clearTexture(channel: TextureChannelId): void {
     if (channel === 'normal') {
       renderNormalControls();
       applyViewportNormalMap();
-      // The lightmap samples the slot's map — removing it re-bakes with the
+      // The lightmap samples the slot's map  removing it re-bakes with the
       // existing sun angle.
       scheduleImplicitLightmapBake();
     }
@@ -2300,7 +2299,7 @@ async function setTexture(channel: TextureChannelId, file: File): Promise<void> 
     if (channel === 'normal') {
       renderNormalControls();
       applyViewportNormalMap();
-      // The lightmap samples the slot's map — adding or replacing it re-bakes
+      // The lightmap samples the slot's map  adding or replacing it re-bakes
       // with the existing sun angle.
       scheduleImplicitLightmapBake();
     }
@@ -2365,7 +2364,7 @@ function bindAdjustmentEvents(): void {
 
   // The resolution slider, value output and click-to-edit are regenerated by
   // renderAdjustments on every sync, so they are re-bound here (like the
-  // adjustment sliders above) instead of once at module scope — a module-scope
+  // adjustment sliders above) instead of once at module scope  a module-scope
   // binding would be detached by the next regeneration.
   const resolutionInput = document.querySelector<HTMLInputElement>('#resolution');
   const resolutionOutput = document.querySelector<HTMLElement>('#resolutionValue');
@@ -2503,7 +2502,7 @@ async function migrateLegacyDataFiles(store: TauriFileStore): Promise<void> {
     }
     await store.remove('custom-palettes.json');
   } catch {
-    // Not our format — leave the file for manual inspection.
+    // Not our format  leave the file for manual inspection.
   }
 }
 
@@ -2519,7 +2518,7 @@ async function restoreSettings(): Promise<void> {
 /** Desktop boot: load the palette library from the palettes folder (one .hex
  * file per palette), migrate any legacy flat files and localStorage palettes,
  * and restore the last-saved settings. Falls back (loudly) to the per-user
- * app-data dir when the installation folder isn't writable — Program Files
+ * app-data dir when the installation folder isn't writable  Program Files
  * MSI installs, macOS bundles, AppImage. */
 async function bootDesktopStorage(): Promise<void> {
   const store = await initTauriFileStore();
@@ -2560,15 +2559,15 @@ refreshFallbackQuads(true);
 renderTextureRibbon();
 applyPreviewMode();
 render();
-// The texel-density HUD shows its plane message in the no-model state — it
+// The texel-density HUD shows its plane message in the no-model state  it
 // must run at boot, before the example model (if it loads) replaces it.
 updateTexelDensity();
 // Desktop: the webview's native browser context menu (Back/Refresh/Save
-// As/Print) has no place in an app window — suppress it (the web build keeps
+// As/Print) has no place in an app window  suppress it (the web build keeps
 // the browser's own menu). Registered before boot so no right-click can slip
 // through while desktop storage initializes.
 disableWebviewContextMenu();
-// Desktop: install-folder persistence — the palette library reloads from the
+// Desktop: install-folder persistence  the palette library reloads from the
 // data files, legacy palettes migrate, and the last-saved settings restore
 // (web build: no-op). Kicked off before the example assets so the restored
 // config is usually applied before the example model finishes loading.
@@ -2638,7 +2637,7 @@ bindRange({
   format: (value) => `${value} × ${value}`,
   apply: (value) => {
     state.quadTessellation = value;
-    // Tessellation changes the vertex count and — with a displacement map —
+    // Tessellation changes the vertex count and  with a displacement map 
     // the geometry bounds, so a refit would nudge the camera; keep it put.
     refreshFallbackQuads(true, true);
   },
@@ -2646,7 +2645,7 @@ bindRange({
 });
 quadGridInput.addEventListener('change', () => {
   state.quadGrid = quadGridInput.checked;
-  // The grid changes the scene extent (1 tile ↔ 9) — keep the camera put.
+  // The grid changes the scene extent (1 tile ↔ 9)  keep the camera put.
   // refreshFallbackQuads re-applies the current texture to the swapped quads
   // synchronously (applyViewportImages), so no render is needed here. The
   // quad settings are persisted, so the debounced settings save still fires.
@@ -2655,7 +2654,7 @@ quadGridInput.addEventListener('change', () => {
 });
 displacementFlipInput.addEventListener('change', () => {
   state.displacementFlip = displacementFlipInput.checked;
-  // In-place displacement re-apply — flipping inverts the surface but not its
+  // In-place displacement re-apply  flipping inverts the surface but not its
   // extent, so no camera refit (same as the strength slider). Persist the
   // change without re-rendering the pipeline (see the grid toggle).
   applyDisplacementChange();
@@ -2666,8 +2665,8 @@ bindRange({
   output: displacementStrengthValue,
   format: formatFixed2,
   // At high tessellation (e.g. 128×128) a single apply re-runs the full
-  // displacement pass — per-vertex height sampling, normal recompute, sphere
-  // refit — across the bake quad and both viewports, so applying on every
+  // displacement pass  per-vertex height sampling, normal recompute, sphere
+  // refit  across the bake quad and both viewports, so applying on every
   // input event janks the drag. Debounce like the tessellation slider: the
   // readout tracks live, the mesh catches up at rest.
   debounce: 150,
@@ -2808,7 +2807,7 @@ paletteGrid.addEventListener('change', (event) => {
 });
 // The native color picker is replaced by the in-app picker above the chip row:
 // suppress the hidden inputs' default actions (mouse and keyboard) so the OS
-// dialog never opens — the chips just select the color being edited.
+// dialog never opens  the chips just select the color being edited.
 customColors.addEventListener('keydown', (event) => {
   const input = (event.target as HTMLElement).closest<HTMLInputElement>('input[type="color"]');
   if (input && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
@@ -2826,7 +2825,7 @@ customColors.addEventListener('click', (event) => {
   }
   const chip = target.closest<HTMLElement>('.color-chip');
   if (chip) {
-    // Suppress the hidden input's default action (opening the OS picker) —
+    // Suppress the hidden input's default action (opening the OS picker) 
     // the in-app picker above the chips is the editor now.
     event.preventDefault();
     const index = Number((chip.previousElementSibling as HTMLInputElement | null)?.dataset.colorIndex);
@@ -2852,14 +2851,14 @@ function syncColorPicker(): void {
 }
 
 // Keep the saturation×value square tinted with the current hue. There are no
-// overlay indicators (dot/line) — the field and strip themselves are the UI.
+// overlay indicators (dot/line)  the field and strip themselves are the UI.
 function updatePickerFieldHue(): void {
   colorPickerField.style.setProperty('--field-hue', rgbToHex(...hsvToRgb(pickerHsv[0], 100, 100)));
 }
 
 // Read a color into the picker in HSV space, carrying the last hue over when
 // the color is achromatic (white/black/gray) so it isn't lost at the
-// pure-white corner. Always reason in HSV — never reconstruct hue from RGB.
+// pure-white corner. Always reason in HSV  never reconstruct hue from RGB.
 function syncPickerToColor(hex: string): void {
   const [h, s, v] = rgbToHsv(...hexToRgb(hex));
   pickerHsv = s > 0 && v > 0 ? [h, s, v] : [pickerHsv[0], s, v];
@@ -2936,7 +2935,7 @@ window.addEventListener('pointerup', () => {
 // samples anywhere on screen, but its picker takes ~1s to appear in
 // Chromium/WebView2 (browser-internal startup, not fixable from JS). Instead
 // we run a custom pick mode: the OS cursor itself becomes the dropper icon
-// and sampling the app's own rendering is instant — exact pixels from the
+// and sampling the app's own rendering is instant  exact pixels from the
 // preview canvases, solid fills elsewhere. Click applies, Escape / right-click
 // cancels.
 let eyedropperActive = false;
@@ -3047,7 +3046,7 @@ function downloadSlotImage(channel: TextureChannelId): void {
     saveSlotImage(data.image, name);
     return;
   }
-  // AO and lightmap can be generated in-app — bake on demand, then download.
+  // AO and lightmap can be generated in-app  bake on demand, then download.
   // The bake path reports its own failures, so a false result is a no-op.
   const baked = bakeActions[channel]?.() ?? null;
   if (!baked) return;
@@ -3114,12 +3113,12 @@ function droppedFiles(event: DragEvent): File[] {
 
 // Drag highlight, owned document-wide with a single "active" slot so the
 // white outline always tracks the slot actually under the pointer.
-// dragenter/dragover (which bubble from slot children — including the
+// dragenter/dragover (which bubble from slot children  including the
 // thumbnail canvases of already-filled slots) re-derive the hovered slot from
 // event.target, and any dragenter/dragover over a non-slot area drops the
 // highlight. dragleave is deliberately NOT listened to anywhere: it bubbles,
 // so a document-level dragleave fires on every child-boundary crossing, and
-// its relatedTarget is unreliable over GPU-composited canvases — that pair is
+// its relatedTarget is unreliable over GPU-composited canvases  that pair is
 // what kept clearing the outline on filled slots. With no dragleave handler,
 // nothing can remove the highlight while the pointer is over any part of a
 // slot; it clears only when the drag moves over a non-slot area, on drop, or
@@ -3141,7 +3140,7 @@ function slotUnderDrag(event: Event): HTMLElement | null {
 }
 // Accept the drop everywhere (capture phase): preventDefault on dragover for
 // the whole document marks the window as a drop target, so the drop event
-// always fires and its default action — navigating to the dropped file — is
+// always fires and its default action  navigating to the dropped file  is
 // reliably cancelable. Without this, drops on non-slot areas fall through to
 // the engine's own default, which opens the file even if `drop` is canceled.
 // Disabled slots are exempt so the browser keeps its no-drop cursor on them.
@@ -3299,7 +3298,7 @@ function bindSunControl(): void {
       target.intensity = value;
       applySun();
     });
-    // See bindLightColor — the bake is release-triggered, not per-drag-move.
+    // See bindLightColor  the bake is release-triggered, not per-drag-move.
     // Re-engage on release so the sliders always re-light after an X.
     input.addEventListener('change', () => {
       renderer.reengageLighting();
@@ -3327,7 +3326,7 @@ function bindSunControl(): void {
 
 bindSunControl();
 
-// Preview view enum (Combined / BaseColor / Normals / AO / Lightmap) — a single segmented
+// Preview view enum (Combined / BaseColor / Normals / AO / Lightmap)  a single segmented
 // control on the Original pane that drives both preview panes. Normals drives
 // each pane's 3D viewport; AO/Lightmap swap the source in both previews.
 function bindViewToggle(toggle: HTMLDivElement, getView: () => PreviewViewMode, setView: (view: PreviewViewMode) => void): void {
@@ -3365,7 +3364,7 @@ document.querySelector('#saveButton')!.addEventListener('click', saveConfig);
 document.querySelector('#loadButton')!.addEventListener('click', loadConfig);
 document.querySelector('#resetButton')!.addEventListener('click', reset);
 // Export filenames end with the current view mode, spelled for filenames:
-// Combined / BaseColor / Normal / AO / Lightmap / LightmapAO — same vocabulary
+// Combined / BaseColor / Normal / AO / Lightmap / LightmapAO  same vocabulary
 // as the view toggle, minus its punctuation.
 const EXPORT_VIEW_SUFFIX: Record<PreviewViewMode, string> = {
   flat: 'Combined',
@@ -3381,7 +3380,7 @@ document.querySelector('#exportButton')!.addEventListener('click', async () => {
   // processed pane currently shows for the selected view mode. The render may
   // dither on the GPU, so await it before reading the canvas back.
   await renderScheduler.flush();
-  // <model base name without suffix>_<view mode>.png — the model's name when a
+  // <model base name without suffix>_<view mode>.png  the model's name when a
   // model is loaded, otherwise the base texture's name (both sans extension).
   const stem = modelBundle
     ? modelBundle.primary.name.replace(/\.[^.]+$/, '')
@@ -3391,7 +3390,7 @@ document.querySelector('#exportButton')!.addEventListener('click', async () => {
 });
 
 // External links (GitHub repo, Ko-fi support) use target="_blank", which the
-// Tauri webview ignores — route them through the opener plugin so they open
+// Tauri webview ignores  route them through the opener plugin so they open
 // in the system browser; the web build falls back to a new tab.
 document.addEventListener('click', (event) => {
   const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[target="_blank"][href^="http"]');

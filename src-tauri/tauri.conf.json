@@ -17,7 +17,7 @@
   "bundle": {
     "active": true,
     "shortDescription": "Texture pixelation and palette dithering studio",
-    "longDescription": "UltiPixelizer: pixelate textures, dither with retro palettes, and bake lighting and ambient occlusion from 3D models — processed entirely on your machine.",
+    "longDescription": "UltiPixelizer: pixelate textures, dither with retro palettes, and bake lighting and ambient occlusion from 3D models  processed entirely on your machine.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

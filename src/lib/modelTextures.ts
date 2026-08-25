@@ -19,7 +19,7 @@ export type ExtractedModelTextures = {
  * returning null when the image can't be drawn (missing, or compressed /
  * KTX2 textures whose image is a mipmap set).
  *
- * The canvas is vertically flipped when `texture.flipY === false` — the glTF
+ * The canvas is vertically flipped when `texture.flipY === false`  the glTF
  * convention, where UV (0,0) is the image top-left. The tool's bake pipeline
  * assumes the three.js default convention (v=0 at the image bottom; see
  * `rasterizeBake`), so glTF textures must be flipped to land in the same
@@ -32,7 +32,7 @@ export function textureSourceImage(texture: Texture): SourceImage | null {
   const height = image.height;
   if (typeof width !== 'number' || typeof height !== 'number' || width <= 0 || height <= 0) return null;
   // A draw failure (closed ImageBitmap, exotic image type) must not abort the
-  // whole model import — skip the texture and keep the slot as-is.
+  // whole model import  skip the texture and keep the slot as-is.
   try {
     const { canvas, context } = drawImageToCanvas(image, width, height);
     if (!context) return null;

@@ -102,14 +102,14 @@ export function paletteFromImport(text: string, fileName?: string): CustomPalett
 
 /** Windows-safe file name for a palette: the palette name IS the file name
  * (minus the ".hex" extension), so spaces and case are preserved. Leading and
- * trailing dots/whitespace are stripped — the Rust validator rejects names
+ * trailing dots/whitespace are stripped  the Rust validator rejects names
  * starting with a dot, so the two sides must agree. */
 export function paletteFileName(name: string): string {
   const sanitized = name.replace(/[<>:"/\\|?*]/g, '-').replace(/^[.\s]+|[.\s]+$/g, '');
   return `${sanitized || 'custom-palette'}.hex`;
 }
 
-/** Key derived from a palette file name — identity follows the file name, so
+/** Key derived from a palette file name  identity follows the file name, so
  * renaming a palette (its file) re-keys it. */
 export function paletteKeyFromFileName(fileName: string): string {
   return `custom-${slugify(fileName.replace(/\.hex$/i, ''), 'palette', 40)}`;
@@ -173,7 +173,7 @@ export async function loadCustomPalettesFromFiles(store: TauriFileStore): Promis
 /** Watches the desktop palettes folder for manual changes: `.hex` files dropped
  * in (or edited / removed) from the OS file manager appear in the library
  * without an app restart. Polls the folder and compares the loaded library
- * against the previous snapshot by key + colors — identical libraries skip
+ * against the previous snapshot by key + colors  identical libraries skip
  * the callback, so the app's own saves (which also touch the folder) don't
  * churn the grid. Palette files are a few hundred bytes, so re-reading them
  * per poll is negligible. Returns a stop function; errors are logged and
@@ -192,13 +192,13 @@ export function watchPalettesFolder(
       if (stopped) return;
       try {
         const palettes = await loadCustomPalettesFromFiles(store);
-        // The first poll only establishes the baseline — boot already loaded
+        // The first poll only establishes the baseline  boot already loaded
         // the library, so no duplicate load fires onChanged.
         if (previous !== null && !palettesMatch(previous, palettes)) onChanged(palettes);
         previous = palettes;
       } catch (error) {
         // A transient read error (file mid-write, folder lock) must not kill
-        // the watch — the next poll retries.
+        // the watch  the next poll retries.
         console.error('Could not watch the palettes folder.', error);
       }
     }

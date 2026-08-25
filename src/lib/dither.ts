@@ -89,7 +89,7 @@ export function nearestColor(color: RGB, palette: RGB[]): RGB {
 }
 
 /** Brightness/contrast/saturation tone parameters for `adjustColor` and the
- * dithering hot loops — the loops share the derivation (and the per-channel
+ * dithering hot loops  the loops share the derivation (and the per-channel
  * blend, via `toneAdjustPixel`) so the expression never drifts. */
 function toneAdjustParams(brightness: number, contrast: number, saturation: number): { brightnessOffset: number; contrastFactor: number; saturationFactor: number } {
   return {
@@ -99,7 +99,7 @@ function toneAdjustParams(brightness: number, contrast: number, saturation: numb
   };
 }
 
-/** Module scratch for `toneAdjustPixel` — the dither hot loops run per pixel,
+/** Module scratch for `toneAdjustPixel`  the dither hot loops run per pixel,
  * so the shared result is written here and read immediately (no per-pixel
  * allocation), the same pattern as the module-level scratch vectors in the
  * bake rasterizers. `adjustColor` allocates its own target instead. */
@@ -107,7 +107,7 @@ const _toneScratch: RGB = [0, 0, 0];
 
 /** Tone-adjusts one pixel: brightness offset, contrast factor, then the
  * LUMA-weighted saturation blend, clamped to 0..255. The single source of the
- * per-channel expression — `adjustColor`, the `ditherImageData` work-buffer
+ * per-channel expression  `adjustColor`, the `ditherImageData` work-buffer
  * pass, and `streamDitherSeamless`'s initRow all produce identical values
  * through here. Writes into `out` when given (a fresh tuple for `adjustColor`,
  * the module scratch for the hot loops) and returns it. */
@@ -132,7 +132,7 @@ function toneAdjustPixel(
 
 /** LUMA-weighted squared distance between a query color and a candidate.
  * `wr/wg/wb` carry the weights so the linear scan and the k-d query use their
- * f32-flattened matcher weights and `nearestColor` uses the double constants —
+ * f32-flattened matcher weights and `nearestColor` uses the double constants 
  * each caller keeps its exact arithmetic. */
 function lumaDistanceSquared(r: number, g: number, b: number, cr: number, cg: number, cb: number, wr: number, wg: number, wb: number): number {
   const dr = r - cr;
@@ -242,7 +242,7 @@ function buildKDTree(indices: Int32Array, flat: Float32Array, count: number): KD
  * the lowest palette index, matching the linear scan's first-minimum
  * behavior.
  *
- * Iterative with a per-matcher stack — no recursion and no per-query
+ * Iterative with a per-matcher stack  no recursion and no per-query
  * allocation. The far subtree is pruned against the best distance known at
  * push time; that distance can only shrink afterwards, so pushing early is
  * conservative (a superset of the recursive order's visits) and the result
@@ -302,7 +302,7 @@ function matchPalette(m: PaletteMatcher, r: number, g: number, b: number): numbe
 }
 
 export function ditherImageData(source: ImageData, options: ProcessOptions): ImageData {
-  // The 'none' mode performs no adjustment and no palette mapping — the
+  // The 'none' mode performs no adjustment and no palette mapping  the
   // caller's lighting pass (lightmap + AO multiply) is the only modification.
   if (options.mode === 'none') return source;
   const output = new ImageData(new Uint8ClampedArray(source.data), source.width, source.height);
@@ -347,7 +347,7 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
       let b = work[workIndex + 2];
 
       if (isThreshold) {
-        // Pattern modes are sampled 1:1 — one threshold cell per output pixel.
+        // Pattern modes are sampled 1:1  one threshold cell per output pixel.
         const offset = (patternThreshold(options.mode, x, y, options.stripeAngle, options.noiseScale, options.seed) - 0.5) * 96 * strength;
         r = clamp(r + offset, 0, 255);
         g = clamp(g + offset, 0, 255);
@@ -421,19 +421,19 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
 /** Error-diffusion modes carry state across pixel borders: the diffusion that
  * would flow out of the image's right/bottom edges is dropped (spread clamps
  * at the edges), so tiling the dithered result shows a seam at every tile
- * boundary. The classic fix — pad the source with exact copies of itself,
- * dither the padded canvas, then crop back to the original bounds — lets the
+ * boundary. The classic fix  pad the source with exact copies of itself,
+ * dither the padded canvas, then crop back to the original bounds  lets the
  * border errors wrap into the opposite edge, so the tile dithers as if it
  * were part of an infinite tiling. Threshold and halftone modes are stateless
  * (per-pixel / per-cell), so they need no padding.
  *
  * The canonical seamless grid is 3×3 (9 tiles). Diffusion flows only down and
  * right, so the center tile never reads the bottom strip (rows 2h..3h−1) or
- * the right strip below the top row — but the top strip must extend to 3w:
+ * the right strip below the top row  but the top strip must extend to 3w:
  * the tile's top-right pixel receives the 3/16 down-left spread of column 2w
  * (verified: a 3×2 grid is byte-identical to the 3×3 for floyd and atkinson,
- * while 2×2/2×3 differ). The grid is pure re-indexing — padded pixel (px, py)
- * shows source (px mod w, py mod h) — so `streamDitherSeamless` scans the
+ * while 2×2/2×3 differ). The grid is pure re-indexing  padded pixel (px, py)
+ * shows source (px mod w, py mod h)  so `streamDitherSeamless` scans the
  * virtual 3w×2h grid with a rolling work buffer and writes only the center
  * tile. That keeps the working set at ~KB instead of the ~750 MB the padded
  * buffers need at 2k, and the per-slot accumulation order is unchanged
@@ -441,7 +441,7 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
  * byte-identical to the padded implementation. */
 const SEAMLESS_MODES = new Set<DitherMode>(['floyd', 'atkinson']);
 
-/** Streaming seamless error diffusion — see the comment above. */
+/** Streaming seamless error diffusion  see the comment above. */
 function streamDitherSeamless(source: ImageData, options: ProcessOptions): ImageData {
   const { width, height } = source;
   const atkinson = options.mode === 'atkinson';

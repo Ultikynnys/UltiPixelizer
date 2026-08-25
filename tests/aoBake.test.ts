@@ -42,7 +42,7 @@ describe('bakeMeshAO', () => {
 
   it('lets a displaced grid neighbor occlude the middle tile', () => {
     // Flat neighbors sit at the surface's height, so the middle tile's upward
-    // hemisphere rays never touch them — the flat grid bakes pure white.
+    // hemisphere rays never touch them  the flat grid bakes pure white.
     const flat = bakeMeshAO(createFallbackQuadScene(4, true), 16, 16, { samples: 32, distance: 1 });
     expect(Math.min(...Array.from(flat))).toBe(255);
     // Raising a neighbor (like displacement) puts its underside in the path of

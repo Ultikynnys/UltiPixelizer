@@ -4,7 +4,7 @@ import type { State, TextureChannelId, TextureSlot } from '../../src/lib/state';
 import { FakeCanvas } from './domStubs';
 import { computeOutputDimensions } from '../../src/lib/canvas';
 
-/** A RenderShared with the usual defaults — a fresh FakeCanvas for the
+/** A RenderShared with the usual defaults  a fresh FakeCanvas for the
  * rendered canvas and nulls for the lazy lightmap slots. Tests that need a
  * non-null slot (e.g. the overlay suite's originalBaseCanvas) pass overrides.
  * Shared by the bake / overlay / render2d suites. */
@@ -31,7 +31,7 @@ export function createStateFixture(): State {
     customColors: [],
     // Small by default so tests with tiny sources exercise exact pixel math
     // (no upscale); tests that assert downscale dimensions pin 64. The default
-    // mode is the zero-strength ordered grid — plain palette mapping with no
+    // mode is the zero-strength ordered grid  plain palette mapping with no
     // pattern (the empty 'none' mode now passes the source through unchanged).
     resolution: 2,
     mode: 'ordered',
@@ -120,7 +120,7 @@ export function createRendererDeps(overrides: Omit<Partial<RendererDeps>, 'textu
     getProcessedPreviewMode: () => '2d',
     // Mirrors main.ts dimensions(): the dithered texture (and therefore the
     // AO/lightmap bake) resamples the source to the pixelization width with
-    // the height scaled to preserve aspect ratio — smaller sources upscale.
+    // the height scaled to preserve aspect ratio  smaller sources upscale.
     dimensions: () => {
       const source = deps.textures.base.image;
       if (!source) return { width: 2, height: 2 };

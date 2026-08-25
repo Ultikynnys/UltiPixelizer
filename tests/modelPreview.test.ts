@@ -598,7 +598,7 @@ describe('ModelViewport', () => {
     const original = mesh.material;
     viewport.setNormalsView(true);
     // The normals view showcases the actual normal map, not the mesh's vertex
-    // normals — the swap target is the normal-map sampling shader.
+    // normals  the swap target is the normal-map sampling shader.
     expect((mesh.material as ShaderMaterial).type).toBe('ShaderMaterial');
     expect((mesh.material as ShaderMaterial).uniforms.uHasNormalMap.value).toBe(0);
     viewport.setNormalsView(false);
@@ -711,7 +711,7 @@ describe('ModelViewport', () => {
   });
 
   it('exposes the camera forward direction for sun orientation', () => {
-    // Lighting is baked only — the viewport carries no realtime sun/ambient
+    // Lighting is baked only  the viewport carries no realtime sun/ambient
     // setters. The camera forward vector is what feeds the bake direction.
     const viewport = new ModelViewport(host());
     const forward = viewport.getCameraForward();
@@ -753,7 +753,7 @@ describe('ModelViewport', () => {
     viewport.setModel(meshScene(), [new AnimationClip('idle', 1, [])]);
     const rendersBefore = mocks.rendererCalls.filter((call) => call === 'render').length;
     flushRaf(16);
-    // The constructor renders synchronously; each rAF tick adds exactly two —
+    // The constructor renders synchronously; each rAF tick adds exactly two 
     // the model scene plus the corner sun-axis gizmo.
     expect(mocks.rendererCalls.filter((call) => call === 'render')).toHaveLength(rendersBefore + 2);
     expect(mocks.mixers[0].update).toHaveBeenCalled();
@@ -771,7 +771,7 @@ describe('ModelViewport', () => {
     renderer.getPixelRatio.mockReturnValue(2);
     flushRaf(16);
     // three multiplies viewport/scissor by pixel ratio internally, so the gizmo
-    // must pass logical pixels — the old device-pixel math pushed the box off
+    // must pass logical pixels  the old device-pixel math pushed the box off
     // the buffer entirely at ratio 2.
     const scissorCalls = renderer.setScissor.mock.calls;
     const [sx, sy, sw, sh] = scissorCalls[scissorCalls.length - 1] as [number, number, number, number];
@@ -820,7 +820,7 @@ describe('ModelViewport', () => {
     model.add(new Mesh(geometry, [new MeshBasicMaterial(), new MeshBasicMaterial()]));
     viewport.setModel(model, []);
     viewport.setNormalsView(true);
-    // The stashed original is a material array — applyImage targets each entry.
+    // The stashed original is a material array  applyImage targets each entry.
     expect(viewport.applyImage({} as CanvasImageSource)).toBe(2);
     viewport.dispose();
   });

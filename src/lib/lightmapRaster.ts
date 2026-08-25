@@ -6,7 +6,7 @@ import { clamp01, combineLight } from './math';
 import type { BakeWorkerError } from './workerCommon';
 
 /**
- * Lightmap bake options flattened for the worker — colors are pre-parsed to
+ * Lightmap bake options flattened for the worker  colors are pre-parsed to
  * 0..1 RGB tuples so the worker never touches DOM/color-string parsing. The
  * normal map rides in the serialized bake scene (like the AO bake), not here,
  * so every raster mirror reads the same pixel payload.
@@ -30,14 +30,14 @@ export type LightmapBakeRequest = SerializedBakeScene & {
   options: SerializedLightmapOptions;
 };
 
-/** Worker message: finished bake — full RGBA pixels (transferred, zero-copy). */
+/** Worker message: finished bake  full RGBA pixels (transferred, zero-copy). */
 export type LightmapBakeResult = {
   type: 'result';
   jobId: number;
   pixels: Uint8ClampedArray;
 };
 
-/** Worker message: the bake failed — the shared bake-worker error wire shape
+/** Worker message: the bake failed  the shared bake-worker error wire shape
  * (see `BakeWorkerError` in workerCommon). */
 export type LightmapBakeError = BakeWorkerError;
 
@@ -144,8 +144,8 @@ export function rasterizeLightmap(
   );
 }
 
-/** The full raster pass every lightmap caller shares — blank buffers, per-
- * texel lighting, and UV dilation — the trio the sync bake, the GPU path, and
+/** The full raster pass every lightmap caller shares  blank buffers, per-
+ * texel lighting, and UV dilation  the trio the sync bake, the GPU path, and
  * the worker each spelled out. Returns the pixel map plus the written mask
  * (the caller only needs the mask if it keeps the map). */
 export function rasterizeLightmapFull(

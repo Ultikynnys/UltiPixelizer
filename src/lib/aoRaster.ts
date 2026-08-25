@@ -6,7 +6,7 @@ import type { BakeWorkerError } from './workerCommon';
 
 /**
  * Symmetric cosine-weighted hemisphere kernel for AO sampling, flattened to
- * three floats per sample. Odd counts round up for paired symmetry — each pair
+ * three floats per sample. Odd counts round up for paired symmetry  each pair
  * carries opposite azimuths so the finite kernel has no directional bias and
  * mirrored geometry bakes identically without jitter.
  */
@@ -54,12 +54,12 @@ export type SerializedBakeScene = {
   occluderPositions: Float32Array;
   /** Ray-origin offset applied along the shading normal to avoid self-intersection. */
   epsilon: number;
-  /** Occlusion reach — rays longer than this are treated as unoccluded. */
+  /** Occlusion reach  rays longer than this are treated as unoccluded. */
   maxDistance: number;
   /** Flat hemisphere kernel, 3 floats per sample. */
   kernel: Float64Array;
   samples: number;
-  /** Tangent-space normal map sampled by the AO hemisphere when present —
+  /** Tangent-space normal map sampled by the AO hemisphere when present 
    * pixels at the bake's output resolution, transferred with the scene. */
   normalMap: Uint8ClampedArray | null;
   normalWidth: number;
@@ -140,11 +140,11 @@ export function serializeBakeScene(scene: BakeScene, samples: number, normal?: S
 export type AOBandTimings = {
   /** BVH deserialize (set by the worker before rasterizing). */
   deserializeMs: number;
-  /** Occlusion-sampling kernel loop — direction transform + castBakeRay. */
+  /** Occlusion-sampling kernel loop  direction transform + castBakeRay. */
   rayMs: number;
-  /** `shadeAOTexel` total — interpolation, normal-map decode, basis, plus rayMs. */
+  /** `shadeAOTexel` total  interpolation, normal-map decode, basis, plus rayMs. */
   shadeMs: number;
-  /** Whole `rasterizeAOBand` — triangle loop plus per-texel shading. */
+  /** Whole `rasterizeAOBand`  triangle loop plus per-texel shading. */
   rasterMs: number;
 };
 
@@ -168,7 +168,7 @@ const _direction = new Vector3();
  * Rasterizes the UV islands into the `[yStart, yEnd)` row band, writing the AO
  * factor (255 = bright/unoccluded, 0 = dark/occluded) and the written mask for
  * every covered texel. `factors` and `written` hold exactly
- * `(yEnd - yStart) × width` texels — the caller owns the full-map assembly and
+ * `(yEnd - yStart) × width` texels  the caller owns the full-map assembly and
  * dilation. The sample origin and smooth shading normal are interpolated per
  * texel so occlusion follows smoothed normals continuously across faces; the
  * orthonormal kernel basis is rebuilt per texel from that shading normal.
@@ -216,7 +216,7 @@ type AOTexelShading = {
   sNormalZ: number;
 };
 
-/** Scratch for `texelShadingNormal` — the bake loops run per texel, so the
+/** Scratch for `texelShadingNormal`  the bake loops run per texel, so the
  * shared result is written here and read immediately (no per-texel
  * allocation), the same pattern as the module-level Vector3s above. */
 const _shadingNormal = { gx: 0, gy: 0, gz: 0, sx: 0, sy: 0, sz: 0 };
@@ -227,7 +227,7 @@ const _shadingNormal = { gx: 0, gy: 0, gz: 0, sx: 0, sy: 0, sz: 0 };
  * scene carries a tangent-space normal map. The geometric normal is kept
  * separate from the (possibly perturbed) shading normal: the former offsets
  * ray origins off the surface, the latter orients the AO hemisphere and the
- * lightmap Lambert term. The result is written into the module scratch — read
+ * lightmap Lambert term. The result is written into the module scratch  read
  * it before the next call. Shared by `computeAOTexelShading` (AO CPU/GPU) and
  * `rasterizeLightmap` (lightmap CPU/worker) so both pipelines perturb shading
  * normals through byte-identical math.
@@ -241,7 +241,7 @@ export function texelShadingNormal(
   w1: number,
   w2: number,
   input: SerializedBakeScene,
-  /** triangleIndex * 6 — the triangle's UVs and tangent basis both start here. */
+  /** triangleIndex * 6  the triangle's UVs and tangent basis both start here. */
   uvOffset: number,
 ): { gx: number; gy: number; gz: number; sx: number; sy: number; sz: number } {
   const nx = w0 * vertices[v0 + 3] + w1 * vertices[v1 + 3] + w2 * vertices[v2 + 3];
@@ -283,7 +283,7 @@ export function texelShadingNormal(
 
 /**
  * Interpolates the world-space sample origin and the smooth shading normal
- * from a triangle's vertices at the given barycentric weights — the per-texel
+ * from a triangle's vertices at the given barycentric weights  the per-texel
  * inputs the AO ray cast needs (see `texelShadingNormal` for the normal
  * interpolation itself). Internal to this module: `shadeAOTexel` (CPU) and
  * `rasterizeAOShading` (GPU data) are its only callers.
@@ -381,7 +381,7 @@ function shadeAOTexel(
     const ky = kernel[s * 3 + 1];
     const kz = kernel[s * 3 + 2];
     // The kernel is unit length and (tangent, bitangent, normal) is an
-    // orthonormal basis, so the transformed direction is already normalized —
+    // orthonormal basis, so the transformed direction is already normalized 
     // the per-sample sqrt/divide is a no-op that costs a sqrt per sample.
     _direction.set(
       tx * kx + bx * ky + nxn * kz,
@@ -445,7 +445,7 @@ export type AOBandProgress = {
   rowsDone: number;
 };
 
-/** Worker message: finished band — band-local factor + written slices. */
+/** Worker message: finished band  band-local factor + written slices. */
 export type AOBandResult = {
   type: 'result';
   jobId: number;
@@ -455,6 +455,6 @@ export type AOBandResult = {
   timings: AOBandTimings;
 };
 
-/** Worker message: the band failed to rasterize — the shared bake-worker
+/** Worker message: the band failed to rasterize  the shared bake-worker
  * error wire shape (see `BakeWorkerError` in workerCommon). */
 export type AOBandError = BakeWorkerError;

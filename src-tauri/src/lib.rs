@@ -8,7 +8,7 @@ use tauri::Manager;
 /// organized in folders: `config/settings.json` and one `palettes/<name>.hex`
 /// per custom palette. The webview probes writability at boot and switches to
 /// the per-user app-data dir when the install folder isn't writable (Program
-/// Files MSI installs, macOS app bundles, Linux AppImage mounts) — surfaced to
+/// Files MSI installs, macOS app bundles, Linux AppImage mounts)  surfaced to
 /// the user, never silently.
 fn storage_dir(app: &tauri::AppHandle, location: &str) -> Result<PathBuf, String> {
     let dir = match location {
@@ -25,7 +25,7 @@ fn storage_dir(app: &tauri::AppHandle, location: &str) -> Result<PathBuf, String
 /// ("config" | "palettes") plus a plain file name. The webview can only ever
 /// reference a single file, so no deeper path, separator (backslash or extra
 /// slash), dotfile, or Windows-forbidden character can sneak a traversal past
-/// this check. Spaces are allowed — palette files are named after the palette
+/// this check. Spaces are allowed  palette files are named after the palette
 /// ("My Colors.hex").
 fn validate_storage_file_path(path: &str) -> Result<(), String> {
     if path.is_empty() || path.len() > 160 || path.starts_with('.') || path.contains('\\') {
@@ -66,7 +66,7 @@ fn storage_file_path(app: &tauri::AppHandle, location: &str, file: &str) -> Resu
     }
 }
 
-/// Resolves the storage directory for a location ("install" | "appdata") —
+/// Resolves the storage directory for a location ("install" | "appdata") 
 /// used by the webview to tell the user where data actually lives.
 #[tauri::command]
 fn app_storage_dir(app: tauri::AppHandle, location: String) -> Result<String, String> {
@@ -84,7 +84,7 @@ fn read_app_data(app: tauri::AppHandle, location: String, file: String) -> Resul
     }
 }
 
-/// Writes one storage file (creating the location's directory when needed —
+/// Writes one storage file (creating the location's directory when needed 
 /// the app-data dir does not exist before the first run).
 #[tauri::command]
 fn write_app_data(app: tauri::AppHandle, location: String, file: String, contents: String) -> Result<(), String> {
@@ -107,7 +107,7 @@ fn remove_app_data(app: tauri::AppHandle, location: String, file: String) -> Res
 }
 
 /// Lists the file names in one known storage folder ("config" | "palettes"),
-/// sorted for deterministic loading. An absent folder lists empty — the first
+/// sorted for deterministic loading. An absent folder lists empty  the first
 /// palette save creates it.
 #[tauri::command]
 fn list_app_data(app: tauri::AppHandle, location: String, folder: String) -> Result<Vec<String>, String> {
@@ -132,8 +132,8 @@ fn list_app_data(app: tauri::AppHandle, location: String, folder: String) -> Res
 }
 
 /// The desktop shell is deliberately minimal: UltiPixelizer is a pure
-/// client-side web app — the only IPC is the install-folder data store below.
-/// The window is created here in Rust — instead of tauri.conf.json — so the
+/// client-side web app  the only IPC is the install-folder data store below.
+/// The window is created here in Rust  instead of tauri.conf.json  so the
 /// navigation guard and the drag-drop handler setting can be attached to the
 /// WebviewWindowBuilder.
 pub fn run() {

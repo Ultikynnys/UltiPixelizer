@@ -2,7 +2,7 @@ import { BufferAttribute, BufferGeometry } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import type { SerializedBVH } from './aoRaster';
 
-/** Error payload every bake worker posts on failure — one wire shape shared by
+/** Error payload every bake worker posts on failure  one wire shape shared by
  * the AO and lightmap workers, so `AOBandError` / `LightmapBakeError` and the
  * test expectations all agree on the format. */
 export type BakeWorkerError = {

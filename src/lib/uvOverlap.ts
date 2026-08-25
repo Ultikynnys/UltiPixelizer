@@ -8,7 +8,7 @@ export const UV_OVERLAP_LABEL = 'UV OVERLAP';
 /** A single triangle's UV coordinates plus the mesh/triangle identity needed to
  * map the triangle back onto the source scene for the 3D highlight. */
 export type UVTriangle = {
-  /** Depth-first index of the owning mesh — stable across `cloneModelScene` clones. */
+  /** Depth-first index of the owning mesh  stable across `cloneModelScene` clones. */
   meshIndex: number;
   /** Triangle index within the mesh's index buffer (or sequential for non-indexed). */
   triangleIndex: number;
@@ -55,7 +55,7 @@ export function collectUVTriangles(scene: Object3D): UVTriangle[] {
 /**
  * Rasterizes triangle UVs into a `width × height` grid, invoking `mark` for
  * every texel whose center falls inside the triangle. Thin wrapper over the
- * shared barycentric rasterizer — the overlap detector only needs the covered
+ * shared barycentric rasterizer  the overlap detector only needs the covered
  * texel coordinates, not the barycentric weights.
  */
 export function rasterizeUVCoverage(

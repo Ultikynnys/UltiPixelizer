@@ -37,7 +37,7 @@ export function normalMapPayload(options: {
  * convention difference between OpenGL (+Y) and DirectX (-Y) is only applied at
  * decode time via the `flipY` flag.
  */
-/** Extracts an image's RGBA pixels at native resolution — the shared reader
+/** Extracts an image's RGBA pixels at native resolution  the shared reader
  * behind the normal-map and heightmap extractors (both wrap the same
  * `PixelSource` shape). */
 function nativeSizePixels(image: CanvasImageSource & { width: number; height: number }): PixelSource {

@@ -84,7 +84,7 @@ describe('wasm full-loop seamless dither parity', () => {
       const buf = readFileSync(fileURLToPath(new URL('../src/wasm/dither.wasm', import.meta.url)));
       wasmBytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
     } catch {
-      // artifact not built — the comparison test skips.
+      // artifact not built  the comparison test skips.
     }
   });
 

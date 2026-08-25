@@ -1,6 +1,6 @@
 /**
  * A Map with a bounded entry count: inserting past `maxEntries` evicts the
- * oldest entry (Map iteration order). `get` does NOT bump recency — callers
+ * oldest entry (Map iteration order). `get` does NOT bump recency  callers
  * that want LRU bumping re-insert via delete + set, which is what the two
  * consumers (fallback-quad scenes, dither results) do today. Sharing the
  * factory keeps the eviction idiom in one place instead of a delete-oldest

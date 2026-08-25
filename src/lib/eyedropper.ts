@@ -5,7 +5,7 @@ import { rgbToHex } from './palettes';
  * Custom in-app eyedropper sampling.
  *
  * The native EyeDropper API samples anywhere on screen, but its picker window
- * takes ~1s to appear in Chromium/WebView2 — browser-internal startup that no
+ * takes ~1s to appear in Chromium/WebView2  browser-internal startup that no
  * JS can remove. This module replaces it with an instant picker over the app's
  * own rendering: exact backing pixels from 2D canvases (the texture previews),
  * falling back to the nearest opaque solid background (palette chips, panels,
@@ -15,7 +15,7 @@ import { rgbToHex } from './palettes';
 
 /** Parses a computed `rgb(...)`/`rgba(...)`/`#rrggbb` color string into a
  * lowercase hex. Returns null for `transparent`, malformed values, or alpha < 1
- * — a translucent fill shows the backdrop through it, so the color at that
+ *  a translucent fill shows the backdrop through it, so the color at that
  * point is really whatever sits behind it. */
 export function colorStringToHex(value: string): string | null {
   const trimmed = value.trim();

@@ -117,7 +117,7 @@ export function forEachTriangle(
 
 /** Iterates every Mesh in a subtree in depth-first order, passing the mesh and
  * its traversal index. The index counts *all* meshes (visible or not) so it
- * stays stable across identical-topology clones — the UV-overlap detector and
+ * stays stable across identical-topology clones  the UV-overlap detector and
  * the 3D overlap overlay both depend on this shared ordering. */
 export function forEachMeshIndexed(object: Object3D, callback: (mesh: Mesh, index: number) => void): void {
   let index = 0;
@@ -135,7 +135,7 @@ export function forEachMeshIndexed(object: Object3D, callback: (mesh: Mesh, inde
  * the edge stays hard. Indexed geometry is expanded to non-indexed so hard edges
  * can own separate vertices; non-indexed geometry (FBX/OBJ exports duplicate
  * every face corner) is welded by position first so shared vertices smooth
- * across. Returns the geometry to use — the same object, or a new de-indexed
+ * across. Returns the geometry to use  the same object, or a new de-indexed
  * geometry the caller should substitute in. */
 export function computeSmoothNormals(geometry: BufferGeometry, angleDeg = DEFAULT_SMOOTH_ANGLE): BufferGeometry {
   geometry.deleteAttribute('normal');
@@ -280,7 +280,7 @@ export function cloneModelScene(source: Object3D): Object3D {
     for (const [property, value] of Object.entries(material)) {
       if (!(value instanceof Texture)) continue;
       if (value.image == null) {
-        // Loader placeholder — the texture never decoded (missing file or
+        // Loader placeholder  the texture never decoded (missing file or
         // undefined filename). Cloning it would bump its version while the
         // image stays null, so the renderer would warn
         // "Texture marked for update but no image data found" every frame.
@@ -330,8 +330,8 @@ const _white = new Color(0xffffff);
  * construction. `MeshLambertMaterial` has no specular term in its shader, so a
  * black albedo renders black under any light. Returns the source unchanged when
  * it is already matte: `MeshLambertMaterial`, or `MeshBasicMaterial` (glTF
- * unlit — deliberately ignores lights). Custom `ShaderMaterial`s pass through
- * untouched — their shading is author-controlled.
+ * unlit  deliberately ignores lights). Custom `ShaderMaterial`s pass through
+ * untouched  their shading is author-controlled.
  */
 function lambertFromMaterial(material: Material): Material {
   if (material instanceof MeshLambertMaterial || material instanceof MeshBasicMaterial) return material;
@@ -391,9 +391,9 @@ function lambertFromMaterial(material: Material): Material {
 
 /**
  * Replaces every material in a model subtree with its matte Lambert equivalent,
- * so the model renders with pure diffuse shading — a black albedo stays black
+ * so the model renders with pure diffuse shading  a black albedo stays black
  * under any light. Loader materials (Phong / Standard / Physical) always carry a
- * specular response that per-property stripping cannot fully remove — three r185
+ * specular response that per-property stripping cannot fully remove  three r185
  * `MeshStandardMaterial` hardcodes a 4% dielectric F0 (white at grazing angles),
  * which shows up as a sheen on black surfaces. Returns the conversion count.
  */
@@ -440,7 +440,7 @@ export type HeightSampler = (u: number, v: number) => number;
 /** The no-model fallback: a flat quad facing up (normal +Y) with UVs spanning
  * 0..1. The bake layer substitutes it when no model is loaded so AO/lightmap
  * bakes still produce a result, and the viewports hold it so the 3D view has
- * geometry without a model. Each call returns a fresh instance — the bake
+ * geometry without a model. Each call returns a fresh instance  the bake
  * layer keeps one as a cache-identity singleton (see getFallbackQuadScene),
  * the viewports need their own per-scene instance (three.js parenting forbids
  * sharing one Object3D).
@@ -449,19 +449,19 @@ export type HeightSampler = (u: number, v: number) => number;
  * `tessellation` subdivides the plane (segments per side) so displacement has
  * vertices to work with. `grid` arranges nine tiles around the origin: the
  * middle tile is the bake surface, while the eight neighbors are marked
- * `userData.occluderOnly` — they cast shadows on the middle tile's bake but
+ * `userData.occluderOnly`  they cast shadows on the middle tile's bake but
  * never rasterize into it (their UVs span the same 0..1 region, so writing
  * them would clobber the middle tile's texture). `collectBakeScene` reads the
  * marker; every other consumer (viewports, displacement, texture application)
  * ignores it. */
 export function createFallbackQuadScene(tessellation = 1, grid = false): Object3D {
-  // One geometry per scene, shared by every tile — the tiles differ only by
+  // One geometry per scene, shared by every tile  the tiles differ only by
   // position, so grid mode's nine PlaneGeometry allocations collapse to one.
   const geometry = new PlaneGeometry(1, 1, tessellation, tessellation);
   geometry.rotateX(-Math.PI / 2);
   const tile = (x: number, z: number): Mesh => {
     // DoubleSide: displacement raises cliffs whose far faces point away from
-    // the viewport camera — with the default FrontSide those backfaces get
+    // the viewport camera  with the default FrontSide those backfaces get
     // culled and the plane reads as having holes ("gaps") even though the
     // geometry is watertight.
     const mesh = new Mesh(geometry, new MeshBasicMaterial({ side: DoubleSide }));
@@ -482,7 +482,7 @@ export function createFallbackQuadScene(tessellation = 1, grid = false): Object3
 
 /** Memoized fallback quad scenes for the bake layer, keyed by the
  * (tessellation, grid) parameters. The bake quad is the one consumer that can
- * hold a stable Object3D identity — the viewports need per-scene instances
+ * hold a stable Object3D identity  the viewports need per-scene instances
  * (three.js forbids sharing one Object3D across parents), so re-selecting a
  * previous tessellation/grid returns the exact same scene and the bake-scene
  * cache (keyed by scene identity, see bakeSceneCache) hits without
@@ -490,7 +490,7 @@ export function createFallbackQuadScene(tessellation = 1, grid = false): Object3
  * and is idempotent, so the cached scene survives repeated displacement
  * applications. Bounded LRU: dragging the tessellation slider can visit many
  * densities, and each entry holds a full 3×3 grid's geometry at that density.
- * Evicted scenes are simply dropped (no dispose) — they were never handed to
+ * Evicted scenes are simply dropped (no dispose)  they were never handed to
  * the WebGL renderer, so their GPU buffers are released with them. */
 const FALLBACK_QUAD_CACHE_SIZE = 4;
 const fallbackQuadCache = createBoundedLru<string, Object3D>(FALLBACK_QUAD_CACHE_SIZE);
@@ -498,7 +498,7 @@ export function getFallbackQuadScene(tessellation: number, grid: boolean): Objec
   const key = `${tessellation}:${grid ? 'grid' : 'tile'}`;
   const cached = fallbackQuadCache.get(key);
   if (cached) {
-    // Bump recency — delete + re-set moves the entry to the map's tail.
+    // Bump recency  delete + re-set moves the entry to the map's tail.
     fallbackQuadCache.delete(key);
     fallbackQuadCache.set(key, cached);
     return cached;
@@ -509,7 +509,7 @@ export function getFallbackQuadScene(tessellation: number, grid: boolean): Objec
 }
 
 // Pristine vertex data per geometry, captured on first displacement so every
-// subsequent application (and restore) is computed from the original shape —
+// subsequent application (and restore) is computed from the original shape 
 // never from an already-displaced snapshot. Keyed weakly: clones (viewport
 // models, AO scenes, the bake quad) each cache their own base on first use.
 const displacementBase = new WeakMap<BufferGeometry, { position: Float32Array; normal: Float32Array }>();
@@ -519,7 +519,7 @@ const displacementBase = new WeakMap<BufferGeometry, { position: Float32Array; n
  * mid-gray leaves the mesh untouched, white pushes out, black pulls in.
  * Vertex normals are recomputed after displacement so the lightmap bake (and
  * the viewport) shade the bumps. Passing null (or zero strength) restores the
- * pristine geometry. Applies in place — safe to call repeatedly, and safe on
+ * pristine geometry. Applies in place  safe to call repeatedly, and safe on
  * any clone of a displaced scene since the base is cached per geometry. */
 export function applyDisplacement(root: Object3D, height: HeightSampler | null, strength: number): void {
   const sampler = height !== null && strength !== 0 ? height : null;
@@ -588,14 +588,14 @@ export function disposeModel(object: Object3D): void {
   textures.forEach((texture) => texture.dispose());
 }
 
-// Lazy singleton renderer shared by every mesh-slot thumbnail — one offscreen
+// Lazy singleton renderer shared by every mesh-slot thumbnail  one offscreen
 // WebGL context for all small previews instead of one per model or per render.
 let thumbnailRenderer: WebGLRenderer | null = null;
 let thumbnailCamera: PerspectiveCamera | null = null;
 
 /** Renders a model into a small square canvas for the ribbon's mesh slot. The
  * Lambert materials the pipeline converts to need a light to be visible, so the
- * model renders under a full-white ambient — the same lighting the viewports
+ * model renders under a full-white ambient  the same lighting the viewports
  * use. The renderer's canvas is never composited (it stays offscreen), so the
  * pixels are read straight out of the GL drawing buffer: `finish()` waits for
  * the frame to complete, then `readPixels` copies it (rows flipped, since GL
@@ -614,8 +614,8 @@ export function renderModelThumbnail(model: Object3D, size = 40): HTMLCanvasElem
   camera.aspect = 1;
   camera.updateProjectionMatrix();
   // Fit the framing (center / near / far), then aim the camera at the classic
-  // 3/4 portrait angle — 45° above the horizon and 45° around, looking down at
-  // the model from its front-right — so the thumbnail always reads as a
+  // 3/4 portrait angle  45° above the horizon and 45° around, looking down at
+  // the model from its front-right  so the thumbnail always reads as a
   // three-quarter view instead of a straight-on or top-down shot.
   const center = fitCameraToObject(camera, model, 1);
   const distance = camera.position.distanceTo(center);
@@ -636,7 +636,7 @@ export function renderModelThumbnail(model: Object3D, size = 40): HTMLCanvasElem
   scene.remove(model);
   const gl = renderer.getContext();
   // Block until the GPU has finished drawing, then read the framebuffer
-  // directly — drawing the canvas element instead can return an untouched
+  // directly  drawing the canvas element instead can return an untouched
   // (white) bitmap, since the offscreen canvas is never presented.
   gl.finish();
   const raw = new Uint8Array(size * size * 4);

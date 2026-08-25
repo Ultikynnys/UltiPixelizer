@@ -256,8 +256,8 @@ describe('dilateUVBake', () => {
 
     // Ring 2 texel (0,0) is 2 away from the center and inherits the value.
     expect(pixels[0]).toBe(100);
-    // Beyond pad: 3+ away stays background — none exist in a 5×5 from center (2,2).
-    expect(pixels[4 * 5 + 4]).toBe(100); // (4,4) is 2 rings away (max(2,2)) — also covered
+    // Beyond pad: 3+ away stays background  none exist in a 5×5 from center (2,2).
+    expect(pixels[4 * 5 + 4]).toBe(100); // (4,4) is 2 rings away (max(2,2))  also covered
   });
 
   it('marks padded texels as written for the next ring', () => {
@@ -312,7 +312,7 @@ describe('castBakeRay', () => {
     const { bvh, epsilon, maxDistance } = bakedBox();
     // Pointing up from above the box.
     expect(castBakeRay(bvh, new Vector3(0.5, 5, 0.5), new Vector3(0, 1, 0), new Vector3(0, 1, 0), epsilon, 0, maxDistance)).toBe(false);
-    // Passing over the top face at y=5 — never enters the box slab.
+    // Passing over the top face at y=5  never enters the box slab.
     expect(castBakeRay(bvh, new Vector3(0.5, 5, 0.5), new Vector3(0, 1, 0), new Vector3(1, 0, 0), epsilon, 0, maxDistance)).toBe(false);
     // Sideways past the box along the z axis at x=5.
     expect(castBakeRay(bvh, new Vector3(5, 0.5, 0.5), new Vector3(1, 0, 0), new Vector3(0, 0, -1), epsilon, 0, maxDistance)).toBe(false);

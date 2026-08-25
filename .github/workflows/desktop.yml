@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           # Full history so `git rev-list --count HEAD` (the build number the
-          # badge and installer version derive from) counts real commits — the
+          # badge and installer version derive from) counts real commits  the
           # default shallow checkout would always report 1.
           fetch-depth: 0
       - name: Install dependencies and stamp build version
@@ -61,7 +61,7 @@ jobs:
         run: npm test
 
       # Installs the Rust toolchain and packages the installers. No release is
-      # created here — the matrix jobs would race; the release job below
+      # created here  the matrix jobs would race; the release job below
       # publishes the combined installers to the version tag.
       - name: Build and package (Tauri)
         uses: tauri-apps/tauri-action@v0
@@ -70,7 +70,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      # Only the installers ship in the artifact — the bundle dir also keeps
+      # Only the installers ship in the artifact  the bundle dir also keeps
       # staging leftovers (UltiPixelizer.AppDir/, the deb package dir) that
       # would otherwise end up as junk release assets.
       - name: Upload installers
@@ -98,7 +98,7 @@ jobs:
         with:
           node-version: 24
 
-      # The release tag is the same version the installers were stamped with —
+      # The release tag is the same version the installers were stamped with 
       # recomputed here from the identical git build count (same commit, so it
       # matches the build job).
       - name: Resolve version
@@ -157,14 +157,14 @@ jobs:
 
       # Publish the same installers to itch.io (r60d.itch.io/ultipixelizer).
       # butler authenticates from the BUTLER_API_KEY env var, which GitHub
-      # injects from the BUTLER_API_KEY repository secret — the key never
+      # injects from the BUTLER_API_KEY repository secret  the key never
       # appears in this file or in build logs. The version is always the same
       # commit-count-derived version as the GitHub release.
       #
       # itch maps one channel to exactly one download, so the 4 installers use
       # 4 channels (2 Linux: .AppImage + .deb; 2 Windows: .exe + .msi). A
       # re-push to a channel REPLACES that channel's download (build history
-      # stays, the page shows one file), so this step is idempotent — no
+      # stays, the page shows one file), so this step is idempotent  no
       # clearing needed on subsequent releases.
       - name: Install butler
         shell: bash
@@ -184,14 +184,14 @@ jobs:
         run: |
           # The upload-artifact step stores the installers under subdirs
           # (appimage/, deb/, msi/, nsis/) beneath the merge root, so the files
-          # are NOT at release/*.ext — locate them recursively by name. Stage
+          # are NOT at release/*.ext  locate them recursively by name. Stage
           # one installer per channel (butler pushes one src dir per channel),
           # then push all four. Each channel name picks a platform tag:
           # linux-* -> Linux, windows-* -> Windows.
           mkdir -p itch/linux-appimage itch/linux-deb itch/windows-exe itch/windows-msi
           # Match only the canonical UltiPixelizer_* installers (Tauri also emits
           # same-version duplicate artifacts for the lowercase product id, e.g.
-          # ulti-pixelizer_2.6.9_amd64.deb — those must not pollute a channel).
+          # ulti-pixelizer_2.6.9_amd64.deb  those must not pollute a channel).
           find release -type f -name 'UltiPixelizer_*.AppImage' -exec cp {} itch/linux-appimage/ \;
           find release -type f -name 'UltiPixelizer_*.deb' -exec cp {} itch/linux-deb/ \;
           find release -type f -name 'UltiPixelizer_*-setup.exe' -exec cp {} itch/windows-exe/ \;

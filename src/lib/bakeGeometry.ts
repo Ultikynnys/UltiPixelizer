@@ -27,7 +27,7 @@ export type BakeScene = {
   /** Flat world-space occluder triangle positions, 9 floats per triangle. */
   occluderPositions: Float32Array;
   /** Per-triangle MikkTSpace tangent bases, [tangent.xyz, bitangent.xyz] per
-   * triangle — a pure function of the collected geometry, computed once here
+   * triangle  a pure function of the collected geometry, computed once here
    * and shared by the lightmap and AO bakes (which reuse the cached scene
    * instead of rebuilding the bases on every sun/strength re-bake). */
   tangentBases: Float32Array | null;
@@ -39,7 +39,7 @@ export type BakeScene = {
  * the UV gradients and are re-orthogonalized against the triangle face normal;
  * the shading normal is interpolated from per-vertex normals by the caller, so
  * light (and AO hemispheres) respect source / smoothed normals rather than the
- * flat face normal. Throws for degenerate triangles — callers skip those before
+ * flat face normal. Throws for degenerate triangles  callers skip those before
  * reaching here.
  */
 export function computeTangentBasis(
@@ -85,12 +85,12 @@ export function computeTangentBasis(
  *
  * Every mesh contributes to occlusion; only meshes that carry both a `uv` and a
  * `normal` attribute are baked. Meshes marked `userData.occluderOnly === true`
- * (e.g. the fallback grid's neighbor tiles) block light but never rasterize —
+ * (e.g. the fallback grid's neighbor tiles) block light but never rasterize 
  * their UVs span the same 0..1 region as the middle tile, so writing them
  * would clobber its texture. Meshes missing normals are recomputed via
  * `computeSmoothNormals`, so pass a disposable scene (a clone) if you need to
  * keep the original untouched. Degenerate triangles (zero world area, or
- * collapsed UVs) are skipped — they have no surface to light.
+ * collapsed UVs) are skipped  they have no surface to light.
  */
 export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
   scene.updateMatrixWorld(true);
@@ -111,7 +111,7 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
     let geometry = child.geometry as BufferGeometry;
     if (!geometry.getAttribute('position')) return;
     // Occluder-only meshes (the fallback grid's neighbor tiles) block light
-    // but are never rasterized into the bake — their UVs span the same 0..1
+    // but are never rasterized into the bake  their UVs span the same 0..1
     // region as the middle tile, so writing them would clobber its texture.
     const occluderOnly = child.userData?.occluderOnly === true;
 
@@ -144,10 +144,10 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
       pc.fromBufferAttribute(position, ic).applyMatrix4(world);
       if (triangleNormal(pa, pb, pc, faceNormal).lengthSq() === 0) return;
 
-      // Occluder triangles (world space) — every mesh contributes.
+      // Occluder triangles (world space)  every mesh contributes.
       worldPositions.push(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z, pc.x, pc.y, pc.z);
 
-      // Bakeable surface — needs UVs, normals, and a non-degenerate UV footprint.
+      // Bakeable surface  needs UVs, normals, and a non-degenerate UV footprint.
       if (occluderOnly || !uv || !normal) return;
       const uva: UvPair = [uv.getX(ia), uv.getY(ia)];
       const uvb: UvPair = [uv.getX(ib), uv.getY(ib)];
@@ -160,7 +160,7 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
         const corner = corners[cornerIndex];
         n.fromBufferAttribute(normal, vi).applyMatrix3(normalMatrix).normalize();
         // Dedup key: values quantized to 1e-6 integers instead of
-        // `toFixed(6)` strings — same grouping (both round at 6 decimals),
+        // `toFixed(6)` strings  same grouping (both round at 6 decimals),
         // ~1.8× faster on 60k-tri models (180k+ corner keys).
         const key = `${Math.round(corner.x * 1e6)}|${Math.round(corner.y * 1e6)}|${Math.round(corner.z * 1e6)}|${Math.round(n.x * 1e6)}|${Math.round(n.y * 1e6)}|${Math.round(n.z * 1e6)}`;
         let resolved = vertexIndexByKey.get(key);
@@ -175,7 +175,7 @@ export function collectBakeScene(scene: Object3D, distance = 2): BakeScene {
     });
   });
 
-  // Per-triangle MikkTSpace tangent bases — a pure function of the world
+  // Per-triangle MikkTSpace tangent bases  a pure function of the world
   // positions and UVs, so they're computed once per collected scene and shared
   // by the lightmap and AO bakes (each re-bake reuses the cached scene rather
   // than rebuilding the bases on every sun/strength tweak). The collection
@@ -322,7 +322,7 @@ function rayBoxIntersects(ray: Ray, box: Box3, near: number, far: number): boole
 /**
  * Rasterizes triangles into a `width × height` grid, invoking `writePixel`
  * with the barycentric weights for every covered pixel. Generic over triangle
- * shape — the bake (BakeTriangle) and UV-overlap (UVTriangle) rasterizers are
+ * shape  the bake (BakeTriangle) and UV-overlap (UVTriangle) rasterizers are
  * the same math. UV (0,0) is the texture bottom-left; the canvas is top-left,
  * so V is flipped here. The flat serialized-scene sibling is
  * `rasterizeBakeBand` (band-clipped, progress-aware); both share one
@@ -440,7 +440,7 @@ export function rasterizeBakeBand(
   const triangleCount = triangleVerts.length / 3;
   const bandHeight = yEnd - yStart;
   // Progress counts UNIQUE rows touched in this band, not (triangle, row)
-  // visits — the raster is triangle-major, so overlapping triangles would
+  // visits  the raster is triangle-major, so overlapping triangles would
   // otherwise overcount rows and push the reported percent past 100.
   const rowTouched = onRowsComplete ? new Uint8Array(bandHeight) : null;
   const reportEvery = onRowsComplete ? Math.max(1, Math.floor(bandHeight / 128)) : 0;

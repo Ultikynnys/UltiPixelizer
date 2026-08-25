@@ -68,7 +68,7 @@ assertAsciiWgsl(LIGHTMAP_WGSL, 'Lightmap');
 /**
  * Computes the per-vertex sun visibility on the GPU and returns a
  * `Float32Array` of 0 (shadowed / unlit) or 1 (lit) per baked vertex, indexed
- * by vertex id — the same shape `rasterizeLightmap` interpolates. Throws when
+ * by vertex id  the same shape `rasterizeLightmap` interpolates. Throws when
  * WebGPU is unavailable, the scene has no vertices, or any GPU step fails.
  */
 export async function computeSunVisibilityGpu(
@@ -85,7 +85,7 @@ export async function computeSunVisibilityGpu(
   const bvh = buildLinearBVH(input.occluderPositions);
 
   // One device per session, shared with the AO bake (see getGpuDevice in
-  // gpuCommon.ts) — the ~100ms device request is paid once, so the GPU runs
+  // gpuCommon.ts)  the ~100ms device request is paid once, so the GPU runs
   // unconditionally with no vertex-count threshold. The device is never
   // destroyed here: it stays cached for every subsequent bake.
   return runComputePass({

@@ -10,7 +10,7 @@
  * `linearMatch` in the same order. See src-wasm/src/lib.rs.
  *
  * Until the instance is ready (or if loading fails) `createWasmMatcher`
- * returns null and the caller uses the JS scan — a load-order fallback, not a
+ * returns null and the caller uses the JS scan  a load-order fallback, not a
  * silent error swallow: the load failure is logged once and latched.
  */
 

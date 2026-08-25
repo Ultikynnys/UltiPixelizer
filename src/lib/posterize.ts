@@ -12,9 +12,9 @@ import type { PixelSource } from './canvas';
  * every catalog read.
  */
 export type PosterizeStats = {
-  /** 256 luminance bins — how many sampled pixels landed in each. */
+  /** 256 luminance bins  how many sampled pixels landed in each. */
   histogram: Uint32Array;
-  /** 256 * 3 — accumulated r, g, b per luminance bin. */
+  /** 256 * 3  accumulated r, g, b per luminance bin. */
   colorSums: Float32Array;
   /** Total sampled pixel count. */
   total: number;
@@ -82,7 +82,7 @@ export function posterizeColors(stats: PosterizeStats | null, levels: number, fa
     if (count > 0) {
       colors.push(rgbToHex(r / count, g / count, b / count));
     } else {
-      // Empty bucket — fewer distinct luminance bins than requested levels.
+      // Empty bucket  fewer distinct luminance bins than requested levels.
       // Reuse the previous bucket's color so the ramp stays complete.
       colors.push(colors[colors.length - 1] ?? fallback[Math.min(level, fallback.length - 1)] ?? '#000000');
     }

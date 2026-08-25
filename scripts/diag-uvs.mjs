@@ -9,7 +9,7 @@ if (typeof globalThis.URL.createObjectURL !== 'function') {
 }
 
 // three's ImageLoader (used for embedded FBX textures) needs a DOM `img`
-// element factory; a never-decoding fake is enough — UVs parse fine either way.
+// element factory; a never-decoding fake is enough  UVs parse fine either way.
 if (typeof globalThis.document === 'undefined') {
   globalThis.document = {
     createElementNS: () => ({

@@ -7,7 +7,7 @@ import type { RGB } from './math';
 import { normalMapPayload, type NormalMapSource } from './normal';
 import { serializeBakeScene } from './aoRaster';
 import { rasterizeLightmapFull, type LightmapBakeRequest, type LightmapBakeResult, type SerializedLightmapOptions } from './lightmapRaster';
-// The worker is inlined into the bundle (blob URL) — same rationale as the AO
+// The worker is inlined into the bundle (blob URL)  same rationale as the AO
 // worker: Tauri/Electron shells and restricted CSPs can reject module workers
 // loaded from a URL, whereas a blob-backed worker is protocol-agnostic.
 import LightmapWorker from './lightmapWorker.worker?worker&inline';
@@ -39,7 +39,7 @@ function parseColor(color: string): RGB {
  * shading normal, so the sun follows smoothed normals continuously across faces
  * instead of averaging per-vertex light (Gouraud) and showing faceting seams.
  * Pass a pre-collected {@link BakeScene} as `bakeSceneOverride` to skip the
- * (potentially hundreds-of-ms) scene collection — the caller owns its
+ * (potentially hundreds-of-ms) scene collection  the caller owns its
  * freshness via the bake-scene cache's invalidation contract.
  *
  * This sync path is the CPU mirror of the worker path: it serializes the

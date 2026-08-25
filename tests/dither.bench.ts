@@ -26,7 +26,7 @@ beforeAll(async () => {
     const buf = readFileSync(fileURLToPath(new URL('../src/wasm/dither.wasm', import.meta.url)));
     await initDitherWasm(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer);
   } catch {
-    // artifact not built — bench measures the JS linear scan.
+    // artifact not built  bench measures the JS linear scan.
   }
 });
 

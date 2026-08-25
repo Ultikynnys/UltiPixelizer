@@ -19,7 +19,7 @@ export interface Render2DApi {
 
 /** Draws the repeat-tiled display for the image-repeat diagnostic: `repeat²`
  * copies of `source` at `width`×`height` each. The processed and original
- * panes tile independently (each with its own repeat factor) — one helper so
+ * panes tile independently (each with its own repeat factor)  one helper so
  * the two loops can't drift. */
 function drawTiled(context: CanvasRenderingContext2D, source: CanvasImageSource, width: number, height: number, repeat: number): void {
   for (let ty = 0; ty < repeat; ty += 1) {
@@ -114,7 +114,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
   }
 
   /** Cache-aware dither for the async GPU path; the result is stored when it
-   * lands — even if a newer render then drops this frame, the cached entry is
+   * lands  even if a newer render then drops this frame, the cached entry is
    * still a valid output for its key. */
   async function ditherAsync(key: string, input: Uint8ClampedArray, compute: () => Promise<ImageData>): Promise<ImageData> {
     const cached = lookupDither(key, input);
@@ -125,7 +125,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
   }
 
   /** Resamples a lighting map at the processed resolution, then pixelizes it
-   * with the same downscale/upscale amount as the base — each base block gets
+   * with the same downscale/upscale amount as the base  each base block gets
    * one uniform AO/lighting value, so the shading follows the chunky grid
    * instead of varying smoothly inside a block. */
   function resamplePixelated(image: SourceImage, width: number, height: number): Uint8ClampedArray {
@@ -191,12 +191,12 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
   async function render(): Promise<void> {
     const { width, height } = dimensions();
     // Image-repeat diagnostic: render the texture tiled 3×3 in the 2D panes so
-    // seams at tile boundaries are visible. Only the display canvases tile —
+    // seams at tile boundaries are visible. Only the display canvases tile 
     // shared.renderedCanvas / originalBaseCanvas (export, viewports, UV
     // overlays) keep the single-tile image. Each pane tiles independently.
     const repeatOriginal = repeatTextureOriginal?.() ? 3 : 1;
     const repeatProcessed = repeatTextureProcessed?.() ? 3 : 1;
-    // Lightmap+AO inspection shows the combined map — AO visibility (remapped
+    // Lightmap+AO inspection shows the combined map  AO visibility (remapped
     // by bias/scale exactly as the lighting pass applies it) multiplied into
     // the lightmap on white, staged at the target resolution.
     const stretchSelected = state.viewModeOriginal === 'uv-stretch' || state.viewModeProcessed === 'uv-stretch';
@@ -232,8 +232,8 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       }
       lightmapAoSource = pixelsToCanvas(combined, width, height);
     }
-    // AO inspection shows the bias/scale-remapped occlusion — the exact
-    // multiplier the lighting pass applies — so tuning Bias/Scale updates the
+    // AO inspection shows the bias/scale-remapped occlusion  the exact
+    // multiplier the lighting pass applies  so tuning Bias/Scale updates the
     // AO preview (at defaults the remap is the identity, matching the raw
     // bake). Staged at the map's native resolution.
     const aoImage = textures.ao.image;
@@ -274,7 +274,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     const processedOnlySource = inspectionSource(state.viewModeProcessed);
 
     // Dithered pane: quantize the processed pane's chosen source. Normals are
-    // the exception — a normal map can't be palette-dithered, so it's
+    // the exception  a normal map can't be palette-dithered, so it's
     // pixelized with nearest-neighbor at the target resolution instead (the
     // same map the 3D processed viewport displays).
     const processedSource = processedOnlySource ?? textures.base.image!;
@@ -287,7 +287,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       nextCanvas = resampleAndPixelate(processedSource, width, height, state.pixelation, state.upscale);
     } else if (width > processedSource.width) {
       // Upscaling (grid finer than the source) follows the chosen upscale
-      // method — nearest keeps the resample crisp for dithering, bilinear
+      // method  nearest keeps the resample crisp for dithering, bilinear
       // smooths it. Downscales keep the filtered drawImage path.
       nextCanvas = pixelateCanvas(resizeImage(processedSource, width, height, state.upscale), state.pixelation, state.upscale);
     } else {
@@ -328,7 +328,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
         const lit = cloneImageData(sourceData);
         if (!processedOnlySource) applyLighting(lit.data, lit.width, lit.height, true);
         if (state.mode === 'none') {
-          // 'none' passes the lit source through unchanged — the dither is
+          // 'none' passes the lit source through unchanged  the dither is
           // free, so there is nothing worth caching.
           processedData = processImageData(lit, processedOptions);
         } else {
@@ -340,7 +340,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
             if (token !== ditherToken) return;
           } else {
             // No WebGPU (or a mode the GPU pass does not cover): the exact
-            // synchronous CPU path — byte-identical to the pre-GPU pipeline.
+            // synchronous CPU path  byte-identical to the pre-GPU pipeline.
             processedData = ditherSync(ditherKey(processedOptions), lit.data, () => processImageData(lit, processedOptions));
           }
         }
@@ -352,14 +352,14 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     const previewHeight = height * repeatProcessed;
     if (previewCanvas.width !== previewWidth) previewCanvas.width = previewWidth;
     if (previewCanvas.height !== previewHeight) previewCanvas.height = previewHeight;
-    // Mark the display canvas so preview2d shows the 3× buffer at 3× scale —
+    // Mark the display canvas so preview2d shows the 3× buffer at 3× scale 
     // a pure transform: each tile keeps the single-tile size, the window
     // layout never moves, and the grid overflows until the user scrolls out.
     previewCanvas.classList.toggle('repeat-tiled', repeatProcessed === 3);
     const previewContext = previewCanvas.getContext('2d');
     if (previewContext) drawTiled(previewContext, shared.renderedCanvas, width, height, repeatProcessed);
 
-    // Original pane shows its chosen source at native resolution — the pixel
+    // Original pane shows its chosen source at native resolution  the pixel
     // grid slider must not affect it.
     const originalSource = originalOnlySource ?? textures.base.image!;
     const litSourceNative = originalOnlySource
@@ -392,7 +392,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
 
   /** Re-applies the last rendered frames to both 3D viewports. Runs at the
    * end of every render, and is re-invoked by main.ts immediately after a
-   * fallback-quad swap — the freshly installed quads' materials carry no map
+   * fallback-quad swap  the freshly installed quads' materials carry no map
    * yet, so without a synchronous re-apply the viewport would flash white
    * until the next (debounced) render. No-op before the first render, while
    * the shared canvases are still null. */

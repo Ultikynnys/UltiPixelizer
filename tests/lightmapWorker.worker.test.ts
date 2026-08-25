@@ -66,7 +66,7 @@ describe('lightmap worker', () => {
     const result = scope.postMessage.mock.calls
       .map((call) => call[0])
       .find((message) => message.type === 'result');
-    // The worker raster must match the sync bake byte-for-byte — both read
+    // The worker raster must match the sync bake byte-for-byte  both read
     // the same collected tangent bases, so the +X perturbation lands identically.
     const scene = planeScene();
     const expected = bakeMeshLightmap(scene, 8, 8, {
@@ -81,7 +81,7 @@ describe('lightmap worker', () => {
     });
     expect(result.pixels).toEqual(expected);
     // The +X normals point perpendicular to the downward sun, so the baked
-    // map must be dimmer than the unperturbed face — proving the map actually
+    // map must be dimmer than the unperturbed face  proving the map actually
     // traveled to the worker and reoriented the shading.
     const lit = bakeMeshLightmap(scene, 8, 8, {
       sunDirection: { x: 0, y: 0, z: -1 },

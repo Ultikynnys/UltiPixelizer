@@ -51,13 +51,13 @@ export type ConversionConfig = {
   navigationPan: boolean;
   /** Shared 10 cm floor reference shown in both 3D viewports. */
   showFloorGrid: boolean;
-  /** Active palette-library filter — UI state, persisted like the settings. */
+  /** Active palette-library filter  UI state, persisted like the settings. */
   paletteFilter: PaletteCategory;
   /** Palette-library search query (Search category), remembered across restarts. */
   paletteSearchQuery: string;
   /** Search-category sort order. */
   paletteSearchSort: PaletteSearchSort;
-  /** Saved orbit-camera views for the two viewports — viewport state, not
+  /** Saved orbit-camera views for the two viewports  viewport state, not
    * State fields, so they're handled by dedicated code like paletteKey. */
   originalCamera?: SavedCamera;
   processedCamera?: SavedCamera;
@@ -76,7 +76,7 @@ const finiteInRange = (value: unknown, minimum: number, maximum: number): value 
   typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
 
 type ConfigField = {
-  /** Flat serialized key in `ConversionConfig` — part of the storage format, must stay stable. */
+  /** Flat serialized key in `ConversionConfig`  part of the storage format, must stay stable. */
   key: keyof ConversionConfig;
   /** Path into `State` used to map state <-> config (sun/ambient are nested). */
   path: readonly string[];
@@ -103,7 +103,7 @@ const isDirectionVector = (value: unknown): value is DirectionVector => {
     && Math.hypot(vector.x, vector.y, vector.z) > 0;
 };
 
-/** A finite 3D point — like a direction vector, but allowed to sit at the
+/** A finite 3D point  like a direction vector, but allowed to sit at the
  * origin (the orbit target is a point and defaults there). */
 const isVector3 = (value: unknown): value is DirectionVector => {
   if (typeof value !== 'object' || value === null) return false;
@@ -119,7 +119,7 @@ const isVector3 = (value: unknown): value is DirectionVector => {
 export type SavedCamera = {
   /** World position of the orbit camera. */
   position: DirectionVector;
-  /** Orbit target — where the camera looks. */
+  /** Orbit target  where the camera looks. */
   target: DirectionVector;
 };
 
@@ -133,7 +133,7 @@ const isSavedCamera = (value: unknown): value is SavedCamera => {
  * Single source of truth for every serializable conversion setting: validation
  * bounds, initial defaults, migration backfills, and the state <-> config
  * mapping all derive from this table. `paletteKey` and `palette` are
- * deliberately excluded — they carry catalog/structural semantics handled by
+ * deliberately excluded  they carry catalog/structural semantics handled by
  * dedicated code.
  */
 export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
@@ -159,7 +159,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'normalStrength', path: ['normalStrength'], default: DEFAULT_NORMAL_STRENGTH, migrateDefault: DEFAULT_NORMAL_STRENGTH, validate: inRange(0, 1) },
   { key: 'normalFormat', path: ['normalFormat'], default: 'opengl', migrateDefault: 'opengl', validate: isEnum(['opengl', 'directx']) },
   { key: 'sunDirection', path: ['sun', 'direction'], default: DEFAULT_SUN_DIRECTION, migrateDefault: DEFAULT_SUN_DIRECTION, validate: isDirectionVector },
-  // Fallback-quad parameters — the quad is the implicit model when none is
+  // Fallback-quad parameters  the quad is the implicit model when none is
   // loaded, so its panel settings are saved like any other setting.
   { key: 'quadTessellation', path: ['quadTessellation'], default: 16, migrateDefault: 16, validate: inRange(2, 128) },
   { key: 'quadGrid', path: ['quadGrid'], default: false, migrateDefault: false, validate: isBoolean },
@@ -169,12 +169,12 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   // settings so disabling UV Islands survives a browser restart.
   { key: 'showUVWireframeOriginal', path: ['showUVWireframeOriginal'], default: false, migrateDefault: false, validate: isBoolean },
   { key: 'showUVWireframeProcessed', path: ['showUVWireframeProcessed'], default: false, migrateDefault: false, validate: isBoolean },
-  // Camera interaction preference — the "Alt controls" pill. Not a conversion
+  // Camera interaction preference  the "Alt controls" pill. Not a conversion
   // parameter, but it is saved like the other settings (and restored from old
   // files via migrateDefault).
   { key: 'navigationPan', path: ['navigationPan'], default: false, migrateDefault: false, validate: isBoolean },
   { key: 'showFloorGrid', path: ['showFloorGrid'], default: false, migrateDefault: false, validate: isBoolean },
-  // Palette-library UI state — like navigationPan, not a conversion parameter,
+  // Palette-library UI state  like navigationPan, not a conversion parameter,
   // but saved with the settings so the last filter/query/sort survive restarts.
   { key: 'paletteFilter', path: ['paletteFilter'], default: 'compact', migrateDefault: 'compact', validate: isEnum(paletteCategories) },
   { key: 'paletteSearchQuery', path: ['paletteSearchQuery'], default: '', migrateDefault: '', validate: isShortString },
@@ -272,7 +272,7 @@ function migratePreset(value: unknown): unknown {
     };
   }
   if (preset.version === 5) {
-    // v6 removed the sun/ambient enable toggles — intensity 0 now means "off".
+    // v6 removed the sun/ambient enable toggles  intensity 0 now means "off".
     // Fold a disabled light into a zero intensity so saved presets keep their look.
     const { sunEnabled, ambientEnabled, ...rest } = preset;
     preset = {
@@ -284,7 +284,7 @@ function migratePreset(value: unknown): unknown {
   }
   if (preset.version === 6) {
     // v7 renamed AO "Scale" to "Power" (an exponent). Carry the value over
-    // 1:1 — both default to 1 ("as baked"); only the curve shape differs.
+    // 1:1  both default to 1 ("as baked"); only the curve shape differs.
     const { aoScale, ...rest } = preset;
     preset = { ...rest, version: PRESET_VERSION, aoPower: typeof aoScale === 'number' ? aoScale : 1 };
   }
@@ -298,14 +298,14 @@ function migratePreset(value: unknown): unknown {
     migrated.stripeAngle = 0;
   }
   // v7 renamed AO "Scale" to "Power"; older migrations that jumped straight
-  // to the current version may still carry aoScale — convert and drop it.
+  // to the current version may still carry aoScale  convert and drop it.
   if (migrated.aoPower === undefined && typeof migrated.aoScale === 'number') migrated.aoPower = migrated.aoScale;
   delete migrated.aoScale;
   // v7 and earlier stored the model-specific UV-channel selection; it no
   // longer belongs in the saved format, so strip it from legacy files.
   delete migrated.uvMap;
-  // v7 and earlier also stored the 3D camera angle. It is view state — the
-  // Orient Sun with Camera button derives the saved sun direction from it —
+  // v7 and earlier also stored the 3D camera angle. It is view state  the
+  // Orient Sun with Camera button derives the saved sun direction from it 
   // so it never belonged in the saved format either.
   delete migrated.cameraDirection;
   // The displacement push amount was capped at 0.2: the old 0–1 range was

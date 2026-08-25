@@ -67,7 +67,7 @@ describe('model scene processing', () => {
     // frame. The clone must drop the slot instead.
     const root = new Object3D();
     const item = mesh(['uv']);
-    const placeholder = new Texture(); // image null — never decoded
+    const placeholder = new Texture(); // image null  never decoded
     const valid = new Texture({ width: 1, height: 1 });
     const material = new MeshLambertMaterial();
     material.map = placeholder;
@@ -133,7 +133,7 @@ describe('model scene processing', () => {
   });
 
   it('smooths non-indexed geometry by welding shared positions', () => {
-    // Two coplanar triangles sharing an edge, stored as non-indexed soup — every
+    // Two coplanar triangles sharing an edge, stored as non-indexed soup  every
     // face corner is a distinct vertex, exactly as FBX/OBJ exports produce.
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new Float32BufferAttribute([
@@ -184,7 +184,7 @@ describe('model scene processing', () => {
     expect(convertedPhong.emissive.getHex()).toBe(0x112233);
     expect(convertedPhong.transparent).toBe(true);
     expect(convertedPhong.opacity).toBe(0.5);
-    // Vertex colors are discarded — the applied map carries all color.
+    // Vertex colors are discarded  the applied map carries all color.
     expect(convertedPhong.vertexColors).toBe(false);
     expect('specular' in convertedPhong).toBe(false);
     expect('shininess' in convertedPhong).toBe(false);
@@ -207,7 +207,7 @@ describe('model scene processing', () => {
   it('applyTextureToMaterial discards vertex colors and forces white faces', () => {
     const texture = new Texture();
     // An imported model that ships vertex-color tint (FBX/glTF) must not bleed
-    // it into the applied map — the map carries all color, faces render white.
+    // it into the applied map  the map carries all color, faces render white.
     const lambert = new MeshLambertMaterial({ color: 0xff0000, vertexColors: true });
 
     applyTextureToMaterial(lambert, texture);
@@ -261,7 +261,7 @@ describe('createFallbackQuadScene', () => {
   it('is a flat quad facing up with full-UV coverage', () => {
     const quad = createFallbackQuadScene() as Mesh;
     expect(quad).toBeInstanceOf(Mesh);
-    // The quad's normal points +Y after the rotateX(-π/2) — it faces up, so
+    // The quad's normal points +Y after the rotateX(-π/2)  it faces up, so
     // the default sun (which travels downward) lights it; the UVs span the
     // whole 0..1 unit square so a bake covers the full texture.
     expectFallbackQuad(quad);
@@ -289,7 +289,7 @@ describe('createFallbackQuadScene', () => {
   });
 
   it('shares one geometry across the grid tiles', () => {
-    // The tiles differ only by position — grid mode builds the plane once and
+    // The tiles differ only by position  grid mode builds the plane once and
     // reuses it for all nine meshes instead of allocating nine copies.
     const grid = createFallbackQuadScene(3, true);
     const meshes = grid.children.filter((child): child is Mesh => child instanceof Mesh);
@@ -317,7 +317,7 @@ describe('createFallbackQuadScene', () => {
   }
 
   /** Max |y| difference between matching boundary vertices of horizontally
-   * adjacent tiles — a seamless heightmap must keep the grid watertight. */
+   * adjacent tiles  a seamless heightmap must keep the grid watertight. */
   function boundaryGap(grid: Object3D): number {
     const tiles = grid.children.filter((child): child is Mesh => child instanceof Mesh);
     const byPosition = new Map(tiles.map((tile) => [`${tile.position.x},${tile.position.z}`, worldVertices(tile)]));
@@ -338,7 +338,7 @@ describe('createFallbackQuadScene', () => {
   }
 
   it('keeps adjacent displaced tiles flush with a seamless heightmap', () => {
-    // sin(2πu) is periodic — u=0 and u=1 sample identically, so the map wraps
+    // sin(2πu) is periodic  u=0 and u=1 sample identically, so the map wraps
     // with zero discontinuity at every tile boundary.
     const seamless = (u: number, v: number): number => 0.5 + 0.25 * Math.sin(u * Math.PI * 2) * Math.sin(v * Math.PI * 2);
     const grid = createFallbackQuadScene(16, true);
@@ -347,7 +347,7 @@ describe('createFallbackQuadScene', () => {
   });
 
   it('flags the boundary step a non-seamless map leaves behind (sanity)', () => {
-    // u=1 samples the last texel (white), u=0 the first (black) — a broken map
+    // u=1 samples the last texel (white), u=0 the first (black)  a broken map
     // leaves a ~0.3-unit vertical step at every boundary.
     const step = (u: number): number => (u > 0.999 ? 1 : u < 0.001 ? 0 : 0.5);
     const grid = createFallbackQuadScene(16, true);
@@ -367,7 +367,7 @@ describe('createFallbackQuadScene', () => {
       expect(getFallbackQuadScene(4, false)).not.toBe(getFallbackQuadScene(8, false));
     });
 
-    it('is independent of fresh instances — viewport clones still get their own scene', () => {
+    it('is independent of fresh instances  viewport clones still get their own scene', () => {
       // The memoized accessor is for the single-consumer bake quad; callers
       // that need per-scene instances (the viewports) keep using the fresh
       // constructor, whose result must never equal the cached instance.
@@ -379,7 +379,7 @@ describe('createFallbackQuadScene', () => {
       getFallbackQuadScene(5, false);
       getFallbackQuadScene(7, false);
       getFallbackQuadScene(9, false);
-      // (3,false) is now the LRU — a fifth distinct key evicts it.
+      // (3,false) is now the LRU  a fifth distinct key evicts it.
       expect(getFallbackQuadScene(11, false)).not.toBe(first);
       // Evicted entries regenerate on the next request instead of resurrecting.
       expect(getFallbackQuadScene(3, false)).not.toBe(first);
@@ -437,7 +437,7 @@ describe('applyDisplacement', () => {
 
   it('recomputes normals after displacement so bumps shade', () => {
     const quad = createFallbackQuadScene(4, false) as Mesh;
-    // Height ramps across the quad — the recomputed normals tilt off +Y.
+    // Height ramps across the quad  the recomputed normals tilt off +Y.
     applyDisplacement(quad, (u) => u, 0.5);
     const normal = quad.geometry.getAttribute('normal');
     let maxTilt = 0;

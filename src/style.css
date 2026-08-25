@@ -18,7 +18,7 @@
   --control-height: 32px;
   --control-width: clamp(260px, 32vw, 410px);
   /* Horizontal spacing shared by every topbar item (brand group, version
-     chip, GitHub/Ko-fi pills, action buttons) — one value, so the gaps
+     chip, GitHub/Ko-fi pills, action buttons)  one value, so the gaps
      stay uniform across the row at every window width. */
   --topbar-gap: clamp(6px, 1.2vw, 17px);
   /* ── text, dim → bright ── */
@@ -61,7 +61,7 @@ button { border: 0; color: inherit; }
 /* The shell is a two-column grid: the left column (main-column) stacks the
    topbar, preview toolbar and canvas stage; the right column is the control
    panel. The panel is an in-flow grid item, so it can never overlap the
-   canvas stage — it just reserves its column and scrolls internally. */
+   canvas stage  it just reserves its column and scrolls internally. */
 .app-shell { display: grid; grid-template-columns: minmax(0, 1fr) var(--control-width); height: 100%; min-width: 0; }
 .main-column { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; overflow: hidden; }
 
@@ -95,7 +95,7 @@ button { border: 0; color: inherit; }
 .brand-mark i:last-child { background: var(--accent); }
 .button { align-items: center; border: 0; cursor: pointer; display: inline-flex; font-size: 12px; font-weight: 700; gap: 14px; justify-content: center; padding: 12px 17px; }
 /* Standalone action buttons (Save / Load / Reset settings, Export PNG, Orient
-   Sun with Camera) share one raised surface — the single source for button
+   Sun with Camera) share one raised surface  the single source for button
    chrome instead of UA default buttonface. */
 .button, .orient-sun-button { background: var(--raised); }
 .button-quiet { background: transparent; color: var(--muted); justify-self: end; padding-right: 0; }
@@ -138,7 +138,7 @@ button { border: 0; color: inherit; }
 .uv-control { align-items: center; display: flex; gap: 6px; }
 .uv-control span { color: var(--muted); font: 500 8px 'DM Mono', monospace; text-transform: uppercase; }
 .select {
-  appearance: none; /* strip native control frame/outline — border: none alone can't remove UA chrome */
+  appearance: none; /* strip native control frame/outline  border: none alone can't remove UA chrome */
   background: var(--card);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath d='M1.5 3L4 5.5 6.5 3' fill='none' stroke='%2397978e' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-position: right 8px center;
@@ -169,7 +169,7 @@ select option { background: var(--card); color: var(--paper); }
 }
 .orient-sun-button:disabled { cursor: not-allowed; opacity: .35; }
 /* Busy (Orient Sun with Camera): the action re-bakes the lightmap, which can
-   take a while on a heavy grid — gray the button out and spin a throbber so
+   take a while on a heavy grid  gray the button out and spin a throbber so
    the user knows it is working and cannot double-click it. */
 .orient-sun-button.busy:disabled { opacity: .55; }
 .orient-sun-spinner { display: none; }
@@ -187,7 +187,7 @@ select option { background: var(--card); color: var(--paper); }
 .orientation-readout { display: grid; gap: 4px; margin-top: 7px; padding-top: 7px; width: 86px; }
 .orientation-row { align-items: center; display: flex; font: 500 8px 'DM Mono', monospace; justify-content: space-between; }
 .orientation-label { color: var(--muted); font-size: 6px; text-transform: uppercase; }
-/* Direction vectors max out at 19 chars ("-0.99, -0.99, -0.99") — sized so
+/* Direction vectors max out at 19 chars ("-0.99, -0.99, -0.99")  sized so
    even that fits on one line beside the shorthand label; nowrap + ellipsis
    are a belt-and-braces guard against any split. */
 .orientation-row output { color: var(--paper); font-size: 6.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -223,7 +223,7 @@ select option { background: var(--card); color: var(--paper); }
 .preview-pane figcaption { align-items: center; color: var(--paper); display: flex; font: 500 9px 'DM Mono', monospace; gap: 7px; letter-spacing: .1em; text-transform: uppercase; }
 .preview-pane figcaption span { color: var(--accent); }
 .preview-pane figcaption .fig-dims { color: var(--muted); margin-left: auto; }
-/* Zoom readout in the pane caption — mirrors the 2D preview's zoom level and
+/* Zoom readout in the pane caption  mirrors the 2D preview's zoom level and
    resets on click (scroll to zoom, drag to pan, double-click to reset). */
 .fig-zoom {
   background: transparent; border: 0; color: var(--muted); cursor: pointer;
@@ -325,8 +325,8 @@ select option { background: var(--card); color: var(--paper); }
   padding: clamp(3px, 0.5vw, 5px) clamp(4px, 0.7vw, 8px); text-transform: uppercase; white-space: nowrap;
 }
 .preview-view-toggle button:disabled { cursor: not-allowed; opacity: .35; }
-/* Export PNG sits on the dithered preview's bottom-left corner — inside the
-   canvas-frame, above whichever pane (2D canvas or 3D model) fills it — so it
+/* Export PNG sits on the dithered preview's bottom-left corner  inside the
+   canvas-frame, above whichever pane (2D canvas or 3D model) fills it  so it
    stays reachable in both preview modes. It borrows the view-mode segment pill
    (Combined / BaseColor / Normals / …) so the overlay controls share one
    dark-ink chip language. */
@@ -338,7 +338,7 @@ select option { background: var(--card); color: var(--paper); }
 }
 #exportButton svg { height: 20px; width: 20px; }
 #exportButton:hover, #exportButton:focus-visible { background: var(--paper); color: var(--ink); }
-/* Linear texel density chip on the dithered preview's top-left corner — summed
+/* Linear texel density chip on the dithered preview's top-left corner  summed
    UV triangle area compared with corresponding world-space area. Inside the
    canvas-frame, above whichever pane (2D canvas or 3D model) fills it, so it
    stays visible in both preview modes. Same dark-ink chip language as the
@@ -353,7 +353,7 @@ select option { background: var(--card); color: var(--paper); }
 .texel-density > span { color: var(--muted); font: 500 8px 'DM Mono', monospace; letter-spacing: .06em; text-transform: uppercase; }
 .texel-density output { color: var(--paper); font: 700 12px 'DM Mono', monospace; }
 /* Fullscreen toggle on the dithered preview, stacked below the texel density
-   chip — enters true OS-level fullscreen via the Fullscreen API, taking over
+   chip  enters true OS-level fullscreen via the Fullscreen API, taking over
    the whole screen (not just the app's canvas stage). Same dark-ink chip
    language as the corner overlays. Only the dithered pane carries one; the
    Original pane has none. */
@@ -366,7 +366,7 @@ select option { background: var(--card); color: var(--paper); }
 .fullscreen-toggle:hover, .fullscreen-toggle:focus-visible { color: var(--paper); }
 .fullscreen-toggle[aria-pressed='true'] { color: var(--accent); }
 /* In fullscreen the dithered preview fills the whole screen with no other
-   controls, so the exit toggle is the only thing left — enlarge it and move it
+   controls, so the exit toggle is the only thing left  enlarge it and move it
    into the very corner, away from the texel density chip it stacks under in the
    normal layout. */
 .canvas-frame:fullscreen .fullscreen-toggle {
@@ -378,7 +378,7 @@ select option { background: var(--card); color: var(--paper); }
    canvas fills that frame. Every overlay control on the frame (2D/3D toggle,
    UV controls, view-mode enum, texel density, luminosity graph, sun/lighting
    panel, Export PNG, and the shared controls relocated here while fullscreen)
-   is hidden — the only control left is the fullscreen toggle that exits. The
+   is hidden  the only control left is the fullscreen toggle that exits. The
    canvas, UV wireframe overlay, and 3D model host render the preview and stay. */
 .canvas-frame:fullscreen canvas { height: 100%; max-height: none; max-width: 100%; width: 100%; }
 .canvas-frame:fullscreen .model-host { height: 100%; max-height: none; }
@@ -389,7 +389,7 @@ select option { background: var(--card); color: var(--paper); }
 .texture-slot:hover, .palette-card-new:hover, .custom-color-add:hover { color: var(--paper); }
 .texture-slot:focus-visible { background: var(--raised); }
 /* Slot drag feedback: a ::after overlay carrying the white frame, NOT the
-   slot's own outline — a filled slot's thumbnail spans the whole slot
+   slot's own outline  a filled slot's thumbnail spans the whole slot
    (inset: 0) and the element outline paints below it. The positioned overlay
    (z-index above the image/label/buttons, pointer-events: none) stays on top. */
 .texture-slot.dragging::after {
@@ -416,7 +416,7 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .texture-slot-clear { bottom: 4px; display: none; font: 500 10px 'DM Mono', monospace; height: 16px; line-height: 1; position: absolute; right: 4px; width: 16px; }
 .texture-slot.filled .texture-slot-clear { display: flex; }
 .texture-slot-bake { font: 500 8px 'DM Mono', monospace; height: 16px; left: 4px; letter-spacing: .04em; padding: 0 4px; position: absolute; top: 4px; }
-/* Busy (AO bake): the rasterize runs in worker bands — gray the slot's Bake
+/* Busy (AO bake): the rasterize runs in worker bands  gray the slot's Bake
    button out and spin a throbber so the user knows it is working and cannot
    double-click it. Same treatment as Orient Sun with Camera. */
 .texture-slot-bake:disabled { cursor: not-allowed; opacity: .35; }
@@ -440,7 +440,7 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 /* Slot icon buttons sit on --stage; --chip matches it almost exactly, so give them a lighter card face so they read as controls. */
 .texture-slot .icon-button { background: var(--card); }
 .texture-slot .icon-button:hover, .texture-slot .icon-button:focus-visible { background: var(--accent); color: var(--on-accent); }
-/* Filled texture slots: the applied image becomes the slot's background. Preview paints first (below), label next, then the buttons (all positioned, DOM order) — so controls stay on top. */
+/* Filled texture slots: the applied image becomes the slot's background. Preview paints first (below), label next, then the buttons (all positioned, DOM order)  so controls stay on top. */
 .texture-slot[data-texture].filled .texture-slot-preview { height: 100%; inset: 0; position: absolute; width: 100%; }
 .texture-slot[data-texture].filled .texture-slot-label { bottom: 3px; left: 6px; max-width: calc(100% - 30px); position: absolute; text-shadow: 0 1px 2px rgba(0, 0, 0, .85); width: auto; }
 
@@ -487,13 +487,13 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .palette-sort-toggle:hover, .palette-sort-toggle:focus-visible { border-color: var(--accent); color: var(--paper); }
 /* Card grids flex with the panel instead of hardcoded viewport breakpoints:
    repeat(auto-fit, minmax(200px, 1fr)) makes each grid compute its own column
-   count from the width actually available — one column in the 410px sidebar
+   count from the width actually available  one column in the 410px sidebar
    (two ~177px cards per row is cramped, the action buttons + count badge
    leave the palette name ~60px), two columns whenever the panel can really
    fit them. Tracks are derived from the container, so the grid can never
    outgrow the panel and push the shell. overflow-y: auto would force
    overflow-x to auto as well (a horizontal scrollbar is an anti-pattern
-   here) — the grid clips cross-axis overflow instead, and the swatch row
+   here)  the grid clips cross-axis overflow instead, and the swatch row
    squeezes to fit (flex: 1, min-width: 0). scrollbar-gutter: stable gives
    the vertical scrollbar its own reserved lane (classic or overlay), so it
    never paints over the cards, and padding-right keeps a clear gap. */
@@ -537,17 +537,17 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .color-picker-button:hover, .color-picker-button:focus-visible { border-color: var(--accent); color: var(--paper); }
 /* Eyedropper pick mode: the OS cursor itself becomes the dropper icon (the
    data-URI image comes from main.ts as --eyedropper-cursor; crosshair is the
-   fallback if a platform rejects SVG cursors) and text selection stops —
+   fallback if a platform rejects SVG cursors) and text selection stops 
    picking is the only interaction while active. */
 body.eyedropping, body.eyedropping * { cursor: var(--eyedropper-cursor, crosshair) !important; }
-/* Active chip indicator: dual-color frame — 1px black hugging the color with
-   2px white outside it — so the selected chip reads against any swatch (a pure
+/* Active chip indicator: dual-color frame  1px black hugging the color with
+   2px white outside it  so the selected chip reads against any swatch (a pure
    white outline vanishes on a white color). pointer-events: none keeps the
    chip's own click handling. */
 .custom-color.active label::after { box-shadow: 0 0 0 1px #000, 0 0 0 3px #fff; content: ''; inset: 0; pointer-events: none; position: absolute; z-index: 2; }
 .custom-color-add { align-items: center; background: var(--card); color: var(--muted); cursor: pointer; display: flex; font: 500 15px 'DM Mono', monospace; height: 25px; justify-content: center; line-height: 1; padding: 0; width: 25px; }
 /* Pattern dropdown: a single-row trigger (swatch + label + chevron) that opens
- * the full list of every dither mode — all options visible at once, no panel
+ * the full list of every dither mode  all options visible at once, no panel
  * scrolling. The list overlays the controls below; the control column's own
  * scrollbar still reaches it if it outgrows the window. */
 .mode-dropdown { position: relative; }
@@ -633,7 +633,7 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
 .hidden-input:focus-visible + .color-chip { background: color-mix(in srgb, var(--accent) 40%, var(--swatch)); }
 
 @media (max-width: 1100px) {
-  /* The sidebar (control column) stays on the right at every width — it never
+  /* The sidebar (control column) stays on the right at every width  it never
      reflows to the bottom. Its width is --control-width, a clamp that scales
      with the window, so the preview column keeps the larger share. */
   .canvas-stage { padding: 20px; }
@@ -653,7 +653,7 @@ select:focus-visible, input:focus-visible { background: color-mix(in srgb, var(-
   .uv-control { display: none; }
   /* The texture ribbon's six slots (5 textures + model) need ~500px at their
      full 82px size; below ~1100px the preview column can't hold them, so the
-     slots scale down fluidly — (16.67vw − 56px) is the exact width that fits
+     slots scale down fluidly  (16.67vw − 56px) is the exact width that fits
      6 slots + gaps + toolbar chrome once the control column hits its 260px
      floor (~812px window), clamped to stay usable at both ends. */
   .preview-toolbar { gap: 12px; padding: 12px; }

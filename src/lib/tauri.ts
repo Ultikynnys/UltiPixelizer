@@ -23,7 +23,7 @@ export function isTauriApp(): boolean {
 
 /** Elements where the native edit menu (Cut/Copy/Paste) is useful: text
  * entry only. Slider handles (range), toggle switches (checkbox), color
- * swatches, radio groups and file pickers are UI controls — right-clicking
+ * swatches, radio groups and file pickers are UI controls  right-clicking
  * them must never surface the browser's Back/Refresh/Save-as/Print menu. */
 const EDITABLE_CONTEXT_SELECTOR = [
   'input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"])',
@@ -33,7 +33,7 @@ const EDITABLE_CONTEXT_SELECTOR = [
 
 /**
  * Suppresses the native browser context menu (Back / Refresh / Save As /
- * Print) — browser chrome that has no place in an app window or tool UI.
+ * Print)  browser chrome that has no place in an app window or tool UI.
  * The DOM `contextmenu` event fires before the native menu on all three
  * webview backends (WebView2, WebKitGTK, WKWebView), so canceling it hides
  * the menu; it also fires before the browser's own menu in the web build,
@@ -101,8 +101,8 @@ export async function saveBlobViaTauri(defaultName: string, blob: Blob): Promise
 // ---------------------------------------------------------------------------
 
 /**
- * Persistent app data lives as files in the installation folder —
- * `resource_dir()` — organized in folders, so users can see and back up their
+ * Persistent app data lives as files in the installation folder 
+ * `resource_dir()`  organized in folders, so users can see and back up their
  * data where the app is installed, instead of inside the webview's opaque
  * profile storage. Layout: `config/settings.json` (the app settings) and
  * `palettes/<name>.hex` (one file per custom palette, named after the
@@ -112,7 +112,7 @@ export async function saveBlobViaTauri(defaultName: string, blob: Blob): Promise
  *
  * The install folder is NOT writable on every platform (Program Files MSI
  * installs, macOS app bundles, Linux AppImage mounts). That case falls back to
- * the per-user app-data dir — never silently: `location` and `dir` come back to
+ * the per-user app-data dir  never silently: `location` and `dir` come back to
  * the caller, which is expected to surface a visible notice.
  */
 
@@ -174,7 +174,7 @@ function createTauriFileStore(invoke: TauriInvoke, location: TauriStorageLocatio
  * writability with a real write+delete, falling back to the app-data dir when
  * it is read-only. Returns null in the plain browser (the web build keeps
  * localStorage). The caller must show the returned `location`/`dir` to the
- * user when the fallback is in use — the probe never fails silently.
+ * user when the fallback is in use  the probe never fails silently.
  */
 export async function initTauriFileStore(): Promise<TauriFileStore | null> {
   if (!isTauriApp()) return null;

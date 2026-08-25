@@ -32,7 +32,7 @@ Posterize ramps adapt their colors to your texture's tones:
 
 ![Dynamic posterize palettes](https://tf2stats.r60d.xyz/UltiPixelizerWeb/DynamicPosterizePalette.png)
 
-Build your own palettes with the custom palette editor, save them in the app, and export any palette as a `.hex` color list. Import palettes back from `.hex` or plain-text files — the palette name comes from the file name:
+Build your own palettes with the custom palette editor, save them in the app, and export any palette as a `.hex` color list. Import palettes back from `.hex` or plain-text files  the palette name comes from the file name:
 
 ![Custom palettes](https://tf2stats.r60d.xyz/UltiPixelizerWeb/CustomPalettes.png)
 
@@ -41,7 +41,7 @@ Build your own palettes with the custom palette editor, save them in the app, an
 - **Image + model input**: drop a PNG/JPG/WebP/GIF texture, or a 3D model bundle (FBX, OBJ, glTF/GLB, USDZ plus companion textures).
 - **Pixelation**: target resolution from 24 to 2048 px (2K).
 - **Dithering**: Floyd-Steinberg, Atkinson, Ordered 4×4, Halftone, Cross, Stripes, Noise, Checker, and Hard map (no diffusion).
-- **Palettes**: 47 built-in palettes — including 8 Posterize ramps (2–16 levels) whose colors are derived live from your BaseColor — plus a custom palette editor with import/export.
+- **Palettes**: 47 built-in palettes  including 8 Posterize ramps (2–16 levels) whose colors are derived live from your BaseColor  plus a custom palette editor with import/export.
 - **Adjustments**: brightness, contrast, and saturation.
 - **3D preview**: orbit the model with baked lighting applied; select UV channel, LOD level, and world axis (Blender Z-up / Maya Y-up).
 - **Baking**: generate ambient occlusion, bake lighting into UV space, and apply normal maps.

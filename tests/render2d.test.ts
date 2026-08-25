@@ -18,7 +18,7 @@ vi.mock('../src/lib/dither', async (importOriginal) => {
 });
 // The async GPU dither is replaced by a spy that answers with the exact CPU
 // bytes, so a stubbed navigator.gpu exercises render2d's async branch without
-// touching real WebGPU. gpuDitherCovers stays real — it gates the branch.
+// touching real WebGPU. gpuDitherCovers stays real  it gates the branch.
 vi.mock('../src/lib/gpuDither', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/gpuDither')>();
   return {
@@ -73,7 +73,7 @@ describe('createRender2D render pipeline', () => {
     const shared = sharedState();
     createRender2D(deps, shared).render();
 
-    // Every pixel quantizes to the nearest of black/white — all black.
+    // Every pixel quantizes to the nearest of black/white  all black.
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
     // The original pane keeps the unquantized lit source.
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255, 40, 40, 40, 255]);
@@ -162,13 +162,13 @@ describe('createRender2D render pipeline', () => {
     const shared = sharedState();
     createRender2D(deps, shared).render();
 
-    // Original pane: the 2×2 source tiles into a 6×6 buffer — the top-left
+    // Original pane: the 2×2 source tiles into a 6×6 buffer  the top-left
     // quadrant and the far corner both carry the source's pixels.
     expect(deps.originalCanvas.width).toBe(6);
     expect(deps.originalCanvas.height).toBe(6);
     const sourcePixels = [10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255, 40, 40, 40, 255];
     const pixels = deps.originalCanvas.context.pixels;
-    // Top-left 2×2 block = pixels (0,0),(1,0),(0,1),(1,1) — row stride is 6.
+    // Top-left 2×2 block = pixels (0,0),(1,0),(0,1),(1,1)  row stride is 6.
     const topLeft = [...pixels.slice(0, 8), ...pixels.slice(24, 32)];
     expect(Array.from(topLeft)).toEqual(sourcePixels);
     // Far-corner 2×2 block = pixels (4,4),(5,4),(4,5),(5,5).
@@ -185,7 +185,7 @@ describe('createRender2D render pipeline', () => {
     expect(shared.renderedCanvas.width).not.toBe(6);
     expect(shared.originalBaseCanvas?.width).not.toBe(6);
 
-    // Both display canvases are marked repeat-tiled — the signal preview2d
+    // Both display canvases are marked repeat-tiled  the signal preview2d
     // reads to display the 3× buffer at 3× scale (each tile keeps the
     // single-tile size; the grid overflows the frame until scrolled out).
     expect(deps.previewCanvas.classList.contains('repeat-tiled')).toBe(true);
@@ -239,14 +239,14 @@ describe('createRender2D render pipeline', () => {
     const shared = sharedState();
     createRender2D(deps, shared).render();
 
-    // Original pane: per-pixel AO multiply (smooth) — 10×255/255=10, 20×128/255≈10,
+    // Original pane: per-pixel AO multiply (smooth)  10×255/255=10, 20×128/255≈10,
     // 30×64/255≈8, 40×32/255≈5. The pixel grid slider must not affect it.
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([
       10, 10, 10, 255, 10, 10, 10, 255,
       8, 8, 8, 255, 5, 5, 5, 255,
     ]);
     // Dithered pane: the AO block takes its top-left factor (255 = unoccluded),
-    // so the whole 2×2 block keeps the base's top-left pixel — one uniform
+    // so the whole 2×2 block keeps the base's top-left pixel  one uniform
     // lighting value per base block, matching the pixelized base.
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(10).flatMap((_v, index) => (index % 4 === 3 ? [255] : [10])));
   });
@@ -265,7 +265,7 @@ describe('createRender2D render pipeline', () => {
     const shared = sharedState();
     createRender2D(deps, shared).render();
 
-    // Original pane: per-pixel multiply — only the black texel darkens.
+    // Original pane: per-pixel multiply  only the black texel darkens.
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([
       0, 0, 0, 255, 20, 20, 20, 255,
       30, 30, 30, 255, 40, 40, 40, 255,
@@ -355,7 +355,7 @@ describe('createRender2D render pipeline', () => {
     // Original pane shows the raw normal map at native resolution.
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([128, 128, 255, 255]);
     // Dithered pane shows the nearest-neighbor pixelized map (1×1 → 2×2), not
-    // a palette-quantized copy — normals can't be dithered.
+    // a palette-quantized copy  normals can't be dithered.
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual([
       128, 128, 255, 255, 128, 128, 255, 255,
       128, 128, 255, 255, 128, 128, 255, 255,
@@ -433,8 +433,8 @@ describe('createRender2D render pipeline', () => {
     const shared = sharedState();
     createRender2D(deps, shared).render();
 
-    // Original pane shows the AO factors — the bias/scale remap is the
-    // identity at defaults, so the raw map passes through — at native resolution.
+    // Original pane shows the AO factors  the bias/scale remap is the
+    // identity at defaults, so the raw map passes through  at native resolution.
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([200, 200, 200, 255]);
     // Dithered pane quantizes the AO map (200 → white).
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
@@ -476,7 +476,7 @@ describe('createRender2D render pipeline', () => {
 
     // Original pane shows the AO factors (identity remap at defaults) at native resolution.
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual([200, 200, 200, 255]);
-    // Dithered pane quantizes the lit base texture, not the AO map — all dark → black.
+    // Dithered pane quantizes the lit base texture, not the AO map  all dark → black.
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 

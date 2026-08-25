@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
 // Plain .mjs on purpose: the browser app has no @types/node, and this test
-// spawns the real CLI (as CI runs it) — an .mjs file is skipped by tsc
+// spawns the real CLI (as CI runs it)  an .mjs file is skipped by tsc
 // (no allowJs) but picked up by vitest.
 function run(...args) {
   return execFileSync('node', ['scripts/build-version.mjs', ...args], { encoding: 'utf8' }).trim();

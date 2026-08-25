@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   base: './',
   server: {
-    // Native fs.watch fails on this filesystem (Z: mount, UNKNOWN error) —
+    // Native fs.watch fails on this filesystem (Z: mount, UNKNOWN error) 
     // polling keeps the dev server alive.
     watch: {
       usePolling: true,
@@ -47,11 +47,11 @@ export default defineConfig({
         // fresh checkouts/CI the parity test skips and the loader's functions
         // report uncovered (0% on CI); its real logic lives in the Rust crate,
         // which v8 cannot measure either way. The parity test still pins it
-        // byte-for-byte when the module is built — this only stops the loader
+        // byte-for-byte when the module is built  this only stops the loader
         // glue from failing the gate.
         'src/lib/wasmLinearMatch.ts',
         // Pure type declarations (interfaces + type-only imports) erase to
-        // zero runtime code, so v8 can never attribute coverage to them — no
+        // zero runtime code, so v8 can never attribute coverage to them  no
         // test can execute them, and the report shows a permanent 0% row.
         'src/lib/**/types.ts',
       ],

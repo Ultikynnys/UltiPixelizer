@@ -27,7 +27,7 @@ workerScope.addEventListener('message', (event) => {
   try {
     const timings: AOBandTimings = { deserializeMs: 0, rayMs: 0, shadeMs: 0, rasterMs: 0 };
     // The occluder BVH was already built once at scene collection and rides in
-    // the request serialized — deserialize instead of rebuilding the same tree
+    // the request serialized  deserialize instead of rebuilding the same tree
     // per worker (the serialized roots are byte-identical to a fresh build).
     const deserializeStart = performance.now();
     const bvh = deserializeBakeBvh(request);

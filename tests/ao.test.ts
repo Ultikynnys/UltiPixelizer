@@ -96,7 +96,7 @@ describe('AO multiplier remap', () => {
 
   it('clamps the remap to [0, 1]', () => {
     expect(aoMultiplier(0, 1, 4)).toBe(0); // below the +1 floor → black
-    expect(aoMultiplier(255, -1, 4)).toBe(1); // (1 + 1)/2 = 1 — already in range
+    expect(aoMultiplier(255, -1, 4)).toBe(1); // (1 + 1)/2 = 1  already in range
   });
 });
 

@@ -7,8 +7,8 @@
  * binary BVH and flatten it into two typed arrays that a WGSL stack traversal
  * can walk directly:
  *
- * - `bounds`: 6 floats per node — `[min.x, min.y, min.z, max.x, max.y, max.z]`.
- * - `links`:  2 u32 per node — `[leftFirst, count]`.
+ * - `bounds`: 6 floats per node  `[min.x, min.y, min.z, max.x, max.y, max.z]`.
+ * - `links`:  2 u32 per node  `[leftFirst, count]`.
  *   - leaf:     `count > 0`, `leftFirst` = first triangle in `triangles`.
  *   - interior: `count == 0`, left child is the NEXT node (`node + 1`, DFS
  *               left-first), `leftFirst` = the right child's node index.

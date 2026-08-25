@@ -72,7 +72,7 @@ export function createModelFileBundle(filesInput: FileList | File[]): ModelFileB
         if (/^data:/i.test(url) || createdUrls.has(url)) return url;
         // Loader-created object URLs for embedded texture data (binary FBX
         // Video.Content, GLB bufferView images) are blob:<origin>/<uuid> with
-        // no file extension — pass them through untouched. Blob URLs carrying
+        // no file extension  pass them through untouched. Blob URLs carrying
         // a path with an extension are unresolved relative references to
         // companion files and fall through to the lookup/failure logic.
         if (/^blob:/i.test(url)) {

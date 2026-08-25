@@ -1,7 +1,7 @@
 // Generates the desktop installer version and the frontend badge number from
 // the same git build count (`git rev-list --count HEAD`).
 //
-// A static OFFSET of 200 is added to the raw count ("a static 2.0.0 offset" —
+// A static OFFSET of 200 is added to the raw count ("a static 2.0.0 offset" 
 // the number 200, anchoring versions in the 2.0.x range now that the history
 // was squashed to one commit, where the raw count would map to 0.0.1). The
 // installer version splits the offset count into semver digits (hundreds →

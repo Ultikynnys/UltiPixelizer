@@ -4,7 +4,7 @@ export function cloneImageData(source: ImageData): ImageData {
   return new ImageData(new Uint8ClampedArray(source.data), source.width, source.height, { colorSpace: source.colorSpace });
 }
 
-/** RGBA pixel data plus dimensions — the shared shape of every decoded image
+/** RGBA pixel data plus dimensions  the shared shape of every decoded image
  * source (AO factors, lightmaps, normal maps). All the `*Source` aliases in the
  * renderer derive from this so the image→pixels contract stays in one place. */
 export type PixelSource = { data: Uint8ClampedArray; width: number; height: number };
@@ -82,7 +82,7 @@ export function resizeImage(
   return canvas;
 }
 
-/** Nearest-neighbor (pixelized) resize of an image to the given size —
+/** Nearest-neighbor (pixelized) resize of an image to the given size 
  * smoothing disabled so source pixels stay crisp, matching the dithered
  * pipeline's pixelated look. Always returns a fresh canvas at the target
  * size, so callers can rely on canvas APIs (toBlob, getContext) regardless of
@@ -166,7 +166,7 @@ export function processLitImageData(
  * upscaling it back to full resolution with the given method: a chunky block
  * look driven by a single 0..80 percentage (0 = off, the default). The
  * downscale samples with nearest-neighbor (each block keeps one source
- * pixel); the upscale-back step renders the blocks with the chosen method —
+ * pixel); the upscale-back step renders the blocks with the chosen method 
  * nearest gives hard block edges, bilinear smooths them. The downscale is
  * clamped to at least 1px so the image never collapses entirely. */
 export function pixelateCanvas(canvas: HTMLCanvasElement, percent: number, method: UpscaleMethod = 'nearest'): HTMLCanvasElement {
@@ -180,7 +180,7 @@ export function pixelateCanvas(canvas: HTMLCanvasElement, percent: number, metho
 }
 
 /** Nearest-neighbor resample to the given size followed by the downscale +
- * upscale pixelization filter — the processed normals map's pipeline, shared by
+ * upscale pixelization filter  the processed normals map's pipeline, shared by
  * the 2D normals inspection, the processed viewport push, and the bake inputs.
  * The resample stays nearest (crisp map values); the pixelization's
  * upscale-back step honors the chosen upscale method. */

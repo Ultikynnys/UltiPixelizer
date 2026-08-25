@@ -39,9 +39,9 @@ export type State = {
   displacementStrength: number;
   displacementFlip: boolean;
   paletteFilter: PaletteCategory;
-  /** Palette-library search query (Search category) — remembered across restarts. */
+  /** Palette-library search query (Search category)  remembered across restarts. */
   paletteSearchQuery: string;
-  /** Search-category sort order — remembered across restarts. */
+  /** Search-category sort order  remembered across restarts. */
   paletteSearchSort: PaletteSearchSort;
   uvMap: string;
   lodLevel: number;
@@ -64,7 +64,7 @@ export type State = {
   showUVWireframeProcessed: boolean;
   viewModeOriginal: PreviewViewMode;
   viewModeProcessed: PreviewViewMode;
-  /** Left-drag camera action for the 3D viewports: pan (on) or orbit (off) —
+  /** Left-drag camera action for the 3D viewports: pan (on) or orbit (off) 
    * the "Alt controls" pill. Persisted like the other settings. */
   navigationPan: boolean;
   /** Shared 10 cm floor reference shown in both 3D viewports. */

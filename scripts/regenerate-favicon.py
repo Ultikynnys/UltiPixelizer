@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Regenerate public/favicon.ico to mirror public/favicon.svg.
 
-Rasterizes the UltiPixelizer brand mark — a 2x2 pixel grid (7px cells,
-2px gaps) rotated 45deg — with the same geometry and colors as the SVG:
+Rasterizes the UltiPixelizer brand mark  a 2x2 pixel grid (7px cells,
+2px gaps) rotated 45deg  with the same geometry and colors as the SVG:
 
     <g transform="translate(32 32) rotate(45) scale(2.2627)">
       <rect x="-8" y="-8" width="7" height="7" fill="var(--paper)"/>

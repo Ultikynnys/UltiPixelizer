@@ -7,8 +7,8 @@ import { clamp, clampPixelCoord } from './math';
  * wireframe overlay and the eyedropper.
  *
  * The texture canvas is laid out by CSS as `object-fit: contain` inside the
- * frame (`width: 100%`, height capped), so the *fitted rect* — where the image
- * actually paints — is the canvas box's letterbox region, not the box itself.
+ * frame (`width: 100%`, height capped), so the *fitted rect*  where the image
+ * actually paints  is the canvas box's letterbox region, not the box itself.
  * This module computes that rect in frame coordinates and drives the zoom/pan
  * transform from it. The previous implementation treated the canvas box as the
  * image, which drifted the pan bounds, the wireframe overlay, and eyedropper
@@ -50,13 +50,13 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
 
   // Image-repeat diagnostic: the renderer tiles the backing buffer 3×3 and
   // marks the canvas `repeat-tiled`; display it at 3× so each tile keeps the
-  // single-tile size. A pure transform — layout never moves, and the grid
+  // single-tile size. A pure transform  layout never moves, and the grid
   // overflows the frame until the user scrolls out.
   const tileFactor = (): number => (canvas.classList.contains('repeat-tiled') ? 3 : 1);
 
   // The fitted image rect in frame coordinates. The transform origin anchors
   // zoom/pan: the image's top-left (the letterbox offset) for single-tile
-  // canvases, or the box CENTER for the tiled grid — scaling then keeps the
+  // canvases, or the box CENTER for the tiled grid  scaling then keeps the
   // center tile pinned to the window center at the default zoom. origin* is
   // element-relative; originFrame* is its frame-space position (what the
   // overlay, which fills the frame, must use for its own origin).
@@ -128,8 +128,8 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
     canvas.style.transform = transform;
     if (overlay) {
       // The overlay fills the frame and strokes the wireframe in frame space,
-      // so its transform-origin is the origin's frame-space position — the
-      // same visual point as the canvas's origin — keeping the two aligned.
+      // so its transform-origin is the origin's frame-space position  the
+      // same visual point as the canvas's origin  keeping the two aligned.
       overlay.style.transformOrigin = `${originFrameX}px ${originFrameY}px`;
       overlay.style.transform = transform;
     }
@@ -208,8 +208,8 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
 
   /** Image-repeat toggle: the renderer flips `repeat-tiled` and retiles the
    * backing buffer 3×3 in the same render pass. Re-anchor pan so the CENTER
-   * tile occupies exactly the screen region the single image occupied — and
-   * vice versa — keeping the center image visually pinned across the toggle.
+   * tile occupies exactly the screen region the single image occupied  and
+   * vice versa  keeping the center image visually pinned across the toggle.
    * The anchor rect is the whole image when single, the middle tile when
    * tiled; the new pan solves screen_new(anchor_new) == screen_old(anchor_old).
    * Both directions are exact inverses, so toggling back restores the view.
@@ -242,7 +242,7 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
     panX = anchorScreenX - originFrameX - (newAnchorX - originFrameX) * zoom * newFactor;
     panY = anchorScreenY - originFrameY - (newAnchorY - originFrameY) * zoom * newFactor;
     // The remap is an exact inverse, so a pan that should be zero arrives as
-    // float noise (e.g. 3.55e-15) — snap it, or the transform string ends up
+    // float noise (e.g. 3.55e-15)  snap it, or the transform string ends up
     // with scientific-notation px values.
     if (Math.abs(panX) < 1e-9) panX = 0;
     if (Math.abs(panY) < 1e-9) panY = 0;
@@ -378,7 +378,7 @@ export function createPreview2D(options: Preview2DOptions): Preview2DApi {
   const bufferObserver = new MutationObserver((records) => {
     // The image-repeat toggle retiles the backing buffer 3×3 and flips
     // `repeat-tiled` in the same render pass. That flip re-anchors pan so the
-    // center tile lands exactly where the single image was — the toggle must
+    // center tile lands exactly where the single image was  the toggle must
     // not move the center image. Any other buffer change refits as before.
     const classRecord = records.find((record) => record.attributeName === 'class');
     if (classRecord) remapPanOnTileToggle(classRecord.oldValue ?? '');

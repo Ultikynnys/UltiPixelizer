@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           # Full history so `git rev-list --count HEAD` (the build number the
-          # badge and installer version derive from) counts real commits — the
+          # badge and installer version derive from) counts real commits  the
           # default shallow checkout would always report 1.
           fetch-depth: 0
       - name: Install dependencies and stamp build version

@@ -25,11 +25,11 @@ export function redChannelFactors(source: AOFactorSource, invert = false): Uint8
  * unoccluded) after the bias/power remap: 1 = no AO effect, 0 = fully
  * occluded. Clamped to [0, 1]. Shared by the lighting pass (applyAO) and the
  * AO inspection views so the preview always shows the occlusion the bake
- * applies — with defaults (bias 0, power 1) it is the identity (factor/255).
+ * applies  with defaults (bias 0, power 1) it is the identity (factor/255).
  *
  * - `bias` re-floors the occlusion curve (positive = deeper shadows, negative
  *   = lifted shadows). The shift is normalized by `1 − bias` so the
- *   unoccluded end stays pinned at 1 — a raw `visibility − bias` would dim
+ *   unoccluded end stays pinned at 1  a raw `visibility − bias` would dim
  *   even fully-lit pixels.
  * - `power` reshapes the curve as an exponent (1 = as baked; >1 darkens,
  *   <1 brightens; 0 = no AO).
@@ -61,7 +61,7 @@ export function applyAO(data: Uint8ClampedArray, factors: Uint8ClampedArray, bia
 
 /**
  * Draws an AO image at the target dimensions and returns its red-channel factor
- * map. DOM-dependent — used only from the browser.
+ * map. DOM-dependent  used only from the browser.
  */
 export function imageAOFactors(image: CanvasImageSource, width: number, height: number, invert = false): Uint8ClampedArray {
   return redChannelFactors({ data: imagePixels(image, width, height), width, height }, invert);

@@ -35,7 +35,7 @@ export type BakeAOMLOptions = {
   samples?: number;
   /** Occlusion reach as a multiple of the mesh bounding-sphere radius. Default 2. */
   distance?: number;
-  /** Tangent-space normal map (pixels at the bake resolution) — the AO
+  /** Tangent-space normal map (pixels at the bake resolution)  the AO
    * hemisphere follows the mapped normals, so normal-map crevices and ridges
    * influence occlusion. */
   normalMap?: NormalMapSource;
@@ -44,7 +44,7 @@ export type BakeAOMLOptions = {
   normalFlipY?: boolean;
 };
 
-/** Cap on simultaneous workers — beyond ~8 the bake is memory- and BVH-build bound. */
+/** Cap on simultaneous workers  beyond ~8 the bake is memory- and BVH-build bound. */
 const MAX_AO_WORKERS = 8;
 /** Minimum rows per band; a smaller band isn't worth another worker's BVH build. */
 const MIN_BAND_ROWS = 16;

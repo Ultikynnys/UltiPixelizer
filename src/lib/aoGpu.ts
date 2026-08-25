@@ -79,7 +79,7 @@ assertAsciiWgsl(AO_WGSL, 'AO');
 /**
  * Bakes the AO factor map on the GPU. Returns the same `Uint8ClampedArray`
  * shape as the CPU/worker path (255 = unoccluded). Throws when WebGPU is
- * unavailable, the scene has no occluders, or any GPU step fails — the caller
+ * unavailable, the scene has no occluders, or any GPU step fails  the caller
  * treats any throw as "fall back to the CPU/worker path".
  */
 export async function bakeAOWithGpu(
@@ -111,7 +111,7 @@ export async function bakeAOWithGpu(
   const kernel = Float32Array.from(input.kernel); // f64 -> f32 for the shader.
 
   // One device per session, shared with the lightmap bake (see getGpuDevice in
-  // gpuCommon.ts) — the ~100ms device request is paid once, so the GPU runs
+  // gpuCommon.ts)  the ~100ms device request is paid once, so the GPU runs
   // unconditionally with no map-size threshold. The device is never destroyed
   // here: it stays cached for every subsequent bake.
   const mapped = await runComputePass({

@@ -418,11 +418,11 @@ export async function ditherImageDataGpu(source: ImageData, options: ProcessOpti
 
   // Diffusion: ONE workgroup per wave (128 co-resident threads), each wave
   // submitted sequentially so a wave reads the previous wave's flags as
-  // already set — the spin-wait never crosses a workgroup boundary. Each
+  // already set  the spin-wait never crosses a workgroup boundary. Each
   // wave's base row rides in the uniform's waveBase field, re-written before
   // that wave's dispatch. Dispatching `waves` workgroups in one call would
   // deadlock: rows in separate workgroups are not guaranteed co-resident, so
-  // a thread can spin forever on a flag the scheduler hasn't produced — the
+  // a thread can spin forever on a flag the scheduler hasn't produced  the
   // DXGI_ERROR_DEVICE_REMOVED hang this fixes.
   for (let wave = 0; wave < waves; wave += 1) {
     uniformU32[15] = wave * ROWS_PER_WAVE; // waveBase (u32)

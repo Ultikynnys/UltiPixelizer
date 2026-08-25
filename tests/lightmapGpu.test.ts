@@ -27,7 +27,7 @@ describe('computeSunVisibilityGpu', () => {
     const requestAdapter = vi.fn();
     stubWebGpuAdapter(requestAdapter);
     // The mocked adapter yields no device, so the request fails loudly and
-    // the caller falls back to the CPU/worker path — like a real GPU miss.
+    // the caller falls back to the CPU/worker path  like a real GPU miss.
     await expect(computeSunVisibilityGpu(serializedPlaneScene(), [0, 0, -1], 1)).rejects.toThrow('WebGPU adapter unavailable');
     expect(requestAdapter).toHaveBeenCalled();
   });

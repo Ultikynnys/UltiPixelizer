@@ -118,7 +118,7 @@ describe('UV wireframe', () => {
       canvas.width = 200;
       canvas.height = 100;
     }
-    // Only the original pane's toggle is on — the processed overlay stays hidden.
+    // Only the original pane's toggle is on  the processed overlay stays hidden.
     deps.state.showUVWireframeOriginal = true;
     deps.state.showUVWireframeProcessed = false;
 
@@ -232,7 +232,7 @@ describe('UV overlap overlay', () => {
   });
 
   it('re-shows the overlay after a toggle-off/toggle-on cycle', () => {
-    const scene = overlappingScene(); // stable identity — the cache key
+    const scene = overlappingScene(); // stable identity  the cache key
     const originalViewport = { setUVOverlap: vi.fn() };
     const processedViewport = { setUVOverlap: vi.fn() };
     const { deps, overlay } = setup({
@@ -259,7 +259,7 @@ describe('UV overlap overlay', () => {
     expect(originalViewport.setUVOverlap.mock.calls[1][0]).toBeNull();
 
     // Toggle back on: the cleared mask must be recomputed (the warm cache is
-    // stale once the mask canvas is gone) and the viewports re-notified —
+    // stale once the mask canvas is gone) and the viewports re-notified 
     // otherwise the animation restarts against a null mask and draws nothing.
     deps.state.showUVOverlapOriginal = true;
     deps.state.showUVOverlapProcessed = true;
@@ -272,7 +272,7 @@ describe('UV overlap overlay', () => {
   });
 
   it('invalidateUVOverlap forces the next refresh to recompute', () => {
-    const scene = overlappingScene(); // stable identity — the cache key
+    const scene = overlappingScene(); // stable identity  the cache key
     const originalViewport = { setUVOverlap: vi.fn() };
     const processedViewport = { setUVOverlap: vi.fn() };
     const { deps, overlay } = setup({
@@ -349,7 +349,7 @@ describe('UV overlap overlay', () => {
   });
 
   it('applies the viewport highlight per pane, independent of the other window', () => {
-    const scene = overlappingScene(); // stable identity — the cache key
+    const scene = overlappingScene(); // stable identity  the cache key
     const originalViewport = { setUVOverlap: vi.fn() };
     const processedViewport = { setUVOverlap: vi.fn() };
     const { deps, overlay } = setup({
@@ -416,7 +416,7 @@ describe('UV overlap overlay', () => {
     deps.state.showUVWireframeProcessed = true;
     overlay.refreshUVOverlap();
     expect(rafCount()).toBe(0);
-    // Both viewports are cleared — their toggles are off.
+    // Both viewports are cleared  their toggles are off.
     expect(originalViewport.setUVOverlap.mock.calls[0][0]).toBeNull();
     expect(processedViewport.setUVOverlap.mock.calls[0][0]).toBeNull();
     // Wireframe triangles are still collected and drawn on the overlay even

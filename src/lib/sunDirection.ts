@@ -6,7 +6,7 @@ export type DirectionVector = { x: number; y: number; z: number };
  * Default sun: light travels downward and toward −X/−Z, i.e. the sun sits above
  * in the +X/+Z octant so the +X and +Z faces start lit. `sunDirection` is the
  * direction light TRAVELS (from the sun toward the scene), not the direction
- * toward the light — see `directionToSun`.
+ * toward the light  see `directionToSun`.
  */
 export const DEFAULT_SUN_DIRECTION: Readonly<DirectionVector> = Object.freeze({
   x: -0.5,
@@ -30,7 +30,7 @@ export function normalizeDirection(direction: DirectionVector): DirectionVector 
 }
 
 /**
- * Default camera forward — the direction the orbit camera looks after
+ * Default camera forward  the direction the orbit camera looks after
  * `fitCameraToObject` (position offset `(1.1, 0.65, 1.6)`, negated and
  * normalized). Used as the backfill value for settings saved before the camera
  * direction was persisted, and as the initial camera angle before a model loads.
@@ -39,7 +39,7 @@ export const DEFAULT_CAMERA_DIRECTION: Readonly<DirectionVector> = Object.freeze
   normalizeDirection({ x: -1.1, y: -0.65, z: -1.6 }),
 );
 
-/** Direction FROM the scene TOWARD the sun — the negation of the light-travel direction. */
+/** Direction FROM the scene TOWARD the sun  the negation of the light-travel direction. */
 export function directionToSun(direction: DirectionVector): DirectionVector {
   const ray = normalizeDirection(direction);
   return { x: -ray.x, y: -ray.y, z: -ray.z };

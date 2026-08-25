@@ -2,7 +2,7 @@
 //
 // The version is derived from the SAME git build count the frontend badge
 // uses: `git rev-list --count HEAD` -> scripts/build-version.mjs (no
-// argument reads git directly). Nothing is hardcoded — .env, tauri.conf.json
+// argument reads git directly). Nothing is hardcoded  .env, tauri.conf.json
 // and the CI workflows only ever reference this derivation. `tauri build`
 // merges this file into the bundle config via `--config`, locally
 // (`npm run tauri:build`) and in CI (desktop.yml) alike.

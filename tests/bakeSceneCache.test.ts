@@ -27,7 +27,7 @@ describe('bakeSceneCache', () => {
     expect(getBakeScene(scene, 2)).toBe(first);
     expect(getBakeScene(scene)).toBe(first); // default distance is 2
     // The per-triangle tangent bases live on the collected scene, so re-bakes
-    // share the exact same array — the map's geometric mapping is prepared
+    // share the exact same array  the map's geometric mapping is prepared
     // once, never recomputed per bake.
     expect(first!.tangentBases).not.toBeNull();
     expect(getBakeScene(scene, 2)!.tangentBases).toBe(first!.tangentBases);
