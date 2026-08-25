@@ -4,7 +4,6 @@ import {
   AnimationClip,
   AxesHelper,
   AnimationMixer,
-  Box3,
   BufferGeometry,
   CanvasTexture,
   DoubleSide,
@@ -179,7 +178,6 @@ export class ModelViewport {
   // The full-intensity white ambient displays the texture unmodulated.
   private readonly ambient = new AmbientLight(0xffffff, Math.PI);
   private readonly floorGrid = new GridHelper(FLOOR_GRID_SIZE, FLOOR_GRID_DIVISIONS, 0x7f8c8d, 0x46525a);
-  private floorGridY = 0;
   private readonly axes = new AxesHelper(1);
   private readonly gizmoScene = new Scene();
   private readonly gizmoCamera = new OrthographicCamera(-1.3, 1.3, 1.3, -1.3, 0.1, 10);
@@ -256,19 +254,10 @@ export class ModelViewport {
     if (visible) this.updateFloorGridPosition();
   }
 
-  private updateFloorGrid(): void {
-    if (!this.model) return;
-    this.model.updateMatrixWorld(true);
-    const bounds = new Box3().setFromObject(this.model);
-    if (bounds.isEmpty()) return;
-    this.floorGridY = bounds.min.y;
-    this.updateFloorGridPosition();
-  }
-
   private updateFloorGridPosition(): void {
     this.floorGrid.position.set(
       Math.round(this.camera.position.x / FLOOR_GRID_DIVISION) * FLOOR_GRID_DIVISION,
-      this.floorGridY,
+      0,
       Math.round(this.camera.position.z / FLOOR_GRID_DIVISION) * FLOOR_GRID_DIVISION,
     );
   }
@@ -327,7 +316,6 @@ export class ModelViewport {
     this.removeOverlapOverlay();
     this.model = model;
     this.scene.add(model);
-    this.updateFloorGrid();
     // Keep the gizmo aligned with the model's world-axis convention — the model
     // arrives pre-oriented from loadModel, so mirror its root rotation.
     this.axes.rotation.copy(model.rotation);
@@ -343,7 +331,6 @@ export class ModelViewport {
     // Mirror the convention rotation so the gizmo tracks the model's axes:
     // Z-up (Blender) shows the blue Z axis pointing up, Y-up (Maya) the green Y.
     this.axes.rotation.copy(this.model.rotation);
-    this.updateFloorGrid();
     this.refitCamera();
   }
 

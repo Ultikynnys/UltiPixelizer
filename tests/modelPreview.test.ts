@@ -400,7 +400,7 @@ describe('ModelViewport', () => {
     viewport.dispose();
   });
 
-  it('shows a transparent 10 cm grid to a 5 m camera radius at the model floor', () => {
+  it('shows a transparent 10 cm grid at world Y = 0 to a 5 m camera radius', () => {
     const viewport = new ModelViewport(host());
     const grid = () => (viewport as unknown as {
       floorGrid: Object3D & { visible: boolean; geometry: BufferGeometry; material: MeshBasicMaterial };
@@ -416,7 +416,9 @@ describe('ModelViewport', () => {
     viewport.setFloorGrid(true);
 
     expect(grid().visible).toBe(true);
-    expect(grid().position.y).toBeCloseTo(3);
+    // Model and camera are both vertically translated, but the floor reference
+    // is the immutable world XZ plane rather than the model's bounding-box floor.
+    expect(grid().position.y).toBe(0);
     expect(grid().position.x).toBeCloseTo(2.5);
     expect(grid().position.z).toBeCloseTo(4);
     expect(grid().material.transparent).toBe(true);
