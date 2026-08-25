@@ -137,19 +137,19 @@ export function computeAverageTexelDensity(scene: Object3D, width: number, heigh
 
 /** Colors a face by how its own texel density compares with the model-wide
  * average (see `computeAverageTexelDensity`). `ratio` is the face's density
- * divided by the average: 1 = neutral (white), below 1 ramps to RED (max at
+ * divided by the average: 1 = neutral (green), below 1 ramps to RED (max at
  * 50% below), above 1 ramps to BLUE (max at 50% above). */
 export function texelVarianceColor(ratio: number): UVStretchColor {
-  const NEUTRAL: UVStretchColor = [255, 255, 255];
+  const GREEN: UVStretchColor = [0, 255, 0];
   const RED: UVStretchColor = [255, 60, 60];
   const BLUE: UVStretchColor = [60, 120, 255];
   const from = ratio <= 1 ? RED : BLUE;
   const amount = ratio <= 1 ? (1 - ratio) / 0.5 : (ratio - 1) / 0.5;
   const t = Math.min(Math.max(amount, 0), 1);
   return [
-    Math.round(NEUTRAL[0] + (from[0] - NEUTRAL[0]) * t),
-    Math.round(NEUTRAL[1] + (from[1] - NEUTRAL[1]) * t),
-    Math.round(NEUTRAL[2] + (from[2] - NEUTRAL[2]) * t),
+    Math.round(GREEN[0] + (from[0] - GREEN[0]) * t),
+    Math.round(GREEN[1] + (from[1] - GREEN[1]) * t),
+    Math.round(GREEN[2] + (from[2] - GREEN[2]) * t),
   ];
 }
 

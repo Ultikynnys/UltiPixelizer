@@ -204,17 +204,17 @@ describe('UV stretch data', () => {
 
 describe('texel variance', () => {
   it('maps the density ratio to red below / blue above the average', () => {
-    // Exactly at the average → neutral white.
-    expect(texelVarianceColor(1)).toEqual([255, 255, 255]);
+    // Exactly at the average → neutral green.
+    expect(texelVarianceColor(1)).toEqual([0, 255, 0]);
     // 50% below → maximum red, 50% above → maximum blue.
     expect(texelVarianceColor(0.5)).toEqual([255, 60, 60]);
     expect(texelVarianceColor(1.5)).toEqual([60, 120, 255]);
     // Beyond ±50% clamps to the extremes.
     expect(texelVarianceColor(0)).toEqual([255, 60, 60]);
     expect(texelVarianceColor(3)).toEqual([60, 120, 255]);
-    // Interpolates monotonically off white toward the extremes.
+    // Interpolates monotonically off green toward the extremes.
     expect(texelVarianceColor(0.75)[1]).toBeLessThan(texelVarianceColor(1)[1]); // greener → redder
-    expect(texelVarianceColor(1.25)[0]).toBeLessThan(texelVarianceColor(1)[0]); // bluer
+    expect(texelVarianceColor(1.25)[2]).toBeGreaterThan(texelVarianceColor(1)[2]); // bluer
   });
 
   it('colors faces red below and blue above the model-wide average density', () => {
