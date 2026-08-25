@@ -19,9 +19,9 @@ export function createRenderShared(overrides: Partial<RenderShared> = {}): Rende
     uvStretchCanvas: null,
     uvStretchCanvasWidth: 0,
     uvStretchCanvasHeight: 0,
-    gradientCanvas: null,
-    gradientCanvasWidth: 0,
-    gradientCanvasHeight: 0,
+    directionalityCanvas: null,
+    directionalityCanvasWidth: 0,
+    directionalityCanvasHeight: 0,
     lightmapCleared: false,
     ...overrides,
   };

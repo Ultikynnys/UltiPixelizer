@@ -480,29 +480,33 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 
-  it('renders the vertical V-gradient in the 2D panes and feeds the viewports', () => {
-    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setGradientView: vi.fn() };
-    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setGradientView: vi.fn() };
+  it('renders a 16-wave V sawtooth in the 2D panes and feeds the viewports', () => {
+    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setDirectionalityView: vi.fn() };
+    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setDirectionalityView: vi.fn() };
     const deps = createRendererDeps({
-      textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } },
+      // 1×1 base + resolution 16 → a 16×16 output, so the sawtooth is sampled.
+      textures: { base: { image: solidTexture([0, 0, 0, 255]), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } },
       getOriginalViewport: () => originalViewport as unknown as ModelViewport,
       getProcessedViewport: () => processedViewport as unknown as ModelViewport,
     });
-    deps.state.viewModeOriginal = 'gradient';
-    deps.state.viewModeProcessed = 'gradient';
+    deps.state.resolution = 16;
+    deps.state.viewModeOriginal = 'directionality';
+    deps.state.viewModeProcessed = 'directionality';
     const shared = sharedState();
     createRender2D(deps, shared).render();
 
-    // The staged reference gradient goes white (V=1, top) to black (V=0, bottom).
-    expect(shared.gradientCanvas).not.toBeNull();
+    // gray = fract(V*16), V = (height-1-py)/(height-1). First column pins the
+    // 16-wave sawtooth (it resets to 0 at both V=1 and V=0 and spans every band).
+    expect(shared.directionalityCanvas).not.toBeNull();
     const w = deps.originalCanvas.width;
     const pixels = deps.originalCanvas.context.pixels;
-    const h = pixels.length / 4 / w;
-    expect(Array.from(pixels.slice(0, 4))).toEqual([255, 255, 255, 255]); // top row = V=1
-    const bottomLeft = (h - 1) * w * 4;
-    expect(Array.from(pixels.slice(bottomLeft, bottomLeft + 4))).toEqual([0, 0, 0, 255]); // bottom row = V=0
-    expect(originalViewport.setGradientView).toHaveBeenCalledWith(true);
-    expect(processedViewport.setGradientView).toHaveBeenCalledWith(true);
+    const rowStride = w * 4;
+    const expected = [0, 238, 221, 204, 187, 170, 153, 136, 119, 102, 85, 68, 51, 34, 17, 0];
+    for (let py = 0; py < expected.length; py += 1) {
+      expect(pixels[py * rowStride]).toBe(expected[py]);
+    }
+    expect(originalViewport.setDirectionalityView).toHaveBeenCalledWith(true);
+    expect(processedViewport.setDirectionalityView).toHaveBeenCalledWith(true);
   });
 
   it('renders matching UV and world faces with the shared stretch colors', async () => {
@@ -517,8 +521,8 @@ describe('createRender2D render pipeline', () => {
     ], 2));
     const scene = new Scene();
     scene.add(new Mesh(geometry, new MeshBasicMaterial()));
-    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setGradientView: vi.fn() };
-    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setGradientView: vi.fn() };
+    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setDirectionalityView: vi.fn() };
+    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setDirectionalityView: vi.fn() };
     const deps = createRendererDeps({
       textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } },
       getAOScene: () => scene,
@@ -537,8 +541,8 @@ describe('createRender2D render pipeline', () => {
   });
 
   it('feeds the viewports when both are available', () => {
-    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setGradientView: vi.fn() };
-    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setGradientView: vi.fn() };
+    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setDirectionalityView: vi.fn() };
+    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setDirectionalityView: vi.fn() };
     const deps = createRendererDeps({
       textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } },
       getOriginalViewport: () => originalViewport as unknown as ModelViewport,

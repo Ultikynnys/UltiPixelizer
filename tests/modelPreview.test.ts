@@ -612,44 +612,44 @@ describe('ModelViewport', () => {
     viewport.dispose();
   });
 
-  it('setGradientView swaps materials, restores the originals, and clears on dispose', () => {
+  it('setDirectionalityView swaps materials, restores the originals, and clears on dispose', () => {
     const viewport = new ModelViewport(host());
     const model = meshScene();
     viewport.setModel(model, []);
     const mesh = model.children[0] as Mesh;
     const original = mesh.material;
-    viewport.setGradientView(true);
-    // The gradient view colors each surface by its UV V coordinate  the swap
-    // target is the UV-V gradient shader.
+    viewport.setDirectionalityView(true);
+    // The directionality view colors each surface by its UV V coordinate  the
+    // swap target is the UV-V sawtooth shader.
     expect((mesh.material as ShaderMaterial).type).toBe('ShaderMaterial');
-    expect(mesh.material).toBe((viewport as unknown as { gradientMaterial: ShaderMaterial }).gradientMaterial);
-    viewport.setGradientView(false);
+    expect(mesh.material).toBe((viewport as unknown as { directionalityMaterial: ShaderMaterial }).directionalityMaterial);
+    viewport.setDirectionalityView(false);
     expect(mesh.material).toBe(original);
 
     // Early returns: no model / already in the same state.
     const empty = new ModelViewport(host());
-    empty.setGradientView(true);
-    empty.setGradientView(false);
+    empty.setDirectionalityView(true);
+    empty.setDirectionalityView(false);
     empty.dispose();
     viewport.dispose();
   });
 
-  it('keeps the normals and gradient views mutually exclusive', () => {
+  it('keeps the normals and directionality views mutually exclusive', () => {
     const viewport = new ModelViewport(host());
     const model = meshScene();
     viewport.setModel(model, []);
     const mesh = model.children[0] as Mesh;
     const original = mesh.material;
 
-    viewport.setGradientView(true);
-    // Enabling normals must first restore the gradient-stashed originals.
+    viewport.setDirectionalityView(true);
+    // Enabling normals must first restore the directionality-stashed originals.
     viewport.setNormalsView(true);
     expect(mesh.material).toBe((viewport as unknown as { normalMapMaterial: ShaderMaterial }).normalMapMaterial);
-    viewport.setGradientView(true);
-    expect(mesh.material).toBe((viewport as unknown as { gradientMaterial: ShaderMaterial }).gradientMaterial);
+    viewport.setDirectionalityView(true);
+    expect(mesh.material).toBe((viewport as unknown as { directionalityMaterial: ShaderMaterial }).directionalityMaterial);
 
-    // Disabling gradient restores the true original, not a stale stash.
-    viewport.setGradientView(false);
+    // Disabling directionality restores the true original, not a stale stash.
+    viewport.setDirectionalityView(false);
     expect(mesh.material).toBe(original);
     viewport.dispose();
   });

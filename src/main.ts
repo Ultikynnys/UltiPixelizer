@@ -271,7 +271,7 @@ app.innerHTML = `
                   <button type="button" data-view="lightmap">Lightmap</button>
                   <button type="button" data-view="lightmap-ao">Lightmap+AO</button>
                   <button type="button" data-view="uv-stretch" title="Compare each UV face area with its world-space face area">UV Stretch</button>
-                  <button type="button" data-view="gradient" title="Gray = the V (Y) UV coordinate (black at V=0, white at V=1), showing UV directionality across the surface">Gradient</button>
+                  <button type="button" data-view="directionality" title="A 16-wave sawtooth over the V (Y) UV coordinate, showing UV directionality across the surface">Directionality</button>
                 </div>
                 <div class="viewport-control-stack">
                   <label class="uv-overlap-control" id="navigationToggle" hidden title="Left-drag camera action. On: pan moves the camera sideways. Off: orbit rotates around the target. The middle button always zooms.">
@@ -959,13 +959,13 @@ function renderViewToggle(): void {
   const lightmapDefined = lightmapIsActive(textures) || renderer.getImplicitLightmapCanvas() !== null;
   const lightmapAoDefined = aoDefined && lightmapDefined;
   const uvStretchDefined = uvStretchIsAvailable();
-  // The Gradient view colors each surface by its UV V coordinate, so like UV
-  // Stretch it needs a model carrying usable UVs.
-  const gradientDefined = uvStretchIsAvailable();
+  // The Directionality view colors each surface by its UV V coordinate, so like
+  // UV Stretch it needs a model carrying usable UVs.
+  const directionalityDefined = uvStretchIsAvailable();
   if (!uvStretchDefined && state.viewModeOriginal === 'uv-stretch') state.viewModeOriginal = 'flat';
   if (!uvStretchDefined && state.viewModeProcessed === 'uv-stretch') state.viewModeProcessed = 'flat';
-  if (!gradientDefined && state.viewModeOriginal === 'gradient') state.viewModeOriginal = 'flat';
-  if (!gradientDefined && state.viewModeProcessed === 'gradient') state.viewModeProcessed = 'flat';
+  if (!directionalityDefined && state.viewModeOriginal === 'directionality') state.viewModeOriginal = 'flat';
+  if (!directionalityDefined && state.viewModeProcessed === 'directionality') state.viewModeProcessed = 'flat';
   if (!aoDefined && state.viewModeOriginal === 'ao') state.viewModeOriginal = 'flat';
   if (!lightmapDefined && state.viewModeOriginal === 'lightmap') state.viewModeOriginal = 'flat';
   if (!normalDefined && state.viewModeOriginal === 'normals') state.viewModeOriginal = 'flat';
@@ -979,15 +979,15 @@ function renderViewToggle(): void {
   // and viewports exactly as they do to a loaded model. The per-button
   // `disabled` states below already handle missing sources.
   originalViewToggle.hidden = false;
-  syncViewToggle(originalViewToggle, state.viewModeOriginal, normalDefined, aoDefined, lightmapDefined, lightmapAoDefined, uvStretchDefined, gradientDefined);
+  syncViewToggle(originalViewToggle, state.viewModeOriginal, normalDefined, aoDefined, lightmapDefined, lightmapAoDefined, uvStretchDefined, directionalityDefined);
   // A view-mode fallback above (e.g. the normal map was removed) must reach the
   // 3D viewports too  they render the Normals view via setNormalsView and
   // would otherwise stay latched on the stale showcase.
   applyViewNormals();
-  applyViewGradient();
+  applyViewDirectionality();
 }
 
-function syncViewToggle(toggle: HTMLDivElement, viewMode: PreviewViewMode, normalDefined: boolean, aoDefined: boolean, lightmapDefined: boolean, lightmapAoDefined: boolean, uvStretchDefined: boolean, gradientDefined: boolean): void {
+function syncViewToggle(toggle: HTMLDivElement, viewMode: PreviewViewMode, normalDefined: boolean, aoDefined: boolean, lightmapDefined: boolean, lightmapAoDefined: boolean, uvStretchDefined: boolean, directionalityDefined: boolean): void {
   syncActiveButton(toggle, '[data-view]', (button) => button.dataset.view === viewMode);
   for (const button of toggle.querySelectorAll<HTMLButtonElement>('[data-view]')) {
     const view = button.dataset.view as PreviewViewMode;
@@ -996,7 +996,7 @@ function syncViewToggle(toggle: HTMLDivElement, viewMode: PreviewViewMode, norma
       || (view === 'lightmap' && !lightmapDefined)
       || (view === 'lightmap-ao' && !lightmapAoDefined)
       || (view === 'uv-stretch' && !uvStretchDefined)
-      || (view === 'gradient' && !gradientDefined);
+      || (view === 'directionality' && !directionalityDefined);
   }
 }
 
@@ -1005,9 +1005,9 @@ function applyViewNormals(): void {
   processedViewport?.setNormalsView(state.viewModeProcessed === 'normals');
 }
 
-function applyViewGradient(): void {
-  originalViewport?.setGradientView(state.viewModeOriginal === 'gradient');
-  processedViewport?.setGradientView(state.viewModeProcessed === 'gradient');
+function applyViewDirectionality(): void {
+  originalViewport?.setDirectionalityView(state.viewModeOriginal === 'directionality');
+  processedViewport?.setDirectionalityView(state.viewModeProcessed === 'directionality');
 }
 
 // Pushes the current normal-map texture (with the bake's strength / DirectX
@@ -3355,7 +3355,7 @@ function bindViewToggle(toggle: HTMLDivElement, getView: () => PreviewViewMode, 
 function applyViewMode(): void {
   renderViewToggle();
   applyViewNormals();
-  applyViewGradient();
+  applyViewDirectionality();
   if (state.viewModeOriginal !== 'uv-stretch') originalViewport?.setUVStretch(null);
   if (state.viewModeProcessed !== 'uv-stretch') processedViewport?.setUVStretch(null);
   render();
@@ -3388,7 +3388,7 @@ const EXPORT_VIEW_SUFFIX: Record<PreviewViewMode, string> = {
   lightmap: 'Lightmap',
   'lightmap-ao': 'LightmapAO',
   'uv-stretch': 'UVStretch',
-  gradient: 'Gradient',
+  directionality: 'Directionality',
 };
 document.querySelector('#exportButton')!.addEventListener('click', async () => {
   // Flush the debounced render first so the export always matches what the
