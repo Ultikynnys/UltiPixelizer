@@ -167,8 +167,8 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'displacementFlip', path: ['displacementFlip'], default: false, migrateDefault: false, validate: isBoolean },
   // Pane overlay preferences are UI state, but persist with the rest of the
   // settings so disabling UV Islands survives a browser restart.
-  { key: 'showUVWireframeOriginal', path: ['showUVWireframeOriginal'], default: true, migrateDefault: true, validate: isBoolean },
-  { key: 'showUVWireframeProcessed', path: ['showUVWireframeProcessed'], default: true, migrateDefault: true, validate: isBoolean },
+  { key: 'showUVWireframeOriginal', path: ['showUVWireframeOriginal'], default: false, migrateDefault: false, validate: isBoolean },
+  { key: 'showUVWireframeProcessed', path: ['showUVWireframeProcessed'], default: false, migrateDefault: false, validate: isBoolean },
   // Camera interaction preference — the "Alt controls" pill. Not a conversion
   // parameter, but it is saved like the other settings (and restored from old
   // files via migrateDefault).

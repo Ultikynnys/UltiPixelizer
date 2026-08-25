@@ -101,12 +101,12 @@ describe('conversion presets', () => {
     expect(parsed.paletteSearchSort).toBe('name');
   });
 
-  it('backfills enabled UV Islands overlays into settings saved before they persisted', () => {
+  it('backfills disabled UV Islands overlays into settings saved before they persisted', () => {
     const current = createPreset('Legacy UV Islands', '', config);
     const { showUVWireframeOriginal: _original, showUVWireframeProcessed: _processed, ...legacy } = current;
     const parsed = parsePreset(JSON.stringify(legacy));
-    expect(parsed.showUVWireframeOriginal).toBe(true);
-    expect(parsed.showUVWireframeProcessed).toBe(true);
+    expect(parsed.showUVWireframeOriginal).toBe(false);
+    expect(parsed.showUVWireframeProcessed).toBe(false);
   });
 
   it('migrates presets saved before AO bias/power existed', () => {
@@ -334,8 +334,8 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       quadGrid: false,
       displacementStrength: 0.15,
       displacementFlip: false,
-      showUVWireframeOriginal: true,
-      showUVWireframeProcessed: true,
+      showUVWireframeOriginal: false,
+      showUVWireframeProcessed: false,
       navigationPan: false,
       showFloorGrid: false,
       paletteFilter: 'compact',

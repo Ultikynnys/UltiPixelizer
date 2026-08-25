@@ -163,8 +163,8 @@ function defaultState(): State {
   state.cameraDirection = { ...DEFAULT_CAMERA_DIRECTION };
   state.showUVOverlapOriginal = false;
   state.showUVOverlapProcessed = false;
-  state.showUVWireframeOriginal = true;
-  state.showUVWireframeProcessed = true;
+  state.showUVWireframeOriginal = false;
+  state.showUVWireframeProcessed = false;
   state.viewModeOriginal = 'flat';
   state.viewModeProcessed = 'flat';
   applyConfigValues(state, defaults);
