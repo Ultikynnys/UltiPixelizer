@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Scene } from 'three';
-import { computeAverageTexelDensity, computeUVStretchData, uvStretchColor } from '../src/lib/texelDensity';
+import { computeAverageTexelDensity, computeUVStretchData, recolorUVStretchData, uvStretchColor } from '../src/lib/texelDensity';
 
 /** Single-triangle mesh: world triangle (0,0,0)-(1,0,0)-(0,1,0) (area 0.5)
  * mapped onto UV triangle (0,0)-(1,0)-(0,1) (UV area 0.5). */
@@ -162,6 +162,33 @@ describe('UV stretch data', () => {
       triMesh([[0, 0], [1, 0], [0, 1]]),
     );
     expect(computeUVStretchData(scene)!.faces.every((face) => Number.isFinite(face.distortion))).toBe(true);
+  });
+
+  it('scales distortion by sensitivity toward the hot end of the heatmap', () => {
+    // A 0.5-octave stretch stays blue-ish at the identity sensitivity, but the
+    // same stretch reads far more red once the sensitivity is raised.
+    const low = uvStretchColor(0.5, 1);
+    const high = uvStretchColor(0.5, 3);
+    expect(high[0]).toBeGreaterThan(low[0]); // more red channel
+    expect(high[2]).toBeLessThan(low[2]); // less blue channel
+    // Sensitivity 0 pins every face to the blue (zero-distortion) end.
+    expect(uvStretchColor(2, 0)).toEqual(uvStretchColor(0, 1));
+    // Default sensitivity is the identity.
+    expect(uvStretchColor(0.5)).toEqual(uvStretchColor(0.5, 1));
+  });
+
+  it('recolors stored distortion without re-measuring the scene', () => {
+    const scene = new Scene();
+    scene.add(quadMesh());
+    const base = computeUVStretchData(scene)!;
+    const recolored = recolorUVStretchData(base, 3);
+    // The expensive per-face distortion walk is preserved; only colors change.
+    expect(recolored.faces.map((face) => face.distortion)).toEqual(base.faces.map((face) => face.distortion));
+    expect(recolored.faces[0].color).toEqual(uvStretchColor(base.faces[0].distortion, 3));
+    // A fresh reference, so identity-cached consumers (the 3D overlay) rebuild.
+    expect(recolored).not.toBe(base);
+    // Identity sensitivity reproduces the base colors.
+    expect(recolorUVStretchData(base, 1).faces.map((face) => face.color)).toEqual(base.faces.map((face) => face.color));
   });
 
   it('returns null for unavailable or degenerate mapped geometry', () => {

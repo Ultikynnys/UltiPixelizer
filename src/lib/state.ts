@@ -58,6 +58,9 @@ export type State = {
   aoDistance: number;
   normalStrength: number;
   normalFormat: NormalFormat;
+  /** UV-stretch heatmap sensitivity: gain on each face's distortion before the
+   * blue→red heatmap, making small stretch differences read more color. */
+  uvStretchSensitivity: number;
   showUVOverlapOriginal: boolean;
   showUVOverlapProcessed: boolean;
   showUVWireframeOriginal: boolean;

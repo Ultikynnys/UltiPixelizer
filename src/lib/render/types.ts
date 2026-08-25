@@ -85,6 +85,12 @@ export interface RenderShared {
   implicitLightmapTimer: number;
   uvStretchData: UVStretchData | null;
   uvStretchScene: Object3D | null;
+  /** Stretch data recolored for the current heatmap sensitivity (a fresh
+   * reference whenever the sensitivity or scene changed), so the 3D overlay's
+   * identity check rebuilds exactly when the colors change. */
+  uvStretchColored: UVStretchData | null;
+  /** Last sensitivity applied to `uvStretchColored`; NaN forces a re-color. */
+  uvStretchSensitivity: number;
   uvStretchCanvas: HTMLCanvasElement | null;
   uvStretchCanvasWidth: number;
   uvStretchCanvasHeight: number;

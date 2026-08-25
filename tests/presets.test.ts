@@ -50,6 +50,7 @@ const config: ConversionConfig = {
   ambientIntensity: 0.6,
   normalStrength: 0.6,
   normalFormat: 'opengl',
+  uvStretchSensitivity: 1.5,
   sunDirection: { x: -0.5, y: -0.7071067811865476, z: -0.5 },
 };
 
@@ -299,6 +300,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       ambient: { color: '#8fb4ff', intensity: 0.6 },
       normalStrength: 0.6,
       normalFormat: 'opengl',
+      uvStretchSensitivity: 1.5,
       cameraDirection: { x: 0, y: 0, z: -1 },
       showFloorGrid: true,
     } as State;
@@ -306,7 +308,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(33);
+    expect(Object.keys(defaults)).toHaveLength(34);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -329,6 +331,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       ambientIntensity: 0.2,
       normalStrength: 1,
       normalFormat: 'opengl',
+      uvStretchSensitivity: 1,
       sunDirection: DEFAULT_SUN_DIRECTION,
       quadTessellation: 16,
       quadGrid: false,
@@ -373,6 +376,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       ambientIntensity: 0.6,
       normalStrength: 0.6,
       normalFormat: 'opengl',
+      uvStretchSensitivity: 1.5,
       sunDirection: { x: -0.5, y: -0.7071067811865476, z: -0.5 },
       quadTessellation: 16,
       quadGrid: false,

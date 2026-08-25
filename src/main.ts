@@ -18,7 +18,7 @@ import { computeAverageTexelDensity, computeUVStretchData } from './lib/texelDen
 import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, upscaleMethods, type ConversionPreset, type SavedCamera } from './lib/presets';
 import { lightmapMatchesBaseColor } from './lib/lightmap';
 import { imageHeightmapPixels, sampleHeightmap, type NormalFormat } from './lib/normal';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY } from './lib/defaults';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY, DEFAULT_UV_STRETCH_SENSITIVITY } from './lib/defaults';
 import { createRenderer } from './lib/render';
 import { createPreview2D, type Preview2DApi } from './lib/preview2d';
 import { lightmapIsActive, type LightState, type PreviewMode, type PreviewViewMode, type SourceImage, type State, type TextureChannelId, type TextureSlot } from './lib/state';
@@ -143,6 +143,13 @@ const sunOverlayMarkup = (): string => `
           <output id="normalStrengthValue">${DEFAULT_NORMAL_STRENGTH.toFixed(2)}</output>
         </div>
         <input class="range" id="normalStrength" type="range" min="0" max="1" step="0.01" value="${DEFAULT_NORMAL_STRENGTH}" ${rangeDefaultAttrs('normalStrength', 0, 1)} aria-label="Normal strength" />
+      </div>
+      <div class="light-group" id="uvStretchSensitivityGroup" hidden>
+        <div class="light-heading">
+          <span class="light-label">UV stretch sensitivity</span>
+          <output id="uvStretchSensitivityValue">${DEFAULT_UV_STRETCH_SENSITIVITY.toFixed(2)}</output>
+        </div>
+        <input class="range" id="uvStretchSensitivity" type="range" min="0" max="4" step="0.05" value="${DEFAULT_UV_STRETCH_SENSITIVITY}" ${rangeDefaultAttrs('uvStretchSensitivity', 0, 4)} aria-label="UV stretch sensitivity" />
       </div>
     </div>
   </div>
@@ -515,6 +522,9 @@ type SunElements = {
   ambientIntensityValue: HTMLOutputElement;
   normalStrength: HTMLInputElement;
   normalStrengthValue: HTMLOutputElement;
+  uvStretchSensitivityGroup: HTMLDivElement;
+  uvStretchSensitivity: HTMLInputElement;
+  uvStretchSensitivityValue: HTMLOutputElement;
 };
 
 const sunControlElements: SunElements = {
@@ -528,6 +538,9 @@ const sunControlElements: SunElements = {
   ambientIntensityValue: document.querySelector<HTMLOutputElement>('#ambientIntensityValue')!,
   normalStrength: document.querySelector<HTMLInputElement>('#normalStrength')!,
   normalStrengthValue: document.querySelector<HTMLOutputElement>('#normalStrengthValue')!,
+  uvStretchSensitivityGroup: document.querySelector<HTMLDivElement>('#uvStretchSensitivityGroup')!,
+  uvStretchSensitivity: document.querySelector<HTMLInputElement>('#uvStretchSensitivity')!,
+  uvStretchSensitivityValue: document.querySelector<HTMLOutputElement>('#uvStretchSensitivityValue')!,
 };
 // Narrow windows hide the Original pane (CSS), so the pane-independent
 // controls that live on it (view mode, UV toggles, and the full lighting
@@ -1213,6 +1226,10 @@ function renderSunControl(): void {
   syncLightControls(state.sun, sunControlElements.color, sunControlElements.intensity, sunControlElements.intensityValue);
   syncLightControls(state.ambient, sunControlElements.ambientColor, sunControlElements.ambientIntensity, sunControlElements.ambientIntensityValue);
   syncRangeValue(sunControlElements.normalStrength, sunControlElements.normalStrengthValue, state.normalStrength, formatFixed2);
+  // The UV-stretch sensitivity slider belongs to the stretch heatmap, so it is
+  // shown only while either pane inspects the UV-stretch view.
+  sunControlElements.uvStretchSensitivityGroup.hidden = state.viewModeOriginal !== 'uv-stretch' && state.viewModeProcessed !== 'uv-stretch';
+  syncRangeValue(sunControlElements.uvStretchSensitivity, sunControlElements.uvStretchSensitivityValue, state.uvStretchSensitivity, formatFixed2);
   renderNavigationControl();
 }
 
@@ -3335,6 +3352,16 @@ function bindSunControl(): void {
       processedViewport?.setNormalStrength(state.normalStrength);
     },
   });
+  // UV-stretch heatmap sensitivity  a display-only gain, consumed on the next
+  // render when the stretch view recomputes its per-face colors.
+  bindRange({
+    input: sunControlElements.uvStretchSensitivity,
+    output: sunControlElements.uvStretchSensitivityValue,
+    format: formatFixed2,
+    apply: (value) => {
+      state.uvStretchSensitivity = Math.round(value * 100) / 100;
+    },
+  });
 }
 
 bindSunControl();
@@ -3358,6 +3385,8 @@ function applyViewMode(): void {
   applyViewDirectionality();
   if (state.viewModeOriginal !== 'uv-stretch') originalViewport?.setUVStretch(null);
   if (state.viewModeProcessed !== 'uv-stretch') processedViewport?.setUVStretch(null);
+  // Show/hide the UV-stretch sensitivity slider within the lighting controls.
+  renderSunControl();
   render();
 }
 bindViewToggle(originalViewToggle, () => state.viewModeOriginal, (view) => {

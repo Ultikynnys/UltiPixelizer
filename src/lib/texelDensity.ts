@@ -29,15 +29,18 @@ export type UVStretchData = {
 type MeasuredFace = Omit<UVStretchFace, 'distortion' | 'color'>;
 
 /** Blue → cyan → yellow → red heatmap. Inputs above two octaves are clamped
- * for display, while the face data retains the unbounded finite metric. */
-export function uvStretchColor(distortion: number): UVStretchColor {
+ * for display, while the face data retains the unbounded finite metric.
+ * `sensitivity` is a gain on the distortion (octaves) before mapping: higher
+ * values make small distortions push the color further off blue, lower values
+ * keep them near the blue end. 1 is the identity. */
+export function uvStretchColor(distortion: number, sensitivity = 1): UVStretchColor {
   const stops: readonly UVStretchColor[] = [
     [38, 93, 171],
     [65, 182, 196],
     [255, 230, 85],
     [215, 48, 39],
   ];
-  const scaled = Math.min(Math.max(distortion, 0), MAX_DISPLAY_DISTORTION) / MAX_DISPLAY_DISTORTION * (stops.length - 1);
+  const scaled = Math.min(Math.max(distortion * sensitivity, 0), MAX_DISPLAY_DISTORTION) / MAX_DISPLAY_DISTORTION * (stops.length - 1);
   const index = Math.min(Math.floor(scaled), stops.length - 2);
   const mix = scaled - index;
   const from = stops[index];
@@ -47,6 +50,18 @@ export function uvStretchColor(distortion: number): UVStretchColor {
     Math.round(from[1] + (to[1] - from[1]) * mix),
     Math.round(from[2] + (to[2] - from[2]) * mix),
   ];
+}
+
+/** Re-colors an already-measured UVStretchData for a new heatmap sensitivity,
+ * preserving the expensive per-face distortion walk. Colors are a pure
+ * function of each face's stored distortion, so this is O(faces) and returns a
+ * fresh data object (callers that cache identity, e.g. the 3D overlay, rebuild
+ * only when the returned reference changes). */
+export function recolorUVStretchData(data: UVStretchData, sensitivity: number): UVStretchData {
+  return {
+    ...data,
+    faces: data.faces.map((face) => ({ ...face, color: uvStretchColor(face.distortion, sensitivity) })),
+  };
 }
 
 /**

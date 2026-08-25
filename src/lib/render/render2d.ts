@@ -5,7 +5,7 @@ import { webgpuUsable } from '../gpuCommon';
 import { gpuDitherCovers, processImageDataAsync } from '../gpuDither';
 import { applyLightmap } from '../lightmap';
 import { rasterizeBake } from '../bakeGeometry';
-import { computeUVStretchData, type UVStretchData } from '../texelDensity';
+import { computeUVStretchData, recolorUVStretchData, type UVStretchData } from '../texelDensity';
 import { createBoundedLru } from '../lru';
 import { drawLuminosityHistogram } from '../luminosityHistogram';
 import { LUMA } from '../math';
@@ -228,16 +228,28 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     if (stretchScene !== shared.uvStretchScene) {
       shared.uvStretchScene = stretchScene;
       shared.uvStretchData = stretchScene ? computeUVStretchData(stretchScene) : null;
+      // Force a re-color + re-rasterize for the new scene.
+      shared.uvStretchColored = null;
+      shared.uvStretchSensitivity = NaN;
     }
     const stretchData = shared.uvStretchData;
-    if (stretchData && (!shared.uvStretchCanvas || shared.uvStretchCanvasWidth !== width || shared.uvStretchCanvasHeight !== height)) {
-      shared.uvStretchCanvas = renderUVStretchCanvas(stretchData, width, height);
+    // Re-color (cheap, O(faces)) only when the sensitivity moved; the expensive
+    // per-face distortion walk above is cached on the scene.
+    const stretchSensitivity = state.uvStretchSensitivity;
+    if (stretchData && shared.uvStretchSensitivity !== stretchSensitivity) {
+      shared.uvStretchColored = recolorUVStretchData(stretchData, stretchSensitivity);
+      shared.uvStretchSensitivity = stretchSensitivity;
+      shared.uvStretchCanvas = null; // force re-rasterize
+    }
+    const stretchSourceData = stretchData ? shared.uvStretchColored : null;
+    if (stretchSourceData && (!shared.uvStretchCanvas || shared.uvStretchCanvasWidth !== width || shared.uvStretchCanvasHeight !== height)) {
+      shared.uvStretchCanvas = renderUVStretchCanvas(stretchSourceData, width, height);
       shared.uvStretchCanvasWidth = width;
       shared.uvStretchCanvasHeight = height;
     }
-    const stretchSource = stretchData ? shared.uvStretchCanvas : null;
-    getOriginalViewport()?.setUVStretch(state.viewModeOriginal === 'uv-stretch' ? stretchData : null);
-    getProcessedViewport()?.setUVStretch(state.viewModeProcessed === 'uv-stretch' ? stretchData : null);
+    const stretchSource = stretchSourceData ? shared.uvStretchCanvas : null;
+    getOriginalViewport()?.setUVStretch(state.viewModeOriginal === 'uv-stretch' ? stretchSourceData : null);
+    getProcessedViewport()?.setUVStretch(state.viewModeProcessed === 'uv-stretch' ? stretchSourceData : null);
 
     // Directionality view: stage a vertical V-sawtooth canvas for the 2D panes
     // and feed each 3D viewport's UV-directionality material.

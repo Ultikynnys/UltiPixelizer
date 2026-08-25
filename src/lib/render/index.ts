@@ -14,6 +14,8 @@ export function createRenderer(deps: RendererDeps): RendererApi {
     implicitLightmapTimer: 0,
     uvStretchData: null,
     uvStretchScene: null,
+    uvStretchColored: null,
+    uvStretchSensitivity: NaN,
     uvStretchCanvas: null,
     uvStretchCanvasWidth: 0,
     uvStretchCanvasHeight: 0,
@@ -53,6 +55,8 @@ export function createRenderer(deps: RendererDeps): RendererApi {
     invalidateUVStretch: () => {
       shared.uvStretchData = null;
       shared.uvStretchScene = null;
+      shared.uvStretchColored = null;
+      shared.uvStretchSensitivity = NaN;
       shared.uvStretchCanvas = null;
       shared.uvStretchCanvasWidth = 0;
       shared.uvStretchCanvasHeight = 0;

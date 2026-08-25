@@ -4,7 +4,7 @@ import type { UpscaleMethod } from './canvas';
 import { clamp01 } from './math';
 import { parseJsonFile, serializeJsonFile } from './storage';
 import { slugify } from './strings';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY } from './defaults';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY, DEFAULT_UV_STRETCH_SENSITIVITY } from './defaults';
 import type { NormalFormat } from './normal';
 import { DEFAULT_SUN_DIRECTION, type DirectionVector } from './sunDirection';
 import type { PaletteSearchSort, State } from './state';
@@ -39,6 +39,9 @@ export type ConversionConfig = {
   ambientIntensity: number;
   normalStrength: number;
   normalFormat: NormalFormat;
+  /** UV-stretch heatmap sensitivity  a display gain, persisted with the other
+   * settings so the tuned stretch view survives restarts. */
+  uvStretchSensitivity: number;
   sunDirection: DirectionVector;
   quadTessellation: number;
   quadGrid: boolean;
@@ -158,6 +161,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'ambientIntensity', path: ['ambient', 'intensity'], default: DEFAULT_AMBIENT_INTENSITY, migrateDefault: DEFAULT_AMBIENT_INTENSITY, validate: inRange(0, 1) },
   { key: 'normalStrength', path: ['normalStrength'], default: DEFAULT_NORMAL_STRENGTH, migrateDefault: DEFAULT_NORMAL_STRENGTH, validate: inRange(0, 1) },
   { key: 'normalFormat', path: ['normalFormat'], default: 'opengl', migrateDefault: 'opengl', validate: isEnum(['opengl', 'directx']) },
+  { key: 'uvStretchSensitivity', path: ['uvStretchSensitivity'], default: DEFAULT_UV_STRETCH_SENSITIVITY, migrateDefault: DEFAULT_UV_STRETCH_SENSITIVITY, validate: inRange(0, 4) },
   { key: 'sunDirection', path: ['sun', 'direction'], default: DEFAULT_SUN_DIRECTION, migrateDefault: DEFAULT_SUN_DIRECTION, validate: isDirectionVector },
   // Fallback-quad parameters  the quad is the implicit model when none is
   // loaded, so its panel settings are saved like any other setting.

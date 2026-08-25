@@ -540,6 +540,48 @@ describe('createRender2D render pipeline', () => {
     expect(Array.from(deps.originalCanvas.context.pixels)).toEqual(Array.from(deps.previewCanvas.context.pixels));
   });
 
+  it('recolors UV stretch faces and re-rasterizes when sensitivity changes', async () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([
+      0, 0, 0, 2, 0, 0, 0, 1, 0,
+      0, 0, 0, 1, 0, 0, 0, 1, 0,
+    ], 3));
+    geometry.setAttribute('uv', new Float32BufferAttribute([
+      0, 0, 0.5, 0, 0, 1,
+      0.5, 0, 1, 0, 1, 1,
+    ], 2));
+    const scene = new Scene();
+    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+    const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setDirectionalityView: vi.fn() };
+    const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setDirectionalityView: vi.fn() };
+    const deps = createRendererDeps({
+      textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } },
+      getAOScene: () => scene,
+      getOriginalViewport: () => originalViewport as unknown as ModelViewport,
+      getProcessedViewport: () => processedViewport as unknown as ModelViewport,
+    });
+    deps.state.viewModeOriginal = 'uv-stretch';
+    deps.state.viewModeProcessed = 'uv-stretch';
+    deps.state.uvStretchSensitivity = 1;
+    const shared = sharedState();
+    const render2d = createRender2D(deps, shared);
+    await render2d.render();
+    const dataAtIdentity = originalViewport.setUVStretch.mock.calls[0][0];
+    const canvasAtIdentity = shared.uvStretchCanvas;
+
+    deps.state.uvStretchSensitivity = 4;
+    await render2d.render();
+
+    // Raising sensitivity pushes the heatmap off blue toward red: a fresh data
+    // reference (so the 3D overlay rebuilds), a fresh rasterized canvas, and a
+    // real change in the per-face colors, while the measured distortion stands.
+    const dataAt4x = originalViewport.setUVStretch.mock.calls[1][0];
+    expect(dataAt4x).not.toBe(dataAtIdentity);
+    expect(dataAt4x.faces.map((face) => face.distortion)).toEqual(dataAtIdentity.faces.map((face) => face.distortion));
+    expect(dataAt4x.faces.map((face) => face.color)).not.toEqual(dataAtIdentity.faces.map((face) => face.color));
+    expect(shared.uvStretchCanvas).not.toBe(canvasAtIdentity);
+  });
+
   it('feeds the viewports when both are available', () => {
     const originalViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setDirectionalityView: vi.fn() };
     const processedViewport = { applyImage: vi.fn(), setUVStretch: vi.fn(), setDirectionalityView: vi.fn() };
