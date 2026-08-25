@@ -8,7 +8,6 @@ import {
   CanvasTexture,
   DoubleSide,
   Float32BufferAttribute,
-  GridHelper,
   LinearFilter,
   LoadingManager,
   Material,
@@ -18,6 +17,7 @@ import {
   Object3D,
   OrthographicCamera,
   PerspectiveCamera,
+  PlaneGeometry,
   Quaternion,
   Scene,
   ShaderMaterial,
@@ -48,8 +48,8 @@ export type CameraState = { position: Vector3; quaternion: Quaternion; target: V
 export const FLOOR_GRID_DIVISION = 0.1;
 export const FLOOR_GRID_RADIUS = 5;
 const FLOOR_GRID_SIZE = FLOOR_GRID_RADIUS * 2;
-const FLOOR_GRID_DIVISIONS = FLOOR_GRID_SIZE / FLOOR_GRID_DIVISION;
-const FLOOR_GRID_OPACITY = 0.35;
+const FLOOR_GRID_FADE_START = FLOOR_GRID_RADIUS * 0.72;
+const FLOOR_GRID_OPACITY = 0.45;
 
 function overlapLabelTexture(): CanvasTexture {
   const { canvas, context } = createCanvas(256, 64);
@@ -177,7 +177,47 @@ export class ModelViewport {
   // implicitly baked) lighting, so the viewport never re-lights it in realtime.
   // The full-intensity white ambient displays the texture unmodulated.
   private readonly ambient = new AmbientLight(0xffffff, Math.PI);
-  private readonly floorGrid = new GridHelper(FLOOR_GRID_SIZE, FLOOR_GRID_DIVISIONS, 0x7f8c8d, 0x46525a);
+  private readonly floorGridMaterial = new ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    uniforms: {
+      uCameraXZ: { value: { x: 0, y: 0 } },
+      uDivision: { value: FLOOR_GRID_DIVISION },
+      uFadeStart: { value: FLOOR_GRID_FADE_START },
+      uRadius: { value: FLOOR_GRID_RADIUS },
+      uOpacity: { value: FLOOR_GRID_OPACITY },
+      uColor: { value: { r: 0.42, g: 0.48, b: 0.51 } },
+    },
+    vertexShader: `
+      varying vec2 vWorldXZ;
+      void main() {
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldXZ = worldPosition.xz;
+        gl_Position = projectionMatrix * viewMatrix * worldPosition;
+      }
+    `,
+    fragmentShader: `
+      uniform vec2 uCameraXZ;
+      uniform float uDivision;
+      uniform float uFadeStart;
+      uniform float uRadius;
+      uniform float uOpacity;
+      uniform vec3 uColor;
+      varying vec2 vWorldXZ;
+
+      void main() {
+        vec2 cell = vWorldXZ / uDivision;
+        vec2 distanceToLine = abs(fract(cell - 0.5) - 0.5) / fwidth(cell);
+        float line = 1.0 - min(min(distanceToLine.x, distanceToLine.y), 1.0);
+        float radialDistance = length(vWorldXZ - uCameraXZ);
+        float fade = 1.0 - smoothstep(uFadeStart, uRadius, radialDistance);
+        float alpha = line * fade * uOpacity;
+        if (alpha <= 0.0) discard;
+        gl_FragColor = vec4(uColor, alpha);
+      }
+    `,
+  });
+  private readonly floorGrid = new Mesh(new PlaneGeometry(FLOOR_GRID_SIZE, FLOOR_GRID_SIZE), this.floorGridMaterial);
   private readonly axes = new AxesHelper(1);
   private readonly gizmoScene = new Scene();
   private readonly gizmoCamera = new OrthographicCamera(-1.3, 1.3, 1.3, -1.3, 0.1, 10);
@@ -255,11 +295,13 @@ export class ModelViewport {
   }
 
   private updateFloorGridPosition(): void {
-    this.floorGrid.position.set(
-      Math.round(this.camera.position.x / FLOOR_GRID_DIVISION) * FLOOR_GRID_DIVISION,
-      0,
-      Math.round(this.camera.position.z / FLOOR_GRID_DIVISION) * FLOOR_GRID_DIVISION,
-    );
+    const x = this.camera.position.x;
+    const z = this.camera.position.z;
+    // Only the finite carrier follows the camera. The shader derives line phase
+    // from absolute world X/Z, so moving this mesh never moves the visible grid.
+    this.floorGrid.position.set(x, 0, z);
+    this.floorGridMaterial.uniforms.uCameraXZ.value.x = x;
+    this.floorGridMaterial.uniforms.uCameraXZ.value.y = z;
   }
 
   constructor(private readonly host: HTMLElement) {
@@ -285,12 +327,7 @@ export class ModelViewport {
     };
     host.addEventListener('pointerdown', this.modifierStripper, true);
     this.floorGrid.visible = false;
-    const floorMaterials = Array.isArray(this.floorGrid.material) ? this.floorGrid.material : [this.floorGrid.material];
-    floorMaterials.forEach((material) => {
-      material.transparent = true;
-      material.opacity = FLOOR_GRID_OPACITY;
-      material.depthWrite = false;
-    });
+    this.floorGrid.rotation.x = -Math.PI / 2;
     this.scene.add(this.ambient, this.floorGrid);
     this.axes.renderOrder = 1;
     // The gizmo lives in its own scene — rendered last, scissored into the
@@ -635,8 +672,7 @@ export class ModelViewport {
     this.normalMapMaterial.dispose();
     this.normalMapTexture?.dispose();
     this.floorGrid.geometry.dispose();
-    const gridMaterials = Array.isArray(this.floorGrid.material) ? this.floorGrid.material : [this.floorGrid.material];
-    gridMaterials.forEach((material) => material.dispose());
+    this.floorGridMaterial.dispose();
     this.axes.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

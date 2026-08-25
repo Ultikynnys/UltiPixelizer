@@ -400,14 +400,16 @@ describe('ModelViewport', () => {
     viewport.dispose();
   });
 
-  it('shows a transparent 10 cm grid at world Y = 0 to a 5 m camera radius', () => {
+  it('renders a world-anchored 10 cm grid with a horizontal 5 m camera fade', () => {
     const viewport = new ModelViewport(host());
-    const grid = () => (viewport as unknown as {
-      floorGrid: Object3D & { visible: boolean; geometry: BufferGeometry; material: MeshBasicMaterial };
-    }).floorGrid;
+    const internals = viewport as unknown as {
+      floorGrid: Mesh<BufferGeometry, ShaderMaterial>;
+      floorGridMaterial: ShaderMaterial;
+    };
+    const { floorGrid: grid, floorGridMaterial: material } = internals;
     expect(FLOOR_GRID_DIVISION).toBe(0.1);
     expect(FLOOR_GRID_RADIUS).toBe(5);
-    expect(grid().visible).toBe(false);
+    expect(grid.visible).toBe(false);
 
     const model = meshScene();
     model.position.set(2, 3, 4);
@@ -415,25 +417,27 @@ describe('ModelViewport', () => {
     viewport.restoreCameraView({ x: 2.46, y: 5, z: 4.04 }, { x: 2, y: 3, z: 4 });
     viewport.setFloorGrid(true);
 
-    expect(grid().visible).toBe(true);
-    // Model and camera are both vertically translated, but the floor reference
-    // is the immutable world XZ plane rather than the model's bounding-box floor.
-    expect(grid().position.y).toBe(0);
-    expect(grid().position.x).toBeCloseTo(2.5);
-    expect(grid().position.z).toBeCloseTo(4);
-    expect(grid().material.transparent).toBe(true);
-    expect(grid().material.opacity).toBeLessThan(1);
-    expect(grid().material.depthWrite).toBe(false);
-    const positions = grid().geometry.getAttribute('position');
-    const firstZ = positions.getZ(0);
-    const nextZ = positions.getZ(4);
-    expect(Math.abs(nextZ - firstZ)).toBeCloseTo(FLOOR_GRID_DIVISION);
-    expect(Math.abs(positions.getX(0))).toBeCloseTo(FLOOR_GRID_RADIUS);
+    expect(grid.visible).toBe(true);
+    expect(grid.position).toMatchObject({ x: 2.46, y: 0, z: 4.04 });
+    expect(grid.rotation.x).toBeCloseTo(-Math.PI / 2);
+    expect(material.transparent).toBe(true);
+    expect(material.depthWrite).toBe(false);
+    expect(material.uniforms.uDivision.value).toBe(FLOOR_GRID_DIVISION);
+    expect(material.uniforms.uRadius.value).toBe(FLOOR_GRID_RADIUS);
+    expect(material.uniforms.uFadeStart.value).toBeLessThan(FLOOR_GRID_RADIUS);
+    expect(material.uniforms.uCameraXZ.value).toEqual({ x: 2.46, y: 4.04 });
+    expect(material.vertexShader).toContain('vWorldXZ = worldPosition.xz');
+    expect(material.fragmentShader).toContain('vWorldXZ / uDivision');
+    expect(material.fragmentShader).toContain('length(vWorldXZ - uCameraXZ)');
+    expect(material.fragmentShader).toContain('discard');
+    const positions = grid.geometry.getAttribute('position');
+    expect(Math.abs(positions.getX(0))).toBe(FLOOR_GRID_RADIUS);
+    expect(Math.abs(positions.getY(0))).toBe(FLOOR_GRID_RADIUS);
 
     viewport.setFloorGrid(false);
-    expect(grid().visible).toBe(false);
-    const geometryDispose = vi.spyOn(grid().geometry, 'dispose');
-    const materialDispose = vi.spyOn(grid().material, 'dispose');
+    expect(grid.visible).toBe(false);
+    const geometryDispose = vi.spyOn(grid.geometry, 'dispose');
+    const materialDispose = vi.spyOn(material, 'dispose');
     viewport.dispose();
     expect(geometryDispose).toHaveBeenCalled();
     expect(materialDispose).toHaveBeenCalled();
