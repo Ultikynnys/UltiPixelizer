@@ -454,26 +454,60 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .panel-heading.compact { margin-bottom: 17px; }
 .range {
   appearance: none;
-  background-color: transparent;
-  /* Default-position marker: a vertical accent notch at --default-position.
-     Constrained to ~8px tall and vertically centered via background-size, it
-     reads as a visible tick on the bar instead of a tiny dot (2px track) or a
-     full-height stripe. The thumb paints above the element background, so the
-     handle always stays on top of the notch wherever it is dragged. */
-  background-image: linear-gradient(to right,
-    transparent calc(var(--default-position) - 1px),
-    var(--accent) calc(var(--default-position) - 1px),
-    var(--accent) calc(var(--default-position) + 1px),
-    transparent calc(var(--default-position) + 1px));
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: 100% 8px;
+  background: none;
   cursor: pointer; height: 14px; margin: 0; touch-action: pan-y; width: 100%;
 }
-.range::-webkit-slider-runnable-track { background: var(--line); height: 2px; }
-.range::-webkit-slider-thumb { appearance: none; background: var(--paper); border: 0; height: 14px; margin-top: -6px; width: 8px; }
-.range::-moz-range-track { background: var(--line); border: 0; height: 2px; }
-.range::-moz-range-progress { background: var(--line); height: 2px; }
+/* The default-position marker (--default-position, set inline per slider) is a
+   short vertical accent notch drawn ON the track, layered above the thin gray
+   line, so it reads as a visible tick on the bar rather than hiding behind it.
+   The thumb paints above the track/progress in every engine, so the handle
+   stays on top of the notch wherever it is dragged. */
+.range::-webkit-slider-runnable-track {
+  height: 8px;
+  background:
+    /* accent notch: a 2px vertical line spanning the track height */
+    linear-gradient(to right,
+      transparent calc(var(--default-position) - 1px),
+      var(--accent) calc(var(--default-position) - 1px),
+      var(--accent) calc(var(--default-position) + 1px),
+      transparent calc(var(--default-position) + 1px)),
+    /* thin gray line, vertically centered within the 8px track */
+    linear-gradient(to bottom,
+      transparent 0 3px,
+      var(--line) 3px 5px,
+      transparent 5px 8px);
+}
+.range::-webkit-slider-thumb {
+  appearance: none; background: var(--paper); border: 0;
+  height: 14px; margin-top: -3px; width: 8px;
+}
+.range::-moz-range-track {
+  height: 8px;
+  background:
+    linear-gradient(to right,
+      transparent calc(var(--default-position) - 1px),
+      var(--accent) calc(var(--default-position) - 1px),
+      var(--accent) calc(var(--default-position) + 1px),
+      transparent calc(var(--default-position) + 1px)),
+    linear-gradient(to bottom,
+      transparent 0 3px,
+      var(--line) 3px 5px,
+      transparent 5px 8px);
+  border: 0;
+}
+.range::-moz-range-progress {
+  height: 8px;
+  background:
+    linear-gradient(to right,
+      transparent calc(var(--default-position) - 1px),
+      var(--accent) calc(var(--default-position) - 1px),
+      var(--accent) calc(var(--default-position) + 1px),
+      transparent calc(var(--default-position) + 1px)),
+    linear-gradient(to bottom,
+      transparent 0 3px,
+      var(--line) 3px 5px,
+      transparent 5px 8px);
+}
 .range::-moz-range-thumb { background: var(--paper); border: 0; height: 14px; width: 8px; }
 .range-labels { color: var(--faint); display: flex; font: 400 8px 'DM Mono', monospace; justify-content: space-between; margin-top: 5px; }
 .resolution-presets { display: grid; gap: 5px; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 14px; }
