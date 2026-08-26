@@ -1918,6 +1918,21 @@ function syncRangeValue(input: HTMLInputElement, output: HTMLElement, value: num
   if (edit) edit.value = String(value);
 }
 
+/** Double-click-to-reset: restores the slider to its `data-default` value by
+ * dispatching synthetic input+change events, so whichever binding owns the
+ * slider applies the reset through its own handlers. Shared by every slider
+ * type (dither/AO via bindRange, lighting via bindLightIntensity). */
+function bindRangeReset(input: HTMLInputElement): void {
+  input.addEventListener('dblclick', (event) => {
+    event.preventDefault();
+    const defaultValue = input.dataset.default;
+    if (defaultValue === undefined) throw new Error(`Range control ${input.id} has no default value.`);
+    input.value = defaultValue;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
 function bindRange({ input, output, format, apply, debounce }: RangeBinding): void {
   let timer = 0;
   const sync = (value: number): void => {
@@ -1936,14 +1951,7 @@ function bindRange({ input, output, format, apply, debounce }: RangeBinding): vo
       sync(value);
     }
   });
-  input.addEventListener('dblclick', (event) => {
-    event.preventDefault();
-    const defaultValue = input.dataset.default;
-    if (defaultValue === undefined) throw new Error(`Range control ${input.id} has no default value.`);
-    input.value = defaultValue;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+  bindRangeReset(input);
   input.addEventListener('change', () => {
     // Release flushes a still-pending debounced apply with the final value.
     if (debounce && timer) {
@@ -3347,6 +3355,7 @@ function bindSunControl(): void {
       target.intensity = value;
       applySun();
     });
+    bindRangeReset(input);
     // See bindLightColor  the bake is release-triggered, not per-drag-move.
     // Re-engage on release so the sliders always re-light after an X.
     input.addEventListener('change', () => {
