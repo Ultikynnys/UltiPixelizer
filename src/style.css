@@ -203,6 +203,10 @@ select option { background: var(--card); color: var(--paper); }
    line (the swatch's position implies what it edits), the slider full-width
    below. */
 .light-group { display: grid; gap: 4px; }
+/* The UV stretch sensitivity group toggles with the active view mode (see
+   main.ts). `.light-group` forces `display: grid`, which would override the
+   UA `hidden` default, so this restores hiding for hidden light-groups. */
+.light-group[hidden] { display: none; }
 .light-heading { align-items: center; display: flex; justify-content: space-between; }
 .light-heading output { color: var(--paper); font: 500 8px 'DM Mono', monospace; }
 .light-label { color: var(--paper); font: 600 7px 'DM Mono', monospace; text-transform: uppercase; }
@@ -450,17 +454,48 @@ body.drag-active .texture-ribbon { position: relative; z-index: 31; }
 .panel-heading.compact { margin-bottom: 17px; }
 .range {
   appearance: none;
-  background: linear-gradient(to right,
-    transparent calc(var(--default-position) - 1px),
-    var(--accent) calc(var(--default-position) - 1px),
-    var(--accent) calc(var(--default-position) + 1px),
-    transparent calc(var(--default-position) + 1px));
+  background: none;
   cursor: pointer; height: 14px; margin: 0; touch-action: pan-y; width: 100%;
 }
-.range::-webkit-slider-runnable-track { background: var(--line); height: 2px; }
+/* The default-value marker (--default-position, set inline per slider) is drawn
+   as a thin accent line ON the track, layered above the gray line, so it reads
+   as a reset reference instead of a tall stripe behind the bar. The thumb
+   paints above the track/progress in every engine, so the handle stays on top
+   of the marker no matter where it is dragged. */
+.range::-webkit-slider-runnable-track {
+  background:
+    linear-gradient(to right,
+      transparent calc(var(--default-position) - 1px),
+      var(--accent) calc(var(--default-position) - 1px),
+      var(--accent) calc(var(--default-position) + 1px),
+      transparent calc(var(--default-position) + 1px)),
+    var(--line);
+  height: 2px;
+}
 .range::-webkit-slider-thumb { appearance: none; background: var(--paper); border: 0; height: 14px; margin-top: -6px; width: 8px; }
-.range::-moz-range-track { background: var(--line); border: 0; height: 2px; }
-.range::-moz-range-progress { background: var(--line); height: 2px; }
+/* Mozilla draws the progress bar above the track, so the marker must live on
+   both (the track's unfilled region and the progress's filled region) to stay
+   visible at the default position regardless of the current value. */
+.range::-moz-range-track {
+  background:
+    linear-gradient(to right,
+      transparent calc(var(--default-position) - 1px),
+      var(--accent) calc(var(--default-position) - 1px),
+      var(--accent) calc(var(--default-position) + 1px),
+      transparent calc(var(--default-position) + 1px)),
+    var(--line);
+  border: 0; height: 2px;
+}
+.range::-moz-range-progress {
+  background:
+    linear-gradient(to right,
+      transparent calc(var(--default-position) - 1px),
+      var(--accent) calc(var(--default-position) - 1px),
+      var(--accent) calc(var(--default-position) + 1px),
+      transparent calc(var(--default-position) + 1px)),
+    var(--line);
+  height: 2px;
+}
 .range::-moz-range-thumb { background: var(--paper); border: 0; height: 14px; width: 8px; }
 .range-labels { color: var(--faint); display: flex; font: 400 8px 'DM Mono', monospace; justify-content: space-between; margin-top: 5px; }
 .resolution-presets { display: grid; gap: 5px; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 14px; }

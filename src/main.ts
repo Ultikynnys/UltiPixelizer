@@ -1193,6 +1193,11 @@ function setOrientSunBusy(busy: boolean): void {
 // still running.
 let lightmapBakeSeq = 0;
 function runLightmapBake(): void {
+  // An explicit bake (Orient Sun with Camera) runs with the current state, so
+  // drop any pending debounced implicit bake first: otherwise a slider release
+  // right before this would fire ~200ms later, abort this bake, and re-run the
+  // whole pipeline redundantly, doubling the main-thread freeze.
+  cancelImplicitLightmapBake();
   const seq = ++lightmapBakeSeq;
   setOrientSunBusy(true);
   void bakeLighting().finally(() => {
@@ -1213,6 +1218,14 @@ function scheduleImplicitLightmapBake(): void {
   if (implicitBakeTimer) window.clearTimeout(implicitBakeTimer);
   implicitBakeTimer = window.setTimeout(() => {
     implicitBakeTimer = 0;
+    // Orient Sun with Camera may still be re-baking on the main thread. Don't
+    // start a redundant bake on top of it; re-queue so the change still lands
+    // after the orient bake settles instead of being dropped (which would leave
+    // the preview stale). 200ms polling is safe while busy clears quickly.
+    if (orientSunBusy) {
+      scheduleImplicitLightmapBake();
+      return;
+    }
     runLightmapBake();
   }, 200);
 }

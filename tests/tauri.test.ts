@@ -77,7 +77,7 @@ describe('disableWebviewContextMenu', () => {
     }
   });
 
-  it('suppresses the context menu outside editable fields', () => {
+  it('suppresses the context menu on every element, including editable fields', () => {
     const handlers = withWindowListener(() => {
       disableWebviewContextMenu();
     });
@@ -85,27 +85,25 @@ describe('disableWebviewContextMenu', () => {
     expect(handler).toBeDefined();
     const prevented: unknown[] = [];
     const fire = (target: unknown) => handler({ target, preventDefault: () => prevented.push(target) });
-    // Non-editable elements cancel the event so the native menu never shows.
+    // Suppression is unconditional: both UI controls and text/editable fields
+    // cancel the event, so no native menu (Back/Refresh/Save As/Print OR the
+    // Cut/Copy/Paste edit menu) ever appears in the tool.
     fire({ closest: () => null });
-    // Editable fields keep the edit menu (Cut/Copy/Paste).
     fire({ closest: () => ({ tagName: 'INPUT' }) });
-    expect(prevented).toHaveLength(1);
+    expect(prevented).toHaveLength(2);
   });
 
-  it('treats slider handles and toggle switches as UI controls, not editable fields', () => {
+  it('suppresses the context menu on slider handles and toggle switches', () => {
     const handlers = withWindowListener(() => {
       disableWebviewContextMenu();
     });
     const handler = handlers[0];
     const prevented: unknown[] = [];
     const fire = (target: unknown) => handler({ target, preventDefault: () => prevented.push(target) });
-    // The editable exemption excludes range (slider) and checkbox (toggle)
-    // inputs: closest() must not match them, so right-clicking cancels.
-    const uiControl = (type: string) => ({
-      closest: (selector: string) => (selector.includes(`[type="${type}"]`) ? null : { tagName: 'INPUT' }),
-    });
-    fire(uiControl('range'));
-    fire(uiControl('checkbox'));
+    // Slider (range) and toggle (checkbox) controls are plain UI, not text
+    // entry, so right-clicking them must never surface a native menu.
+    fire({ closest: () => null });
+    fire({ closest: () => null });
     expect(prevented).toHaveLength(2);
   });
 });
