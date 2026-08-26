@@ -259,6 +259,22 @@ describe('bakeMeshLightmap', () => {
     expect(centerRGB(pixels)).toEqual([191, 191, 191]);
   });
 
+  it('does not speckle dense meshes with black at low bake resolution', () => {
+    // A densely-tessellated plane baked small: each texel spans several small
+    // triangles, so the four subtexel sun samples fall outside the triangle the
+    // texel center landed in. Dropping those samples zeroed the texel's sun term
+    // and produced scattered black dots (all 64 texels black on a 32×32 plane
+    // baked at 8×8). The samples must fall back to the center instead.
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(1, 1, 32, 32), new MeshBasicMaterial()));
+    const pixels = bakeMeshLightmap(scene, 8, 8, defaults);
+    for (let i = 0; i < pixels.length; i += 4) {
+      expect(pixels[i]).toBeGreaterThan(200);
+      expect(pixels[i + 1]).toBeGreaterThan(200);
+      expect(pixels[i + 2]).toBeGreaterThan(200);
+    }
+  });
+
   it('pads unwritten texels at UV island edges with island light instead of the bright background', () => {
     const scene = new Scene();
     scene.add(new Mesh(uvIsland(), new MeshBasicMaterial()));

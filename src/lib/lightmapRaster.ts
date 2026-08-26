@@ -117,8 +117,12 @@ export function rasterizeLightmap(
       let sampleCount = 0;
       const center: [number, number, number] = [w0, w1, w2];
       for (const [dx, dy] of SUN_SAMPLES) {
-        const weights = offsetBarycentrics(center, dx, dy, width, height, input, uvOffset);
-        if (!weights) continue;
+        // When the subtexel sample leaves the triangle the texel center landed
+        // in (common at low bake resolutions where one texel spans several
+        // small triangles), fall back to the center's own weights. Dropping the
+        // sample instead would zero out the texel's sun term whenever all four
+        // samples exit  the source of the black-dot speckle on dense meshes.
+        const weights = offsetBarycentrics(center, dx, dy, width, height, input, uvOffset) ?? center;
         const [s0, s1, s2] = weights;
         const normal = texelShadingNormal(vertices, v0, v1, v2, s0, s1, s2, input, uvOffset);
         _mapped.set(normal.sx, normal.sy, normal.sz);
@@ -130,7 +134,13 @@ export function rasterizeLightmap(
             s0 * vertices[v0 + 1] + s1 * vertices[v1 + 1] + s2 * vertices[v2 + 1],
             s0 * vertices[v0 + 2] + s1 * vertices[v1 + 2] + s2 * vertices[v2 + 2],
           );
-          if (castBakeRay(bvh, _position, _mapped, towardSun, input.epsilon, input.epsilon)) visibility = 0;
+          // Offset the origin off the surface by epsilon and cast toward the sun.
+          // `near = epsilon` rejects the immediate surface; `far = Infinity`
+          // matches the documented contract (GPU path uses SUN_FAR ≈ 1e30) and
+          // the AO bake's `maxDistance`. The previous `far = epsilon` windowed
+          // the ray to a razor-thin slice, so distant occluders never cast
+          // shadows.
+          if (castBakeRay(bvh, _position, _mapped, towardSun, input.epsilon, input.epsilon, Number.POSITIVE_INFINITY)) visibility = 0;
         }
         sun += lambert * visibility;
         sampleCount += 1;
