@@ -121,7 +121,7 @@ const sunOverlayMarkup = (): string => `
         <div class="light-heading">
           <span class="light-label">Sun</span>
           <span class="light-heading-end">
-            <output id="sunIntensityValue">${DEFAULT_SUN_INTENSITY.toFixed(2)}</output>
+            <output id="sunIntensityValue" title="Click to type a value">${DEFAULT_SUN_INTENSITY.toFixed(2)}</output><input class="range-value-edit" id="sunIntensityEdit" type="number" min="0" max="2" step="0.01" value="${DEFAULT_SUN_INTENSITY}" aria-label="Sun intensity value" hidden />
             <label class="light-swatch" title="Sun color">${colorControl('#ffffff', 'Sun color', 'id="sunColor"')}</label>
           </span>
         </div>
@@ -131,7 +131,7 @@ const sunOverlayMarkup = (): string => `
         <div class="light-heading">
           <span class="light-label">Ambient</span>
           <span class="light-heading-end">
-            <output id="ambientIntensityValue">${DEFAULT_AMBIENT_INTENSITY.toFixed(2)}</output>
+            <output id="ambientIntensityValue" title="Click to type a value">${DEFAULT_AMBIENT_INTENSITY.toFixed(2)}</output><input class="range-value-edit" id="ambientIntensityEdit" type="number" min="0" max="1" step="0.01" value="${DEFAULT_AMBIENT_INTENSITY}" aria-label="Ambient intensity value" hidden />
             <label class="light-swatch" title="Ambient light color">${colorControl('#ffffff', 'Ambient light color', 'id="ambientColor"')}</label>
           </span>
         </div>
@@ -140,14 +140,14 @@ const sunOverlayMarkup = (): string => `
       <div class="light-group">
         <div class="light-heading">
           <span class="light-label">Normals</span>
-          <output id="normalStrengthValue">${DEFAULT_NORMAL_STRENGTH.toFixed(2)}</output>
+          <output id="normalStrengthValue" title="Click to type a value">${DEFAULT_NORMAL_STRENGTH.toFixed(2)}</output><input class="range-value-edit" id="normalStrengthEdit" type="number" min="0" max="1" step="0.01" value="${DEFAULT_NORMAL_STRENGTH}" aria-label="Normal strength value" hidden />
         </div>
         <input class="range" id="normalStrength" type="range" min="0" max="1" step="0.01" value="${DEFAULT_NORMAL_STRENGTH}" ${rangeDefaultAttrs('normalStrength', 0, 1)} aria-label="Normal strength" />
       </div>
       <div class="light-group" id="uvStretchSensitivityGroup" hidden>
         <div class="light-heading">
           <span class="light-label">UV stretch sensitivity</span>
-          <output id="uvStretchSensitivityValue">${DEFAULT_UV_STRETCH_SENSITIVITY.toFixed(2)}</output>
+          <output id="uvStretchSensitivityValue" title="Click to type a value">${DEFAULT_UV_STRETCH_SENSITIVITY.toFixed(2)}</output><input class="range-value-edit" id="uvStretchSensitivityEdit" type="number" min="0" max="4" step="0.05" value="${DEFAULT_UV_STRETCH_SENSITIVITY}" aria-label="UV stretch sensitivity value" hidden />
         </div>
         <input class="range" id="uvStretchSensitivity" type="range" min="0" max="4" step="0.05" value="${DEFAULT_UV_STRETCH_SENSITIVITY}" ${rangeDefaultAttrs('uvStretchSensitivity', 0, 4)} aria-label="UV stretch sensitivity" />
       </div>
@@ -1173,6 +1173,10 @@ function syncLightControls(
   const value = Number.isFinite(light.intensity) ? light.intensity : 0;
   intensity.value = String(value);
   intensityValue.textContent = value.toFixed(2);
+  // Mirror the raw value into the click-to-edit number field so opening it
+  // after any programmatic change shows the live value, not a stale one.
+  const edit = document.querySelector<HTMLInputElement>(`#${intensityValue.id.replace(/Value$/, '')}Edit`);
+  if (edit) edit.value = String(value);
 }
 
 // Lightmap bakes  Orient Sun with Camera's explicit re-bake and the implicit
@@ -3343,7 +3347,18 @@ function bindSunControl(): void {
       scheduleImplicitLightmapBake();
     });
   };
-  const bindLightIntensity = (input: HTMLInputElement, target: LightState): void => {
+  const bindLightIntensity = (input: HTMLInputElement, output: HTMLOutputElement, target: LightState): void => {
+    // Shared commit for both the slider drag and the click-to-edit value field.
+    const applyIntensity = (value: number): void => {
+      target.intensity = value;
+      applySun();
+    };
+    // The bake is release-triggered, not per-drag-move (see bindLightColor).
+    // Re-engage on release so the sliders always re-light after an X.
+    const commitBake = (): void => {
+      renderer.reengageLighting();
+      scheduleImplicitLightmapBake();
+    };
     input.addEventListener('input', () => {
       // Clamp to the slider's min/max and drop NaN before it reaches state:
       // an out-of-range or invalid value written into a range input can lock
@@ -3352,22 +3367,21 @@ function bindSunControl(): void {
       const max = input.max !== '' ? Number(input.max) : Infinity;
       const value = clamp(Number(input.value), min, max);
       if (!Number.isFinite(value)) return;
-      target.intensity = value;
-      applySun();
+      applyIntensity(value);
     });
+    input.addEventListener('change', commitBake);
     bindRangeReset(input);
-    // See bindLightColor  the bake is release-triggered, not per-drag-move.
-    // Re-engage on release so the sliders always re-light after an X.
-    input.addEventListener('change', () => {
-      renderer.reengageLighting();
-      scheduleImplicitLightmapBake();
-    });
+    // Direct numeric entry, same click-to-edit as every other slider.
+    bindRangeValueEdit(input, output, (value) => {
+      applyIntensity(value);
+      commitBake();
+    }, formatFixed2);
   };
 
   bindLightColor(sunControlElements.color, state.sun);
-  bindLightIntensity(sunControlElements.intensity, state.sun);
+  bindLightIntensity(sunControlElements.intensity, sunControlElements.intensityValue, state.sun);
   bindLightColor(sunControlElements.ambientColor, state.ambient);
-  bindLightIntensity(sunControlElements.ambientIntensity, state.ambient);
+  bindLightIntensity(sunControlElements.ambientIntensity, sunControlElements.ambientIntensityValue, state.ambient);
   // Normal-map strength updates the Normals-view showcase immediately. It is
   // consumed by lighting only on the next Orient Sun with Camera bake.
   bindRange({
