@@ -11,6 +11,10 @@ function imageData(pixels: number[][], width: number): ImageData {
   return new FakeImageData(new Uint8ClampedArray(pixels.flat()), width, pixels.length / width) as ImageData;
 }
 
+function grayLighting(pixelCount: number, value: number): Float32Array {
+  return new Float32Array(pixelCount * 3).fill(value);
+}
+
 const options = (mode: DitherMode) => ({
   palette: ['#000000', '#ffffff'],
   mode,
@@ -165,7 +169,7 @@ describe('dithering engine', () => {
     const worldNormals = new Float32Array(48);
     for (let i = 0; i < 16; i += 1) worldNormals[i * 3 + 1] = 1;
     const worldPositionCoverage = new Uint8Array(16).fill(1);
-    const lighting = new Float32Array(16).fill(0.5);
+    const lighting = grayLighting(16, 0.5);
     const uv = processImageData(source, { ...options('halftone'), lighting });
     const world = processImageData(source, { ...options('halftone'), patternSpace: 'world', worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 64, lighting });
     // The world-anchored lattice places the lighting dots differently than
@@ -173,6 +177,65 @@ describe('dithering engine', () => {
     expect([...world.data]).not.toEqual([...uv.data]);
     const again = processImageData(source, { ...options('halftone'), patternSpace: 'world', worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 64, lighting });
     expect([...again.data]).toEqual([...world.data]);
+  });
+
+  it('samples base color and lighting once at each world-space dot center', () => {
+    const source = imageData([
+      [0, 0, 255, 255],
+      [255, 0, 0, 255],
+      [0, 0, 255, 255],
+      [0, 0, 255, 255],
+    ], 4);
+    const worldPositions = new Float32Array([
+      0.1, 0.5, 0,
+      0.4, 0.5, 0,
+      0.6, 0.5, 0,
+      0.9, 0.5, 0,
+    ]);
+    const worldNormals = new Float32Array([
+      0, 0, 1,
+      0, 0, 1,
+      0, 0, 1,
+      0, 0, 1,
+    ]);
+    const output = processImageData(source, {
+      ...options('halftone'),
+      palette: ['#0000ff', '#ff0000'],
+      patternSpace: 'world',
+      worldPositions,
+      worldNormals,
+      worldPositionCoverage: new Uint8Array(4).fill(1),
+      worldspaceScale: 1,
+      lighting: new Float32Array([
+        0, 0, 0,
+        1, 1, 1,
+        0, 0, 0,
+        0, 0, 0,
+      ]),
+    });
+    // The nearest covered texel to the world cell center is red and fully lit.
+    // Its values drive the whole dot instead of changing at each UV texel.
+    expect([...output.data]).toEqual([
+      255, 0, 0, 255,
+      255, 0, 0, 255,
+      255, 0, 0, 255,
+      255, 0, 0, 255,
+    ]);
+  });
+
+  it('does not treat uncovered UV texels as world-origin samples', () => {
+    const source = imageData([[255, 0, 0, 255], [0, 0, 255, 255]], 2);
+    const output = processImageData(source, {
+      ...options('halftone'),
+      palette: ['#0000ff', '#ff0000'],
+      patternSpace: 'world',
+      worldPositions: new Float32Array([0.5, 0.5, 0, 0, 0, 0]),
+      worldNormals: new Float32Array([0, 0, 1, 0, 0, 0]),
+      worldPositionCoverage: new Uint8Array([1, 0]),
+      worldspaceScale: 1,
+      lighting: new Float32Array([1, 1, 1, 0, 0, 0]),
+    });
+    expect([...output.data.slice(4, 8)]).toEqual([0, 0, 255, 255]);
   });
 
   it.each(['ordered', 'noise'] as const)('scales %s by the UV scale', (mode) => {
@@ -191,7 +254,7 @@ describe('dithering engine', () => {
 
   it('scales halftone dots by the UV scale', () => {
     const source = imageData(Array(16).fill([128, 128, 128, 255]), 4);
-    const lighting = new Float32Array(16).fill(0.5);
+    const lighting = grayLighting(16, 0.5);
     const base = processImageData(source, { ...options('halftone'), lighting });
     const scaled = processImageData(source, { ...options('halftone'), lighting, uvScale: 2 });
     expect([...scaled.data]).not.toEqual([...base.data]);
@@ -661,20 +724,69 @@ describe('halftone dot rendering', () => {
     expect(values).toEqual(new Set(['18,52,86']));
   });
 
-  it('maps lighting to ink: fully dark prints black over the base dots, fully lit leaves the base dots', () => {
+  it('maps fully dark lighting to the darkest palette color and fully lit lighting to the base dots', () => {
     const source = imageData([[128, 128, 128, 255], [128, 128, 128, 255], [128, 128, 128, 255], [128, 128, 128, 255]], 2);
-    const lit = processImageData(source, { ...halftone, lighting: new Float32Array([1, 1, 1, 1]) });
+    const lit = processImageData(source, { ...halftone, lighting: grayLighting(4, 1) });
     expect([...lit.data]).toEqual([255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255]);
-    const dark = processImageData(source, { ...halftone, lighting: new Float32Array([0, 0, 0, 0]) });
-    expect([...dark.data]).toEqual([0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255]);
+    const dark = processImageData(source, {
+      ...halftone,
+      palette: ['#f0e8d0', '#123456', '#8090a0'],
+      lighting: grayLighting(4, 0),
+    });
+    expect([...dark.data]).toEqual([
+      18, 52, 86, 255,
+      18, 52, 86, 255,
+      18, 52, 86, 255,
+      18, 52, 86, 255,
+    ]);
+  });
+
+  it.each([
+    ['brightness', { brightness: 40 }, [90, 130, 170, 255], ['#123456', '#708090', '#f0e8d0']],
+    ['contrast', { contrast: 100 }, [170, 170, 170, 255], ['#123456', '#708090', '#f0e8d0']],
+    ['saturation', { saturation: -100 }, [180, 40, 40, 255], ['#301010', '#ff2020', '#606060']],
+  ] as const)('applies %s to base color before generating its dots', (_name, adjustment, color, palette) => {
+    const source = imageData(Array(256).fill(color), 16);
+    const settings = { ...halftone, palette: [...palette], uvScale: 0.25 };
+    const neutral = processImageData(source, settings);
+    const adjusted = processImageData(source, { ...settings, ...adjustment });
+    expect([...adjusted.data]).not.toEqual([...neutral.data]);
+  });
+
+  it.each([
+    ['brightness', { brightness: 40 }],
+    ['contrast', { contrast: 100 }],
+  ] as const)('applies %s to lighting before generating its dots', (_name, adjustment) => {
+    const source = imageData(Array(64).fill([240, 240, 240, 255]), 8);
+    const settings = { ...halftone, palette: ['#123456', '#f0e8d0'], uvScale: 0.25 };
+    const neutral: number[] = [];
+    const adjusted: number[] = [];
+    for (const level of [0.2, 0.4, 0.6, 0.8]) {
+      const lighting = grayLighting(64, level);
+      neutral.push(...processImageData(source, { ...settings, lighting }).data);
+      adjusted.push(...processImageData(source, { ...settings, lighting, ...adjustment }).data);
+    }
+    expect(adjusted).not.toEqual(neutral);
+  });
+
+  it('applies saturation to colored lighting before generating its dots', () => {
+    const source = imageData(Array(64).fill([240, 240, 240, 255]), 8);
+    const lighting = new Float32Array(64 * 3);
+    for (let pixel = 0; pixel < 64; pixel += 1) lighting[pixel * 3 + 2] = 1;
+    const settings = { ...halftone, palette: ['#123456', '#f0e8d0'], lighting };
+    const neutral = processImageData(source, settings);
+    const desaturated = processImageData(source, { ...settings, saturation: -100 });
+    expect([...desaturated.data]).not.toEqual([...neutral.data]);
   });
 
   it('samples the lighting once per dot cell, not per pixel', () => {
     // A single 4×4 cell with one dark pixel off-center: the dot reads the
     // lighting at the cell center (fully lit) and stays absent everywhere.
     const source = imageData(Array(16).fill([128, 128, 128, 255]), 4);
-    const lighting = new Float32Array(16).fill(1);
-    lighting[5] = 0;
+    const lighting = grayLighting(16, 1);
+    lighting[15] = 0;
+    lighting[16] = 0;
+    lighting[17] = 0;
     const output = processImageData(source, { ...halftone, lighting });
     const values = new Set<number>();
     for (let i = 0; i < output.data.length; i += 4) values.add(output.data[i]);
@@ -683,7 +795,7 @@ describe('halftone dot rendering', () => {
 
   it('ignores dither strength: halftone is shading, not diffusion', () => {
     const source = imageData(Array(16).fill([64, 64, 64, 255]), 4);
-    const lighting = new Float32Array(16).fill(0.5);
+    const lighting = grayLighting(16, 0.5);
     const weak = processImageData(source, { ...halftone, lighting, strength: 0 });
     const strong = processImageData(source, { ...halftone, lighting, strength: 1 });
     expect([...weak.data]).toEqual([...strong.data]);
@@ -691,7 +803,7 @@ describe('halftone dot rendering', () => {
 
   it('uses UV scale as the only image-space dot size control', () => {
     const source = imageData(Array(16).fill([128, 128, 128, 255]), 4);
-    const lighting = new Float32Array(16).fill(0.5);
+    const lighting = grayLighting(16, 0.5);
     const base = processImageData(source, { ...halftone, lighting, uvScale: 1 });
     const scaled = processImageData(source, { ...halftone, lighting, uvScale: 2 });
     expect(inkCount(scaled)).not.toBe(inkCount(base));

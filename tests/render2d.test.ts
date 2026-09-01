@@ -175,6 +175,26 @@ describe('createRender2D render pipeline', () => {
     expect(calls[0][1].patternSpace).toBe('world');
   });
 
+  it('passes colored lightmap and AO data to halftone as normalized RGB', () => {
+    const deps = createRendererDeps({
+      textures: {
+        base: { image: solidTexture([200, 200, 200, 255]), name: '' },
+        ao: { image: solidTexture([128, 128, 128, 255]), name: '' },
+        normal: { image: null, name: '' },
+        lightmap: { image: solidTexture([255, 128, 64, 255]), name: '' },
+      },
+    });
+    deps.state.mode = 'halftone';
+    createRender2D(deps, sharedState()).render();
+
+    const lighting = vi.mocked(processImageData).mock.calls[0][1].lighting;
+    expect(lighting).toBeInstanceOf(Float32Array);
+    expect(lighting).toHaveLength(12);
+    expect(lighting![0]).toBeCloseTo(128 / 255);
+    expect(lighting![1]).toBeCloseTo((128 / 255) * (128 / 255));
+    expect(lighting![2]).toBeCloseTo((64 / 255) * (128 / 255));
+  });
+
   it('applies pixelization to the source before the dither pass', () => {
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
     const shared = sharedState();

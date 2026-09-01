@@ -10,7 +10,6 @@ import { getBakeScene } from '../bakeSceneCache';
 import { computeTexelVarianceData, computeUVStretchData, recolorUVStretchData, type UVStretchData } from '../texelDensity';
 import { createBoundedLru } from '../lru';
 import { drawLuminosityHistogram } from '../luminosityHistogram';
-import { LUMA } from '../math';
 import type { PreviewViewMode, SourceImage } from '../state';
 import type { RendererDeps, RenderShared } from './types';
 
@@ -200,26 +199,29 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     if (lightmapPixels) applyLightmap(data, lightmapPixels);
   }
 
-  /** Per-pixel shading factor for the halftone dot screen: AO visibility
-   * (bias/power remapped exactly as the lighting pass applies it) times the
-   * lightmap's luminance. 1 = fully lit, 0 = fully dark. Returns null when
-   * there is no AO bake and no lightmap at all (halftone then falls back to
-   * luminance-driven dots). The lightmap source is the committed image, with
-   * legacy in-memory preview state accepted until reset. */
+  /** Per-pixel RGB lighting for the halftone dot screen. AO visibility is
+   * folded into every lightmap channel so brightness, contrast, and saturation
+   * can adjust the complete lighting input before dot radii are derived.
+   * Returns null only when neither AO nor a lightmap is active. */
   function halftoneLighting(width: number, height: number): Float32Array | null {
     const aoFactors = currentAOFactors(width, height, true);
     const lightmap = textures.lightmap.image ?? shared.implicitLightmapCanvas;
     if (!aoFactors && !lightmap) return null;
     const lightmapPixels = currentLightmapPixels(width, height, true);
-    const lighting = new Float32Array(width * height);
+    const lighting = new Float32Array(width * height * 3);
     for (let i = 0; i < width * height; i += 1) {
-      let factor = 1;
-      if (aoFactors) factor *= aoMultiplier(aoFactors[i], state.aoBias, state.aoPower);
+      const ao = aoFactors ? aoMultiplier(aoFactors[i], state.aoBias, state.aoPower) : 1;
+      const lightOffset = i * 3;
       if (lightmapPixels) {
-        const offset = i * 4;
-        factor *= (lightmapPixels[offset] * LUMA.red + lightmapPixels[offset + 1] * LUMA.green + lightmapPixels[offset + 2] * LUMA.blue) / 255;
+        const sourceOffset = i * 4;
+        lighting[lightOffset] = lightmapPixels[sourceOffset] / 255 * ao;
+        lighting[lightOffset + 1] = lightmapPixels[sourceOffset + 1] / 255 * ao;
+        lighting[lightOffset + 2] = lightmapPixels[sourceOffset + 2] / 255 * ao;
+      } else {
+        lighting[lightOffset] = ao;
+        lighting[lightOffset + 1] = ao;
+        lighting[lightOffset + 2] = ao;
       }
-      lighting[i] = factor;
     }
     return lighting;
   }
@@ -413,11 +415,10 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       }
       let processedData: ImageData;
       if (state.mode === 'halftone') {
-        // Halftone stacks two dot screens with no paper: the base color as
-        // two offset layers of dots (fully covering the frame) with the
-        // AO×lightmap halftone multiplied on top as black ink. Inspected
-        // maps still skip lighting, exactly like the other modes. The
-        // lighting array is part of the cache input.
+        // Halftone stacks two dot screens with no paper: tone-adjusted base
+        // color dots with tone-adjusted AO×lightmap dots in the darkest palette
+        // color. Inspected maps still skip lighting, exactly like other modes.
+        // The RGB lighting array is part of the cache input.
         const lighting = processedOnlySource ? null : halftoneLighting(width, height);
         const lightingBytes = lighting ? new Uint8ClampedArray(lighting.buffer, lighting.byteOffset, lighting.byteLength) : null;
         const input = new Uint8ClampedArray(sourceData.data.length + (lightingBytes ? lightingBytes.length : 0));

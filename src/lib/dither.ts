@@ -31,9 +31,9 @@ export type ProcessOptions = {
   worldPositionCoverage?: Uint8Array | null;
   /** Ordered-pattern cells per world unit. */
   worldspaceScale?: number;
-  /** Per-pixel shading factor for halftone dots (0 = fully dark, 1 = fully
-   * lit), sized width × height. Read at each dot's cell center; when absent,
-   * the pixel's own luminance drives the dots (classic halftone). */
+  /** Per-pixel lighting color for halftone dots, stored as normalized RGB
+   * triples. AO is folded into these channels before tone adjustment. Read at
+   * each dot's center; when absent, no lighting-dot layer is printed. */
   lighting?: Float32Array | null;
 };
 
@@ -62,6 +62,74 @@ export function isWorldCapable(mode: DitherMode): boolean {
 // Base halftone dot-cell size in pixels; the UV scale (or world scale in
 // world space) is what sizes the dots.
 const HALFTONE_CELL = 4;
+
+type WorldHalftoneSamples = {
+  planes: Uint8Array;
+  projectedU: Float64Array;
+  projectedV: Float64Array;
+  nearest: (plane: number, u: number, v: number) => number;
+};
+
+function worldHalftoneProjection(x: number, y: number, z: number, nx: number, ny: number, nz: number, scale: number): readonly [number, number, number] {
+  if (Math.abs(nx) >= Math.abs(ny) && Math.abs(nx) >= Math.abs(nz)) return [0, y * scale, z * scale];
+  if (Math.abs(ny) >= Math.abs(nz)) return [1, x * scale, z * scale];
+  return [2, x * scale, y * scale];
+}
+
+/** Connects world-space dot centers back to covered UV texels. Bucketing by
+ * projected lattice cell keeps each center lookup local while preserving a
+ * deterministic lowest-index tie break. */
+function createWorldHalftoneSamples(positions: Float32Array, normals: Float32Array, coverage: Uint8Array, scale: number): WorldHalftoneSamples {
+  const pixelCount = coverage.length;
+  const planes = new Uint8Array(pixelCount);
+  const projectedU = new Float64Array(pixelCount);
+  const projectedV = new Float64Array(pixelCount);
+  const buckets = new Map<string, number[]>();
+  const bucketKey = (plane: number, col: number, row: number): string => `${plane}:${col}:${row}`;
+
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    if (coverage[pixel] === 0) continue;
+    const offset = pixel * 3;
+    const [plane, u, v] = worldHalftoneProjection(
+      positions[offset], positions[offset + 1], positions[offset + 2],
+      normals[offset], normals[offset + 1], normals[offset + 2],
+      scale,
+    );
+    planes[pixel] = plane;
+    projectedU[pixel] = u;
+    projectedV[pixel] = v;
+    const key = bucketKey(plane, Math.floor(u), Math.floor(v));
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(pixel);
+    else buckets.set(key, [pixel]);
+  }
+
+  const nearest = (plane: number, u: number, v: number): number => {
+    const centerCol = Math.floor(u);
+    const centerRow = Math.floor(v);
+    let bestPixel = -1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset += 1) {
+      for (let colOffset = -1; colOffset <= 1; colOffset += 1) {
+        const bucket = buckets.get(bucketKey(plane, centerCol + colOffset, centerRow + rowOffset));
+        if (!bucket) continue;
+        for (const pixel of bucket) {
+          const du = projectedU[pixel] - u;
+          const dv = projectedV[pixel] - v;
+          const distance = du * du + dv * dv;
+          if (distance < bestDistance || (distance === bestDistance && pixel < bestPixel)) {
+            bestDistance = distance;
+            bestPixel = pixel;
+          }
+        }
+      }
+    }
+    if (bestPixel < 0) throw new Error('World-space halftone center has no covered source texel.');
+    return bestPixel;
+  };
+
+  return { planes, projectedU, projectedV, nearest };
+}
 
 function positiveModulo(value: number, divisor: number): number {
   return ((value % divisor) + divisor) % divisor;
@@ -366,6 +434,16 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
   const data = output.data;
   const work = new Float32Array(source.width * source.height * 3);
   const matcher = buildPaletteMatcher(options.palette);
+  let darkestPaletteIndex = 0;
+  let darkestPaletteLuminance = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < matcher.count; index += 1) {
+    const offset = index * 3;
+    const luminance = matcher.flat[offset] * LUMA.red + matcher.flat[offset + 1] * LUMA.green + matcher.flat[offset + 2] * LUMA.blue;
+    if (luminance < darkestPaletteLuminance) {
+      darkestPaletteLuminance = luminance;
+      darkestPaletteIndex = index;
+    }
+  }
   const { width, height } = source;
   const strength = options.strength;
   const uvScale = options.uvScale ?? 1;
@@ -377,6 +455,27 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
   const isFloyd = options.mode === 'floyd';
   const isAtkinson = options.mode === 'atkinson';
   const tone = toneAdjustParams(options.brightness, options.contrast, options.saturation);
+  const pixelCount = width * height;
+  if (options.lighting && options.lighting.length !== pixelCount * 3) {
+    throw new Error(`halftone lighting requires ${pixelCount * 3} normalized RGB values.`);
+  }
+  const adjustedLighting = options.lighting ? new Float32Array(options.lighting.length) : null;
+  if (adjustedLighting) {
+    const adjusted: RGB = [0, 0, 0];
+    for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+      const offset = pixel * 3;
+      toneAdjustPixel(
+        tone,
+        options.lighting![offset] * 255,
+        options.lighting![offset + 1] * 255,
+        options.lighting![offset + 2] * 255,
+        adjusted,
+      );
+      adjustedLighting[offset] = adjusted[0] / 255;
+      adjustedLighting[offset + 1] = adjusted[1] / 255;
+      adjustedLighting[offset + 2] = adjusted[2] / 255;
+    }
+  }
   const useWorldPattern = options.patternSpace === 'world' && isThreshold;
   const useWorldHalftone = options.patternSpace === 'world' && isHalftone;
   const useWorld = useWorldPattern || useWorldHalftone;
@@ -384,7 +483,6 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
   // an invalid scale fails fast before any pixel work.
   const worldScale = useWorld ? worldspaceScaleValue(options.worldspaceScale) : 0;
   if (useWorld) {
-    const pixelCount = width * height;
     if (!options.worldPositions || options.worldPositions.length !== pixelCount * 3) {
       throw new Error(`worldspace pattern requires ${pixelCount * 3} world-position values.`);
     }
@@ -395,6 +493,9 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
       throw new Error(`worldspace pattern requires ${pixelCount * 3} world-normal values.`);
     }
   }
+  const worldHalftoneSamples = useWorldHalftone
+    ? createWorldHalftoneSamples(options.worldPositions!, options.worldNormals!, options.worldPositionCoverage!, worldScale)
+    : null;
 
   // Halftone stacks two dot screens with no paper: the base color as two
   // offset layers of dots (fully covering the frame) with the AO×lightmap
@@ -457,7 +558,7 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
       }
 
       let matchedIndex: number;
-      if (isHalftone) {
+      if (isHalftone && (!useWorldHalftone || options.worldPositionCoverage![pixel] !== 0)) {
         // Two stacked dot screens, no paper:
         // 1. Base-color dots: two layers at a half-cell offset (cell centers
         //    and cell corners) so the second layer fills the first's gaps and
@@ -465,38 +566,23 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
         //    color sampled at its center; the radius is driven by the base
         //    color's own luminance, floored at cell/2 so the layers always
         //    overlap.
-        // 2. Lighting dots: the AO×lightmap halftone (black ink, radius from
-        //    the shading factor at the dot center) multiplied on top, so
-        //    shadowed areas print black over the base dots.
+        // 2. Lighting dots: the tone-adjusted AO×lightmap halftone (darkest
+        //    palette ink, radius from luminance at the dot center) multiplied
+        //    on top of the base dots.
         // Dither strength deliberately does NOT touch the dots: halftone is
         // shading, not error diffusion.
         const cell = HALFTONE_CELL;
         // Pattern coordinates: image space uses pixel centers with the
         // halftone cell; world space projects the world position onto the
         // dominant normal plane, scaled by cells per world unit (cell = 1).
-        // World-space samples read the pixel's own texel, since the dot
-        // centers live in world space and have no direct texel.
+        let plane = 0;
         let u: number;
         let v: number;
         let patternCell: number;
-        if (useWorldHalftone) {
-          const position = pixel * 3;
-          const wx = options.worldPositions![position];
-          const wy = options.worldPositions![position + 1];
-          const wz = options.worldPositions![position + 2];
-          const nx = options.worldNormals![position];
-          const ny = options.worldNormals![position + 1];
-          const nz = options.worldNormals![position + 2];
-          if (Math.abs(nx) >= Math.abs(ny) && Math.abs(nx) >= Math.abs(nz)) {
-            u = wy * worldScale;
-            v = wz * worldScale;
-          } else if (Math.abs(ny) >= Math.abs(nz)) {
-            u = wx * worldScale;
-            v = wz * worldScale;
-          } else {
-            u = wx * worldScale;
-            v = wy * worldScale;
-          }
+        if (worldHalftoneSamples) {
+          plane = worldHalftoneSamples.planes[pixel];
+          u = worldHalftoneSamples.projectedU[pixel];
+          v = worldHalftoneSamples.projectedV[pixel];
           patternCell = 1;
         } else {
           u = x + 0.5;
@@ -505,7 +591,7 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
         }
         const maxRadius = Math.hypot(patternCell / 2, patternCell / 2);
         const sampleAt = (centerU: number, centerV: number): number => {
-          if (useWorldHalftone) return pixel;
+          if (worldHalftoneSamples) return worldHalftoneSamples.nearest(plane, centerU, centerV);
           const sampleX = clamp(Math.round(centerU), 0, width - 1);
           const sampleY = clamp(Math.round(centerV), 0, height - 1);
           return sampleY * width + sampleX;
@@ -529,27 +615,32 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
         const indexB = sampleAt(centerBU, centerBV);
         const inB = Math.hypot(u - centerBU, v - centerBV) <= baseRadius(luminanceAt(indexB));
 
-        // Lighting dot (staggered lattice): black ink, radius from the
-        // AO×lightmap factor at the dot center, multiplied on top of the base.
+        // Lighting dot (staggered lattice): darkest palette ink, radius from
+        // tone-adjusted AO×lightmap luminance at the dot center.
         const rowOdd = row % 2 === 1;
         const lightCenterU = rowOdd
           ? (u - col * patternCell < patternCell / 2 ? col : col + 1) * patternCell
           : (col + 0.5) * patternCell;
         const lightCenterV = (row + 0.5) * patternCell;
-        const lightFactor = options.lighting ? options.lighting[sampleAt(lightCenterU, lightCenterV)] : 1;
+        const lightIndex = sampleAt(lightCenterU, lightCenterV);
+        const lightOffset = lightIndex * 3;
+        // Equal-channel intensity is intentional here: unlike perceptual LUMA,
+        // it lets saturation changes in a colored lightmap alter dot coverage.
+        const lightFactor = adjustedLighting
+          ? (adjustedLighting[lightOffset] + adjustedLighting[lightOffset + 1] + adjustedLighting[lightOffset + 2]) / 3
+          : 1;
         const inLightDot = Math.hypot(u - lightCenterU, v - lightCenterV) <= maxRadius * (1 - lightFactor);
 
-        // −1 marks a lighting dot (black ink); otherwise the covering base
-        // dot's color (layer A wins on overlap; the pixel's own hard-mapped
-        // color is the defensive fallback for the radius floor's edge).
-        matchedIndex = inLightDot ? -1 : inA ? baseColorAt(indexA) : inB ? baseColorAt(indexB) : matchPalette(matcher, r, g, b);
+        // The lighting layer uses the darkest actual palette entry; otherwise
+        // the covering base dot supplies its center-sampled palette color.
+        matchedIndex = inLightDot ? darkestPaletteIndex : inA ? baseColorAt(indexA) : inB ? baseColorAt(indexB) : matchPalette(matcher, r, g, b);
       } else {
         matchedIndex = matchPalette(matcher, r, g, b);
       }
       const outputIndex = pixel * 4;
-      const mr = matchedIndex < 0 ? 0 : matcher.flat[matchedIndex * 3];
-      const mg = matchedIndex < 0 ? 0 : matcher.flat[matchedIndex * 3 + 1];
-      const mb = matchedIndex < 0 ? 0 : matcher.flat[matchedIndex * 3 + 2];
+      const mr = matcher.flat[matchedIndex * 3];
+      const mg = matcher.flat[matchedIndex * 3 + 1];
+      const mb = matcher.flat[matchedIndex * 3 + 2];
       data[outputIndex] = mr;
       data[outputIndex + 1] = mg;
       data[outputIndex + 2] = mb;
