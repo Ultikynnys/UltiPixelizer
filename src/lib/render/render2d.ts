@@ -126,7 +126,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
    * besides the input pixels. Slider values are discrete state, so String()
    * round-trips exactly. */
   function ditherKey(options: ProcessOptions, extra = ''): string {
-    return `${options.mode}|${options.palette.join(',')}|${options.strength}|${options.brightness}|${options.contrast}|${options.saturation}|${options.stripeAngle}|${options.noiseScale}|${options.seed}|${options.halftoneScale ?? 1}|${options.worldspaceScale ?? DEFAULT_WORLDSPACE_SCALE}|${options.uvScale ?? 1}|${options.patternSpace ?? 'uv'}|${extra}`;
+    return `${options.mode}|${options.palette.join(',')}|${options.strength}|${options.brightness}|${options.contrast}|${options.saturation}|${options.stripeAngle}|${options.seed}|${options.worldspaceScale ?? DEFAULT_WORLDSPACE_SCALE}|${options.uvScale ?? 1}|${options.patternSpace ?? 'uv'}|${extra}`;
   }
 
   function lookupDither(key: string, input: Uint8ClampedArray): ImageData | null {
@@ -400,8 +400,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       const processedOptions: ProcessOptions = {
         palette: currentColors(), mode: state.mode, strength: state.strength,
         brightness: state.brightness, contrast: state.contrast, saturation: state.saturation,
-        stripeAngle: state.stripeAngle, noiseScale: state.noiseScale, seed: state.seed,
-        halftoneScale: state.halftoneScale,
+        stripeAngle: state.stripeAngle, seed: state.seed,
         worldspaceScale: state.worldspaceScale,
         uvScale: state.uvScale,
         patternSpace: state.patternSpace,

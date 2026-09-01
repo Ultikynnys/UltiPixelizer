@@ -68,9 +68,7 @@ function makeOptions(c: Case): ProcessOptions {
     contrast: c.contrast,
     saturation: c.saturation,
     stripeAngle: 45,
-    noiseScale: 1,
     seed: 1,
-    halftoneScale: 1,
   };
 }
 

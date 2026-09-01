@@ -397,8 +397,7 @@ app.innerHTML = `
           <div class="stripe-angle-control" id="stripeAngleControl" hidden>
             ${rangeControl('stripeAngle', 'Stripe angle', 0, 135, 1, 45, '45°', 'Band direction')}
           </div>
-          <div class="noise-scale-control" id="noiseScaleControl" hidden>
-            ${rangeControl('noiseScale', 'Noise scale', 1, 32, 1, 1, '1 px', 'Grain size')}
+          <div class="noise-control" id="noiseControl" hidden>
             ${rangeControl('seed', 'Seed', 0, 9999, 1, 1, '1', 'Noise pattern')}
           </div>
           <div class="worldspace-scale-control" id="worldspaceScaleControl" hidden>
@@ -406,9 +405,6 @@ app.innerHTML = `
           </div>
           <div class="uv-scale-control" id="uvScaleControl" hidden>
             ${rangeControl('uvScale', 'UV scale', 0.25, 8, 0.25, 1, '1 cells/px', 'Pattern cells per pixel')}
-          </div>
-          <div class="halftone-scale-control" id="halftoneScaleControl" hidden>
-            ${rangeControl('halftoneScale', 'Dot scale', 0.5, 4, 0.1, 1, '1.00×', 'Halftone dot size')}
           </div>
         </section>
 
@@ -604,18 +600,13 @@ const sunDirectionValue = document.querySelector<HTMLOutputElement>('#sunDirecti
 const stripeAngleControl = document.querySelector<HTMLDivElement>('#stripeAngleControl')!;
 const stripeAngleInput = document.querySelector<HTMLInputElement>('#stripeAngle')!;
 const stripeAngleValue = document.querySelector<HTMLOutputElement>('#stripeAngleValue')!;
-const noiseScaleControl = document.querySelector<HTMLDivElement>('#noiseScaleControl')!;
-const noiseScaleInput = document.querySelector<HTMLInputElement>('#noiseScale')!;
-const noiseScaleValue = document.querySelector<HTMLOutputElement>('#noiseScaleValue')!;
+const noiseControl = document.querySelector<HTMLDivElement>('#noiseControl')!;
 const worldspaceScaleControl = document.querySelector<HTMLDivElement>('#worldspaceScaleControl')!;
 const worldspaceScaleInput = document.querySelector<HTMLInputElement>('#worldspaceScale')!;
 const worldspaceScaleValue = document.querySelector<HTMLOutputElement>('#worldspaceScaleValue')!;
 const uvScaleControl = document.querySelector<HTMLDivElement>('#uvScaleControl')!;
 const uvScaleInput = document.querySelector<HTMLInputElement>('#uvScale')!;
 const uvScaleValue = document.querySelector<HTMLOutputElement>('#uvScaleValue')!;
-const halftoneScaleControl = document.querySelector<HTMLDivElement>('#halftoneScaleControl')!;
-const halftoneScaleInput = document.querySelector<HTMLInputElement>('#halftoneScale')!;
-const halftoneScaleValue = document.querySelector<HTMLOutputElement>('#halftoneScaleValue')!;
 const seedInput = document.querySelector<HTMLInputElement>('#seed')!;
 const seedValue = document.querySelector<HTMLOutputElement>('#seedValue')!;
 const loadConfigInput = document.querySelector<HTMLInputElement>('#loadConfigInput')!;
@@ -1301,17 +1292,11 @@ document.querySelector<HTMLInputElement>('#showFloorGrid')!.addEventListener('ch
 
 function updatePatternControls(): void {
   stripeAngleControl.hidden = state.mode !== 'stripes';
-  noiseScaleControl.hidden = state.mode !== 'noise';
+  noiseControl.hidden = state.mode !== 'noise';
   const worldCapable = isWorldCapable(state.mode);
   patternSpaceToggle.hidden = !worldCapable;
   worldspaceScaleControl.hidden = !(worldCapable && state.patternSpace === 'world');
   uvScaleControl.hidden = !(worldCapable && state.patternSpace === 'uv');
-  halftoneScaleControl.hidden = state.mode !== 'halftone';
-  // The world scale already drives the noise cell size in world space, so the
-  // UV-space noise scale is locked at 1 px there.
-  const worldNoise = state.mode === 'noise' && state.patternSpace === 'world';
-  noiseScaleInput.disabled = worldNoise;
-  syncRangeValue(noiseScaleInput, noiseScaleValue, worldNoise ? 1 : state.noiseScale, formatPixels);
 }
 
 function updateAOControls(): void {
@@ -2063,10 +2048,8 @@ function bindRangeValueEdit(input: HTMLInputElement, output: HTMLElement, apply:
 function syncControlsFromState(): void {
   syncRangeValue(strengthInput, strengthValue, Math.round(state.strength * 100), formatPercent);
   syncRangeValue(stripeAngleInput, stripeAngleValue, state.stripeAngle, formatDegrees);
-  syncRangeValue(noiseScaleInput, noiseScaleValue, state.noiseScale, formatPixels);
   syncRangeValue(worldspaceScaleInput, worldspaceScaleValue, state.worldspaceScale, formatCellsPerUnit);
   syncRangeValue(uvScaleInput, uvScaleValue, state.uvScale, formatCellsPerPixel);
-  syncRangeValue(halftoneScaleInput, halftoneScaleValue, state.halftoneScale, formatTimes2);
   syncActiveButton(patternSpaceToggle, '[data-pattern-space]', (button) => button.dataset.patternSpace === state.patternSpace);
   syncRangeValue(seedInput, seedValue, state.seed, formatPlain);
   setActiveMode(state.mode);
@@ -2708,13 +2691,6 @@ bindRange({
   apply: (value) => { state.stripeAngle = value; },
 });
 bindRange({
-  input: noiseScaleInput,
-  output: noiseScaleValue,
-  format: formatPixels,
-  live: false,
-  apply: (value) => { state.noiseScale = value; },
-});
-bindRange({
   input: worldspaceScaleInput,
   output: worldspaceScaleValue,
   format: formatCellsPerUnit,
@@ -2727,13 +2703,6 @@ bindRange({
   format: formatCellsPerPixel,
   live: false,
   apply: (value) => { state.uvScale = value; },
-});
-bindRange({
-  input: halftoneScaleInput,
-  output: halftoneScaleValue,
-  format: formatTimes2,
-  live: false,
-  apply: (value) => { state.halftoneScale = value; },
 });
 bindRange({
   input: seedInput,

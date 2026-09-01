@@ -13,7 +13,6 @@ export type ProcessOptions = {
   contrast: number;
   saturation: number;
   stripeAngle: number;
-  noiseScale: number;
   seed: number;
   /** Pattern sampling space: 'uv' samples the pattern in image space (one
    * threshold cell per output pixel); 'world' projects it triplanar onto the
@@ -32,9 +31,6 @@ export type ProcessOptions = {
   worldPositionCoverage?: Uint8Array | null;
   /** Ordered-pattern cells per world unit. */
   worldspaceScale?: number;
-  /** Multiplier on the halftone dot-cell size (1 = 4 px cells). Larger values
-   * make coarser dots; the dots scale with their cells. */
-  halftoneScale?: number;
   /** Per-pixel shading factor for halftone dots (0 = fully dark, 1 = fully
    * lit), sized width × height. Read at each dot's cell center; when absent,
    * the pixel's own luminance drives the dots (classic halftone). */
@@ -63,8 +59,8 @@ export function isWorldCapable(mode: DitherMode): boolean {
   return isPatternMode(mode) || mode === 'halftone';
 }
 
-// Base halftone dot-cell size in pixels; `halftoneScale` multiplies it so the
-// pattern period and the dots scale together (dots just touch at full black).
+// Base halftone dot-cell size in pixels; the UV scale (or world scale in
+// world space) is what sizes the dots.
 const HALFTONE_CELL = 4;
 
 function positiveModulo(value: number, divisor: number): number {
@@ -86,7 +82,7 @@ function worldspaceScaleValue(scale: number | undefined): number {
  * blended by the squared surface-normal components, so the pattern follows
  * the surface instead of slicing through it at a fixed world orientation. A
  * degenerate (zero-length) normal yields the neutral 0.5 threshold. */
-export function worldspacePatternThreshold(mode: DitherMode, x: number, y: number, z: number, nx: number, ny: number, nz: number, scale = DEFAULT_WORLDSPACE_SCALE, stripeAngle = 45, noiseScale = 1, seed = 0): number {
+export function worldspacePatternThreshold(mode: DitherMode, x: number, y: number, z: number, nx: number, ny: number, nz: number, scale = DEFAULT_WORLDSPACE_SCALE, stripeAngle = 45, seed = 0): number {
   const resolved = worldspaceScaleValue(scale);
   const wx = nx * nx;
   const wy = ny * ny;
@@ -94,13 +90,13 @@ export function worldspacePatternThreshold(mode: DitherMode, x: number, y: numbe
   const sum = wx + wy + wz;
   if (sum === 0) return 0.5;
   return (
-    patternThreshold(mode, y * resolved, z * resolved, stripeAngle, noiseScale, seed) * wx
-    + patternThreshold(mode, x * resolved, z * resolved, stripeAngle, noiseScale, seed) * wy
-    + patternThreshold(mode, x * resolved, y * resolved, stripeAngle, noiseScale, seed) * wz
+    patternThreshold(mode, y * resolved, z * resolved, stripeAngle, seed) * wx
+    + patternThreshold(mode, x * resolved, z * resolved, stripeAngle, seed) * wy
+    + patternThreshold(mode, x * resolved, y * resolved, stripeAngle, seed) * wz
   ) / sum;
 }
 
-export function patternThreshold(mode: DitherMode, x: number, y: number, stripeAngle = 45, noiseScale = 1, seed = 0): number {
+export function patternThreshold(mode: DitherMode, x: number, y: number, stripeAngle = 45, seed = 0): number {
   switch (mode) {
     case 'ordered':
       return BAYER_4[positiveModulo(Math.floor(y), 4)][positiveModulo(Math.floor(x), 4)] / 15;
@@ -118,8 +114,10 @@ export function patternThreshold(mode: DitherMode, x: number, y: number, stripeA
       return projection - Math.floor(projection);
     }
     case 'noise': {
-      const cellX = Math.floor(x / noiseScale);
-      const cellY = Math.floor(y / noiseScale);
+      // Noise always spawns at 1 px cells; the UV scale (or world scale in
+      // world space) is what sizes the grain.
+      const cellX = Math.floor(x);
+      const cellY = Math.floor(y);
       let hash = Math.imul(cellX, 374761393) + Math.imul(cellY, 668265263) + Math.imul(seed | 0, 2246822519);
       hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
       hash ^= hash >>> 16;
@@ -382,9 +380,6 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
   // Resolved once up front: the per-pixel triplanar sampling reuses it, and
   // an invalid scale fails fast before any pixel work.
   const worldScale = useWorld ? worldspaceScaleValue(options.worldspaceScale) : 0;
-  // The world scale already drives the noise cell size in world space, so the
-  // UV-space noise scale is locked at 1 px there.
-  const worldNoiseScale = options.mode === 'noise' ? 1 : options.noiseScale;
   if (useWorld) {
     const pixelCount = width * height;
     if (!options.worldPositions || options.worldPositions.length !== pixelCount * 3) {
@@ -446,12 +441,11 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
               options.worldNormals![position + 2],
               worldScale,
               options.stripeAngle,
-              worldNoiseScale,
               options.seed,
             );
           }
         } else {
-          threshold = patternThreshold(options.mode, x * uvScale, y * uvScale, options.stripeAngle, options.noiseScale, options.seed);
+          threshold = patternThreshold(options.mode, x * uvScale, y * uvScale, options.stripeAngle, options.seed);
         }
         const offset = (threshold - 0.5) * 96 * strength;
         r = clamp(r + offset, 0, 255);
@@ -473,7 +467,7 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
         //    shadowed areas print black over the base dots.
         // Dither strength deliberately does NOT touch the dots: halftone is
         // shading, not error diffusion.
-        const cell = Math.max(1, Math.round(HALFTONE_CELL * (options.halftoneScale ?? 1)));
+        const cell = HALFTONE_CELL;
         // Pattern coordinates: image space uses pixel centers with the
         // halftone cell; world space projects the world position onto the
         // dominant normal plane, scaled by cells per world unit (cell = 1).

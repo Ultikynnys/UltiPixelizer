@@ -58,9 +58,7 @@ const options = (mode: 'floyd' | 'atkinson'): ProcessOptions => ({
   contrast: 0,
   saturation: 0,
   stripeAngle: 45,
-  noiseScale: 1,
   seed: 1,
-  halftoneScale: 1,
 });
 
 describe('seamless error-diffusion dither (256-color palette)', () => {

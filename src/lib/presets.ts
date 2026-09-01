@@ -31,9 +31,7 @@ export type ConversionConfig = {
   paletteKey: string;
   palette: Palette;
   stripeAngle: number;
-  noiseScale: number;
   worldspaceScale: number;
-  halftoneScale: number;
   seed: number;
   aoBias: number;
   aoPower: number;
@@ -156,9 +154,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'pixelation', path: ['pixelation'], default: 0, migrateDefault: 0, validate: inRange(0, 80) },
   { key: 'upscale', path: ['upscale'], default: 'nearest', migrateDefault: 'nearest', validate: isEnum(upscaleMethods) },
   { key: 'stripeAngle', path: ['stripeAngle'], default: 45, migrateDefault: 45, validate: inRange(0, 135) },
-  { key: 'noiseScale', path: ['noiseScale'], default: 1, migrateDefault: 1, validate: inRange(1, 32) },
   { key: 'worldspaceScale', path: ['worldspaceScale'], default: DEFAULT_WORLDSPACE_SCALE, migrateDefault: DEFAULT_WORLDSPACE_SCALE, validate: inRange(64, 2048) },
-  { key: 'halftoneScale', path: ['halftoneScale'], default: 1, migrateDefault: 1, validate: inRange(0.5, 4) },
   { key: 'seed', path: ['seed'], default: 1, migrateDefault: 1, validate: inRange(0, 9999) },
   { key: 'aoBias', path: ['aoBias'], default: 0, migrateDefault: 0, validate: inRange(-1, 1) },
   { key: 'aoPower', path: ['aoPower'], default: 1, migrateDefault: 1, validate: inRange(0, 16) },

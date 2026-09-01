@@ -38,11 +38,9 @@ const config: ConversionConfig = {
   paletteKey: 'pico8',
   palette: palettes.pico8,
   stripeAngle: 45,
-  noiseScale: 1,
   patternSpace: 'uv',
   uvScale: 1,
   worldspaceScale: 64,
-  halftoneScale: 1,
   seed: 1,
   aoBias: 0,
   aoPower: 1,
@@ -176,13 +174,6 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...current, worldspaceScale: 64 })).toBe(true);
     expect(isConversionPreset({ ...current, worldspaceScale: 2048 })).toBe(true);
     expect(isConversionPreset({ ...current, worldspaceScale: 63 })).toBe(false);
-  });
-
-  it('accepts halftone dot scales from 0.5 to 4', () => {
-    const base = createPreset('Boundary', '', config);
-    expect(isConversionPreset({ ...base, halftoneScale: 0.5 })).toBe(true);
-    expect(isConversionPreset({ ...base, halftoneScale: 4 })).toBe(true);
-    expect(isConversionPreset({ ...base, halftoneScale: 4.1 })).toBe(false);
   });
 
   it('validates lighting colors and intensity bounds', () => {
@@ -333,8 +324,6 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       paletteSearchQuery: 'pico',
       paletteSearchSort: 'fewest',
       stripeAngle: 45,
-      noiseScale: 1,
-      halftoneScale: 1,
       seed: 1,
       aoBias: 0,
       aoPower: 1,
@@ -351,7 +340,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(37);
+    expect(Object.keys(defaults)).toHaveLength(35);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -362,11 +351,9 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       pixelation: 0,
       upscale: 'nearest',
       stripeAngle: 45,
-      noiseScale: 1,
       patternSpace: 'uv',
       uvScale: 1,
       worldspaceScale: 64,
-      halftoneScale: 1,
       seed: 1,
       aoBias: 0,
       aoPower: 1,
@@ -410,8 +397,6 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       pixelation: 1,
       upscale: 'nearest',
       stripeAngle: 45,
-      noiseScale: 1,
-      halftoneScale: 1,
       seed: 1,
       aoBias: 0,
       aoPower: 1,

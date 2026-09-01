@@ -25,8 +25,6 @@ const options = (mode: 'floyd' | 'atkinson' | 'ordered') => ({
   contrast: 0,
   saturation: 0,
   stripeAngle: 45,
-  noiseScale: 1,
-  halftoneScale: 1,
   seed: 1,
 });
 

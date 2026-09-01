@@ -19,8 +19,6 @@ const options = (mode: DitherMode) => ({
   contrast: 0,
   saturation: 0,
   stripeAngle: 45,
-  noiseScale: 1,
-  halftoneScale: 1,
   seed: 1,
 });
 
@@ -141,7 +139,7 @@ describe('dithering engine', () => {
     expect([...first.data]).toEqual([...second.data]);
   });
 
-  it('locks the noise scale at 1 px in world-space noise', () => {
+  it('scales world-space noise only through world scale', () => {
     const source = imageData(Array.from({ length: 4 }, () => [128, 128, 128, 255]), 4);
     const worldPositions = new Float32Array([
       0.1, 0.2, 0.3,
@@ -151,11 +149,9 @@ describe('dithering engine', () => {
     ]);
     const worldNormals = new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
     const worldPositionCoverage = new Uint8Array([1, 1, 1, 1]);
-    // The world scale already drives the noise cell size, so any UV-space
-    // noise scale must be ignored in world mode.
-    const scaled = processImageData(source, { ...options('noise'), patternSpace: 'world', worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 64, noiseScale: 8 });
-    const locked = processImageData(source, { ...options('noise'), patternSpace: 'world', worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 64, noiseScale: 1 });
-    expect([...scaled.data]).toEqual([...locked.data]);
+    const base = processImageData(source, { ...options('noise'), patternSpace: 'world', worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 64 });
+    const scaled = processImageData(source, { ...options('noise'), patternSpace: 'world', worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 128 });
+    expect([...scaled.data]).not.toEqual([...base.data]);
   });
 
   it('anchors halftone dots to world positions in world space', () => {
@@ -179,10 +175,10 @@ describe('dithering engine', () => {
     expect([...again.data]).toEqual([...world.data]);
   });
 
-  it('scales coordinate patterns by the UV scale', () => {
+  it.each(['ordered', 'noise'] as const)('scales %s by the UV scale', (mode) => {
     const source = imageData(Array(16).fill([128, 128, 128, 255]), 4);
-    const base = processImageData(source, { ...options('ordered'), uvScale: 1 });
-    const scaled = processImageData(source, { ...options('ordered'), uvScale: 2 });
+    const base = processImageData(source, { ...options(mode), uvScale: 1 });
+    const scaled = processImageData(source, { ...options(mode), uvScale: 2 });
     expect([...scaled.data]).not.toEqual([...base.data]);
   });
 
@@ -250,19 +246,19 @@ describe('dithering engine', () => {
     expect(patternThreshold('stripes', 0, 1, 0)).toBe(0);
   });
 
-  it('scales the noise grain', () => {
-    expect(patternThreshold('noise', 0, 0, 45, 8)).toBe(patternThreshold('noise', 7, 7, 45, 8));
-    expect(patternThreshold('noise', 0, 0, 45, 1)).toBe(0);
+  it('spawns noise in 1 px cells', () => {
+    expect(patternThreshold('noise', 0, 0, 45, 8)).toBe(patternThreshold('noise', 0.99, 0.99, 45, 8));
+    expect(patternThreshold('noise', 0, 0, 45, 8)).not.toBe(patternThreshold('noise', 1, 0, 45, 8));
   });
 
   it('derives the noise pattern from the seed', () => {
-    expect(patternThreshold('noise', 2, 3, 45, 1, 5)).toBe(patternThreshold('noise', 2, 3, 45, 1, 5));
-    expect(patternThreshold('noise', 2, 3, 45, 1, 5)).not.toBe(patternThreshold('noise', 2, 3, 45, 1, 6));
+    expect(patternThreshold('noise', 2, 3, 45, 5)).toBe(patternThreshold('noise', 2, 3, 45, 5));
+    expect(patternThreshold('noise', 2, 3, 45, 5)).not.toBe(patternThreshold('noise', 2, 3, 45, 6));
   });
 
   it('keeps the noise pattern stable for a fixed seed', () => {
-    const first = Array.from({ length: 32 }, (_, index) => patternThreshold('noise', index % 8, Math.floor(index / 8), 45, 1, 42));
-    const second = Array.from({ length: 32 }, (_, index) => patternThreshold('noise', index % 8, Math.floor(index / 8), 45, 1, 42));
+    const first = Array.from({ length: 32 }, (_, index) => patternThreshold('noise', index % 8, Math.floor(index / 8), 45, 42));
+    const second = Array.from({ length: 32 }, (_, index) => patternThreshold('noise', index % 8, Math.floor(index / 8), 45, 42));
     expect(first).toEqual(second);
   });
 
@@ -678,15 +674,11 @@ describe('halftone dot rendering', () => {
     expect([...weak.data]).toEqual([...strong.data]);
   });
 
-  it('halftone scale multiplies the dot-cell size', () => {
+  it('uses UV scale as the only image-space dot size control', () => {
     const source = imageData(Array(16).fill([128, 128, 128, 255]), 4);
     const lighting = new Float32Array(16).fill(0.5);
-    const small = processImageData(source, { ...halftone, lighting });
-    const large = processImageData(source, { ...halftone, lighting, halftoneScale: 2 });
-    // Scale 1 dots cover the cell cores; scale 2 makes one bigger dot that
-    // reaches further into the same 4×4 frame.
-    expect(inkCount(large)).toBeGreaterThan(inkCount(small));
-    expect(inkCount(small)).toBe(4);
-    expect(inkCount(large)).toBe(6);
+    const base = processImageData(source, { ...halftone, lighting, uvScale: 1 });
+    const scaled = processImageData(source, { ...halftone, lighting, uvScale: 2 });
+    expect(inkCount(scaled)).not.toBe(inkCount(base));
   });
 });

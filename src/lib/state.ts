@@ -50,14 +50,12 @@ export type State = {
   worldAxis: WorldAxis;
   cameraDirection: DirectionVector;
   stripeAngle: number;
-  noiseScale: number;
   /** Pattern sampling space: 'uv' (image space) or 'world' (triplanar). */
   patternSpace: 'uv' | 'world';
   /** Pattern cells per pixel in UV space. */
   uvScale: number;
   /** Ordered-pattern cells per world unit. */
   worldspaceScale: number;
-  halftoneScale: number;
   seed: number;
   aoBias: number;
   aoPower: number;
