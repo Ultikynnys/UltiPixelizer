@@ -2,7 +2,7 @@ import { hexToRgb } from './palettes';
 import { clamp, LUMA, type RGB } from './math';
 import { createWasmMatcher } from './wasmLinearMatch';
 
-export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'halftone' | 'cross' | 'stripes' | 'noise' | 'checker' | 'none';
+export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'worldspace' | 'halftone' | 'cross' | 'stripes' | 'noise' | 'checker' | 'none';
 
 export type ProcessOptions = {
   palette: string[];
@@ -14,6 +14,14 @@ export type ProcessOptions = {
   stripeAngle: number;
   noiseScale: number;
   seed: number;
+  /** XYZ world position for each output texel, stored as three floats per
+   * pixel. Required by worldspace mode. */
+  worldPositions?: Float32Array | null;
+  /** Marks texels covered by bake geometry. Required with worldPositions so
+   * uncovered UV-space pixels are never interpreted as the world origin. */
+  worldPositionCoverage?: Uint8Array | null;
+  /** Ordered-pattern cells per world unit. */
+  worldspaceScale?: number;
   /** Multiplier on the halftone dot-cell size (1 = 4 px cells). Larger values
    * make coarser dots; the dots scale with their cells. */
   halftoneScale?: number;
@@ -31,10 +39,10 @@ const BAYER_4 = [
 ];
 
 
-const thresholdModes = new Set<DitherMode>(['ordered', 'cross', 'stripes', 'noise', 'checker']);
+const thresholdModes = new Set<DitherMode>(['ordered', 'worldspace', 'cross', 'stripes', 'noise', 'checker']);
 
-/** True for the coordinate-pattern modes (ordered / cross / stripes / noise /
- * checker). Error diffusion, halftone and 'none' have no pattern coordinates. */
+/** True for coordinate-pattern modes. Error diffusion, halftone and 'none'
+ * have no pattern coordinates. */
 export function isPatternMode(mode: DitherMode): boolean {
   return thresholdModes.has(mode);
 }
@@ -42,6 +50,23 @@ export function isPatternMode(mode: DitherMode): boolean {
 // Base halftone dot-cell size in pixels; `halftoneScale` multiplies it so the
 // pattern period and the dots scale together (dots just touch at full black).
 const HALFTONE_CELL = 4;
+
+const BAYER_Z_4 = [0, 2, 1, 3];
+
+function positiveModulo(value: number, divisor: number): number {
+  return ((value % divisor) + divisor) % divisor;
+}
+
+/** A 4×4×4 ordered threshold lattice. The familiar Bayer 4×4 rank controls
+ * XY while a permuted Z rank subdivides every value, producing each rank from
+ * 0 through 63 exactly once per world-space cell volume. */
+export function worldspaceThreshold(x: number, y: number, z: number, scale = 4): number {
+  if (!Number.isFinite(scale) || scale <= 0) throw new Error('worldspaceScale must be a positive finite number.');
+  const cellX = positiveModulo(Math.floor(x * scale), 4);
+  const cellY = positiveModulo(Math.floor(y * scale), 4);
+  const cellZ = positiveModulo(Math.floor(z * scale), 4);
+  return (BAYER_4[cellY][cellX] * 4 + BAYER_Z_4[cellZ]) / 63;
+}
 
 export function patternThreshold(mode: DitherMode, x: number, y: number, stripeAngle = 45, noiseScale = 1, seed = 0): number {
   switch (mode) {
@@ -316,6 +341,18 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
   const isFloyd = options.mode === 'floyd';
   const isAtkinson = options.mode === 'atkinson';
   const tone = toneAdjustParams(options.brightness, options.contrast, options.saturation);
+  const isWorldspace = options.mode === 'worldspace';
+  if (isWorldspace) {
+    const pixelCount = width * height;
+    if (!options.worldPositions || options.worldPositions.length !== pixelCount * 3) {
+      throw new Error(`worldspace mode requires ${pixelCount * 3} world-position values.`);
+    }
+    if (!options.worldPositionCoverage || options.worldPositionCoverage.length !== pixelCount) {
+      throw new Error(`worldspace mode requires ${pixelCount} world-position coverage values.`);
+    }
+    const scale = options.worldspaceScale ?? 4;
+    if (!Number.isFinite(scale) || scale <= 0) throw new Error('worldspaceScale must be a positive finite number.');
+  }
 
   // Halftone splits color from shading: the base is the palette hard-map of
   // the adjusted color and the dot screen carries the shading, so no ink/paper
@@ -347,8 +384,24 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
       let b = work[workIndex + 2];
 
       if (isThreshold) {
-        // Pattern modes are sampled 1:1  one threshold cell per output pixel.
-        const offset = (patternThreshold(options.mode, x, y, options.stripeAngle, options.noiseScale, options.seed) - 0.5) * 96 * strength;
+        // Image-space patterns sample one threshold cell per output pixel.
+        // Worldspace samples interpolated XYZ only for covered UV texels;
+        // uncovered texture pixels receive no invented coordinate or offset.
+        let threshold = 0.5;
+        if (isWorldspace) {
+          if (options.worldPositionCoverage![pixel] !== 0) {
+            const position = pixel * 3;
+            threshold = worldspaceThreshold(
+              options.worldPositions![position],
+              options.worldPositions![position + 1],
+              options.worldPositions![position + 2],
+              options.worldspaceScale ?? 4,
+            );
+          }
+        } else {
+          threshold = patternThreshold(options.mode, x, y, options.stripeAngle, options.noiseScale, options.seed);
+        }
+        const offset = (threshold - 0.5) * 96 * strength;
         r = clamp(r + offset, 0, 255);
         g = clamp(g + offset, 0, 255);
         b = clamp(b + offset, 0, 255);

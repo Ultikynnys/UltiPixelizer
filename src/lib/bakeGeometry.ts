@@ -375,6 +375,37 @@ export function uvToTexturePoint(uv: readonly [number, number], width: number, h
   return [uv[0] * width, (1 - uv[1]) * height];
 }
 
+export type WorldPositionMap = {
+  /** Interleaved XYZ values, three floats per UV-space texel. */
+  positions: Float32Array;
+  /** One for texels written by bake geometry, zero for uncovered UV space. */
+  coverage: Uint8Array;
+};
+
+/** Interpolates collected world-space bake vertices into UV texture space.
+ * Overlapping UV triangles intentionally follow the bake raster's existing
+ * last-writer behavior. */
+export function rasterizeWorldPositions(scene: Pick<BakeScene, 'vertices' | 'triangles'>, width: number, height: number): WorldPositionMap {
+  if (!Number.isInteger(width) || width <= 0 || !Number.isInteger(height) || height <= 0) {
+    throw new Error('World-position raster dimensions must be positive integers.');
+  }
+  const positions = new Float32Array(width * height * 3);
+  const coverage = new Uint8Array(width * height);
+  rasterizeBake(width, height, scene.triangles, (px, py, w0, w1, w2, triangle) => {
+    const a = scene.vertices[triangle.verts[0]]?.position;
+    const b = scene.vertices[triangle.verts[1]]?.position;
+    const c = scene.vertices[triangle.verts[2]]?.position;
+    if (!a || !b || !c) throw new Error('Bake triangle references a missing world-space vertex.');
+    const pixel = py * width + px;
+    const offset = pixel * 3;
+    positions[offset] = a.x * w0 + b.x * w1 + c.x * w2;
+    positions[offset + 1] = a.y * w0 + b.y * w1 + c.y * w2;
+    positions[offset + 2] = a.z * w0 + b.z * w1 + c.z * w2;
+    coverage[pixel] = 1;
+  });
+  return { positions, coverage };
+}
+
 export function rasterizeBake<T extends { uv: readonly [readonly [number, number], readonly [number, number], readonly [number, number]] }>(
   width: number,
   height: number,

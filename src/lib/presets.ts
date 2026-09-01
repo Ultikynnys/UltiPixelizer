@@ -4,14 +4,14 @@ import type { UpscaleMethod } from './canvas';
 import { clamp01 } from './math';
 import { parseJsonFile, serializeJsonFile } from './storage';
 import { slugify } from './strings';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY, DEFAULT_UV_STRETCH_SENSITIVITY } from './defaults';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY, DEFAULT_UV_STRETCH_SENSITIVITY, DEFAULT_WORLDSPACE_SCALE } from './defaults';
 import type { NormalFormat } from './normal';
 import { DEFAULT_SUN_DIRECTION, type DirectionVector } from './sunDirection';
 import type { PaletteSearchSort, State } from './state';
 
 export const PRESET_VERSION = 7;
 
-export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'halftone', 'none'];
+export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'worldspace', 'cross', 'stripes', 'noise', 'checker', 'halftone', 'none'];
 
 export const upscaleMethods: UpscaleMethod[] = ['nearest', 'bilinear'];
 
@@ -28,6 +28,7 @@ export type ConversionConfig = {
   palette: Palette;
   stripeAngle: number;
   noiseScale: number;
+  worldspaceScale: number;
   halftoneScale: number;
   seed: number;
   aoBias: number;
@@ -150,6 +151,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'upscale', path: ['upscale'], default: 'nearest', migrateDefault: 'nearest', validate: isEnum(upscaleMethods) },
   { key: 'stripeAngle', path: ['stripeAngle'], default: 45, migrateDefault: 45, validate: inRange(0, 135) },
   { key: 'noiseScale', path: ['noiseScale'], default: 1, migrateDefault: 1, validate: inRange(1, 32) },
+  { key: 'worldspaceScale', path: ['worldspaceScale'], default: DEFAULT_WORLDSPACE_SCALE, migrateDefault: DEFAULT_WORLDSPACE_SCALE, validate: inRange(0.25, 64) },
   { key: 'halftoneScale', path: ['halftoneScale'], default: 1, migrateDefault: 1, validate: inRange(0.5, 4) },
   { key: 'seed', path: ['seed'], default: 1, migrateDefault: 1, validate: inRange(0, 9999) },
   { key: 'aoBias', path: ['aoBias'], default: 0, migrateDefault: 0, validate: inRange(-1, 1) },

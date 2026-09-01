@@ -17,6 +17,9 @@ export interface RendererDeps {
    * over the texture canvas and sharing its zoom transform. */
   wireframeOverlays: { original: HTMLCanvasElement; processed: HTMLCanvasElement };
   getAOScene: () => Object3D | null;
+  /** Active UV bake surface for world-space effects: loaded model or the
+   * current displaced fallback quad. */
+  getBakeSurface: () => Object3D;
   forEachViewport: (callback: (viewport: ModelViewport) => void) => void;
   getOriginalViewport: () => ModelViewport | null;
   getProcessedViewport: () => ModelViewport | null;

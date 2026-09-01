@@ -2,6 +2,8 @@ export const DEFAULT_SUN_INTENSITY = 1;
 export const DEFAULT_AMBIENT_INTENSITY = 0.2;
 /** Normal-map influence on the lightmap bake (0..1). */
 export const DEFAULT_NORMAL_STRENGTH = 1;
+/** Ordered-pattern cells per world unit for world-space dithering. */
+export const DEFAULT_WORLDSPACE_SCALE = 4;
 /** UV-stretch heatmap sensitivity: scales each face's distortion (octaves)
  * before it maps to the blue→red heatmap, so higher values make small
  * distortions read more color. 1 is the identity. */

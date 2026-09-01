@@ -115,6 +115,37 @@ describe('createRender2D render pipeline', () => {
     expect(deps.luminosityHistograms.processed.context.fillRect).not.toHaveBeenCalled();
   });
 
+  it('passes rasterized world positions to worldspace dithering and reuses them for unchanged geometry', async () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    geometry.setAttribute('normal', new Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+    geometry.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
+    const surface = new Scene();
+    surface.add(new Mesh(geometry, new MeshBasicMaterial()));
+    const deps = createRendererDeps({
+      getBakeSurface: () => surface,
+      textures: { base: { image: baseTexture(), name: '' } },
+    });
+    deps.state.mode = 'worldspace';
+    deps.state.worldspaceScale = 4;
+    const render2d = createRender2D(deps, sharedState());
+
+    await render2d.render();
+    await render2d.render();
+
+    const calls = vi.mocked(processImageData).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1].worldPositions).toBeInstanceOf(Float32Array);
+    expect(calls[0][1].worldPositions).toHaveLength(12);
+    expect(calls[0][1].worldPositionCoverage).toBeInstanceOf(Uint8Array);
+    expect(calls[0][1].worldspaceScale).toBe(4);
+
+    deps.state.worldspaceScale = 8;
+    await render2d.render();
+    expect(calls).toHaveLength(2);
+    expect(calls[1][1].worldspaceScale).toBe(8);
+  });
+
   it('applies pixelization to the source before the dither pass', () => {
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
     const shared = sharedState();

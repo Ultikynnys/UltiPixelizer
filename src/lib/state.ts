@@ -51,6 +51,8 @@ export type State = {
   cameraDirection: DirectionVector;
   stripeAngle: number;
   noiseScale: number;
+  /** Ordered-pattern cells per world unit. */
+  worldspaceScale: number;
   halftoneScale: number;
   seed: number;
   aoBias: number;

@@ -8,6 +8,7 @@ import {
   dilateUVBake,
   rasterizeBake,
   rasterizeBakedPixels,
+  rasterizeWorldPositions,
   type BakeTriangle,
 } from '../src/lib/bakeGeometry';
 import { createFallbackQuadScene } from '../src/lib/modelScene';
@@ -139,6 +140,25 @@ describe('collectBakeScene', () => {
     const result = collectBakeScene(scene, 2);
     expect(result.radius).toBeCloseTo(Math.sqrt(0.5), 5);
     expect(result.maxDistance).toBeCloseTo(2 * Math.sqrt(0.5), 5);
+  });
+});
+
+describe('rasterizeWorldPositions', () => {
+  it('interpolates world XYZ and keeps uncovered texels explicit', () => {
+    const scene = collectBakeScene(new Object3D().add(uvTriangle()));
+    const result = rasterizeWorldPositions(scene, 2, 2);
+
+    expect(result.positions).toHaveLength(12);
+    expect(result.coverage).toEqual(new Uint8Array([1, 0, 1, 1]));
+    expect(Array.from(result.positions.slice(6, 9))).toEqual([0.25, 0.25, 0]);
+    expect(Array.from(result.positions.slice(3, 6))).toEqual([0, 0, 0]);
+  });
+
+  it('rejects invalid dimensions and missing vertex references', () => {
+    const scene = collectBakeScene(new Object3D().add(uvTriangle()));
+    expect(() => rasterizeWorldPositions(scene, 0, 2)).toThrow('positive integers');
+    scene.triangles[0].verts[0] = 99;
+    expect(() => rasterizeWorldPositions(scene, 2, 2)).toThrow('missing world-space vertex');
   });
 });
 

@@ -45,6 +45,7 @@ const DITHER_MODE_OPTIONS: ReadonlyArray<{ mode: DitherMode; label: string; patt
   { mode: 'floyd', label: 'Floyd–Steinberg', pattern: 'noise' },
   { mode: 'atkinson', label: 'Atkinson', pattern: 'atkinson' },
   { mode: 'ordered', label: 'Ordered 4×4', pattern: 'grid' },
+  { mode: 'worldspace', label: 'Worldspace', pattern: 'grid' },
   { mode: 'cross', label: 'Cross', pattern: 'cross' },
   { mode: 'stripes', label: 'Stripes', pattern: 'stripes' },
   { mode: 'noise', label: 'Noise', pattern: 'random' },
@@ -397,6 +398,9 @@ app.innerHTML = `
             ${rangeControl('noiseScale', 'Noise scale', 1, 32, 1, 1, '1 px', 'Grain size')}
             ${rangeControl('seed', 'Seed', 0, 9999, 1, 1, '1', 'Noise pattern')}
           </div>
+          <div class="worldspace-scale-control" id="worldspaceScaleControl" hidden>
+            ${rangeControl('worldspaceScale', 'World scale', 0.25, 64, 0.25, 4, '4 cells/unit', 'Ordered cells per world unit')}
+          </div>
           <div class="halftone-scale-control" id="halftoneScaleControl" hidden>
             ${rangeControl('halftoneScale', 'Dot scale', 0.5, 4, 0.1, 1, '1.00×', 'Halftone dot size')}
           </div>
@@ -596,6 +600,9 @@ const stripeAngleValue = document.querySelector<HTMLOutputElement>('#stripeAngle
 const noiseScaleControl = document.querySelector<HTMLDivElement>('#noiseScaleControl')!;
 const noiseScaleInput = document.querySelector<HTMLInputElement>('#noiseScale')!;
 const noiseScaleValue = document.querySelector<HTMLOutputElement>('#noiseScaleValue')!;
+const worldspaceScaleControl = document.querySelector<HTMLDivElement>('#worldspaceScaleControl')!;
+const worldspaceScaleInput = document.querySelector<HTMLInputElement>('#worldspaceScale')!;
+const worldspaceScaleValue = document.querySelector<HTMLOutputElement>('#worldspaceScaleValue')!;
 const halftoneScaleControl = document.querySelector<HTMLDivElement>('#halftoneScaleControl')!;
 const halftoneScaleInput = document.querySelector<HTMLInputElement>('#halftoneScale')!;
 const halftoneScaleValue = document.querySelector<HTMLOutputElement>('#halftoneScaleValue')!;
@@ -950,6 +957,7 @@ function invalidateModelCaches(): void {
 const formatPercent = (value: number): string => `${value}%`;
 const formatDegrees = (value: number): string => `${value}°`;
 const formatPixels = (value: number): string => `${value} px`;
+const formatCellsPerUnit = (value: number): string => `${value} cells/unit`;
 const formatPlain = (value: number): string => String(value);
 const formatSignedFixed2 = (value: number): string => `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
 const formatTimes2 = (value: number): string => `${value.toFixed(2)}×`;
@@ -1283,6 +1291,7 @@ document.querySelector<HTMLInputElement>('#showFloorGrid')!.addEventListener('ch
 function updatePatternControls(): void {
   stripeAngleControl.hidden = state.mode !== 'stripes';
   noiseScaleControl.hidden = state.mode !== 'noise';
+  worldspaceScaleControl.hidden = state.mode !== 'worldspace';
   halftoneScaleControl.hidden = state.mode !== 'halftone';
 }
 
@@ -2025,6 +2034,7 @@ function syncControlsFromState(): void {
   syncRangeValue(strengthInput, strengthValue, Math.round(state.strength * 100), formatPercent);
   syncRangeValue(stripeAngleInput, stripeAngleValue, state.stripeAngle, formatDegrees);
   syncRangeValue(noiseScaleInput, noiseScaleValue, state.noiseScale, formatPixels);
+  syncRangeValue(worldspaceScaleInput, worldspaceScaleValue, state.worldspaceScale, formatCellsPerUnit);
   syncRangeValue(halftoneScaleInput, halftoneScaleValue, state.halftoneScale, formatTimes2);
   syncRangeValue(seedInput, seedValue, state.seed, formatPlain);
   setActiveMode(state.mode);
@@ -2167,6 +2177,7 @@ const renderer = createRenderer({
     processed: processedWireframeOverlay,
   },
   getAOScene: () => aoBakeScene,
+  getBakeSurface: () => aoBakeScene ?? bakeFallbackQuad,
   forEachViewport,
   getOriginalViewport: () => originalViewport,
   getProcessedViewport: () => processedViewport,
@@ -2667,6 +2678,12 @@ bindRange({
   output: noiseScaleValue,
   format: formatPixels,
   apply: (value) => { state.noiseScale = value; },
+});
+bindRange({
+  input: worldspaceScaleInput,
+  output: worldspaceScaleValue,
+  format: formatCellsPerUnit,
+  apply: (value) => { state.worldspaceScale = value; },
 });
 bindRange({
   input: halftoneScaleInput,

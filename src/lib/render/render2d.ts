@@ -4,7 +4,8 @@ import { processImageData, type ProcessOptions } from '../dither';
 import { webgpuUsable } from '../gpuCommon';
 import { gpuDitherCovers, processImageDataAsync } from '../gpuDither';
 import { applyLightmap } from '../lightmap';
-import { rasterizeBake } from '../bakeGeometry';
+import { rasterizeBake, rasterizeWorldPositions, type BakeScene, type WorldPositionMap } from '../bakeGeometry';
+import { getBakeScene } from '../bakeSceneCache';
 import { computeTexelVarianceData, computeUVStretchData, recolorUVStretchData, type UVStretchData } from '../texelDensity';
 import { createBoundedLru } from '../lru';
 import { drawLuminosityHistogram } from '../luminosityHistogram';
@@ -84,6 +85,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     repeatTextureOriginal,
     repeatTextureProcessed,
     getAOScene,
+    getBakeSurface,
   } = deps;
 
   /** Supersedes an in-flight async GPU dither: every render bumps the token,
@@ -100,12 +102,30 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
    * (shared factory with the fallback-quad cache, see lru.ts). */
   const DITHER_CACHE_MAX = 3;
   const ditherCache = createBoundedLru<string, { input: Uint8ClampedArray; output: ImageData }>(DITHER_CACHE_MAX);
+  let worldPositionCache: { scene: BakeScene; width: number; height: number; map: WorldPositionMap; id: number } | null = null;
+  let nextWorldPositionMapId = 1;
+
+  function currentWorldPositionMap(width: number, height: number): { map: WorldPositionMap; id: number } {
+    const scene = getBakeScene(getBakeSurface());
+    if (!scene) throw new Error('Worldspace dithering requires an active bake surface.');
+    if (worldPositionCache?.scene === scene && worldPositionCache.width === width && worldPositionCache.height === height) {
+      return worldPositionCache;
+    }
+    worldPositionCache = {
+      scene,
+      width,
+      height,
+      map: rasterizeWorldPositions(scene, width, height),
+      id: nextWorldPositionMapId++,
+    };
+    return worldPositionCache;
+  }
 
   /** Cache key for the dither options: everything that changes the output
    * besides the input pixels. Slider values are discrete state, so String()
    * round-trips exactly. */
   function ditherKey(options: ProcessOptions, extra = ''): string {
-    return `${options.mode}|${options.palette.join(',')}|${options.strength}|${options.brightness}|${options.contrast}|${options.saturation}|${options.stripeAngle}|${options.noiseScale}|${options.seed}|${options.halftoneScale ?? 1}|${extra}`;
+    return `${options.mode}|${options.palette.join(',')}|${options.strength}|${options.brightness}|${options.contrast}|${options.saturation}|${options.stripeAngle}|${options.noiseScale}|${options.seed}|${options.halftoneScale ?? 1}|${options.worldspaceScale ?? 4}|${extra}`;
   }
 
   function lookupDither(key: string, input: Uint8ClampedArray): ImageData | null {
@@ -376,12 +396,18 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     if (!directInspection) {
       const sourceData = renderContext.getImageData(0, 0, width, height);
 
-      const processedOptions = {
+      const processedOptions: ProcessOptions = {
         palette: currentColors(), mode: state.mode, strength: state.strength,
         brightness: state.brightness, contrast: state.contrast, saturation: state.saturation,
         stripeAngle: state.stripeAngle, noiseScale: state.noiseScale, seed: state.seed,
         halftoneScale: state.halftoneScale,
+        worldspaceScale: state.worldspaceScale,
       };
+      const worldPosition = state.mode === 'worldspace' ? currentWorldPositionMap(width, height) : null;
+      if (worldPosition) {
+        processedOptions.worldPositions = worldPosition.map.positions;
+        processedOptions.worldPositionCoverage = worldPosition.map.coverage;
+      }
       let processedData: ImageData;
       if (state.mode === 'halftone') {
         // Halftone splits color from shading: the dot screen carries the
@@ -416,7 +442,8 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
           } else {
             // No WebGPU (or a mode the GPU pass does not cover): the exact
             // synchronous CPU path  byte-identical to the pre-GPU pipeline.
-            processedData = ditherSync(ditherKey(processedOptions), lit.data, () => processImageData(lit, processedOptions));
+            const worldKey = worldPosition ? `world-map-${worldPosition.id}` : '';
+            processedData = ditherSync(ditherKey(processedOptions, worldKey), lit.data, () => processImageData(lit, processedOptions));
           }
         }
       }

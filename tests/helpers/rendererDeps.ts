@@ -3,6 +3,7 @@ import type { RendererDeps, RenderShared } from '../../src/lib/render/types';
 import type { State, TextureChannelId, TextureSlot } from '../../src/lib/state';
 import { FakeCanvas } from './domStubs';
 import { computeOutputDimensions } from '../../src/lib/canvas';
+import { Object3D } from 'three';
 
 /** A RenderShared with the usual defaults  a fresh FakeCanvas for the
  * rendered canvas and nulls for the lazy lightmap slots. Tests that need a
@@ -63,6 +64,7 @@ export function createStateFixture(): State {
     worldAxis: 'maya',
     stripeAngle: 45,
     noiseScale: 1,
+    worldspaceScale: 4,
     halftoneScale: 1,
     seed: 1,
     aoBias: 0,
@@ -124,6 +126,7 @@ export function createRendererDeps(overrides: Omit<Partial<RendererDeps>, 'textu
       processed: processedWireframeOverlay as unknown as HTMLCanvasElement,
     },
     getAOScene: () => null,
+    getBakeSurface: () => new Object3D(),
     forEachViewport: vi.fn(),
     getOriginalViewport: vi.fn(() => null),
     getProcessedViewport: vi.fn(() => null),

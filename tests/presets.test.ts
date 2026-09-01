@@ -39,6 +39,7 @@ const config: ConversionConfig = {
   palette: palettes.pico8,
   stripeAngle: 45,
   noiseScale: 1,
+  worldspaceScale: 4,
   halftoneScale: 1,
   seed: 1,
   aoBias: 0,
@@ -151,6 +152,15 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...base, pixelation: 80 })).toBe(true);
     expect(isConversionPreset({ ...base, pixelation: 81 })).toBe(false);
     expect(isConversionPreset({ ...base, pixelation: -1 })).toBe(false);
+  });
+
+  it('backfills and validates worldspace scale', () => {
+    const current = createPreset('Worldspace', '', { ...config, mode: 'worldspace', worldspaceScale: 8 });
+    const { worldspaceScale: _removed, ...legacy } = current;
+    expect(parsePreset(JSON.stringify(legacy)).worldspaceScale).toBe(4);
+    expect(isConversionPreset({ ...current, worldspaceScale: 0.25 })).toBe(true);
+    expect(isConversionPreset({ ...current, worldspaceScale: 64 })).toBe(true);
+    expect(isConversionPreset({ ...current, worldspaceScale: 0 })).toBe(false);
   });
 
   it('accepts halftone dot scales from 0.5 to 4', () => {
@@ -326,7 +336,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(34);
+    expect(Object.keys(defaults)).toHaveLength(35);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -338,6 +348,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       upscale: 'nearest',
       stripeAngle: 45,
       noiseScale: 1,
+      worldspaceScale: 4,
       halftoneScale: 1,
       seed: 1,
       aoBias: 0,
