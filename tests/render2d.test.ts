@@ -126,7 +126,8 @@ describe('createRender2D render pipeline', () => {
       getBakeSurface: () => surface,
       textures: { base: { image: baseTexture(), name: '' } },
     });
-    deps.state.mode = 'worldspace';
+    deps.state.mode = 'ordered';
+    deps.state.patternSpace = 'world';
     deps.state.worldspaceScale = 64;
     const render2d = createRender2D(deps, sharedState());
 
@@ -141,6 +142,7 @@ describe('createRender2D render pipeline', () => {
     expect(calls[0][1].worldNormals).toHaveLength(12);
     expect(calls[0][1].worldPositionCoverage).toBeInstanceOf(Uint8Array);
     expect(calls[0][1].worldspaceScale).toBe(64);
+    expect(calls[0][1].patternSpace).toBe('world');
 
     deps.state.worldspaceScale = 128;
     await render2d.render();

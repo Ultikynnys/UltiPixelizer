@@ -4,7 +4,7 @@ import { clamp } from './lib/math';
 import { CONFIG_FOLDER, disableWebviewContextMenu, initTauriFileStore, openExternalLink, type TauriFileStore } from './lib/tauri';
 import { CUSTOM_PALETTE_STORAGE_KEY, createCustomPalette, deleteCustomPalette, deleteCustomPaletteFile, duplicatePalette, filePaletteFor, isCustomPalette, loadCustomPalettes, loadCustomPalettesFromFiles, matchingPaletteKey, paletteFileName, paletteFromImport, saveCustomPaletteFile, selectOrCreatePalette, serializePaletteHex, updateCustomPalette, upsertCustomPalette, watchPalettesFolder, type CustomPalette } from './lib/customPalettes';
 import type { StorageLike } from './lib/storage';
-import type { DitherMode } from './lib/dither';
+import { isPatternMode, type DitherMode } from './lib/dither';
 import { sampleColorAt } from './lib/eyedropper';
 import { hexToRgb, hsvToRgb, palettes, rgbToHex, rgbToHsv, type Palette, type PaletteCategory } from './lib/palettes';
 import { computePosterizeStats, posterizeColors, type PosterizeStats } from './lib/posterize';
@@ -45,7 +45,6 @@ const DITHER_MODE_OPTIONS: ReadonlyArray<{ mode: DitherMode; label: string; patt
   { mode: 'floyd', label: 'Floyd–Steinberg', pattern: 'noise' },
   { mode: 'atkinson', label: 'Atkinson', pattern: 'atkinson' },
   { mode: 'ordered', label: 'Ordered 4×4', pattern: 'grid' },
-  { mode: 'worldspace', label: 'Worldspace', pattern: 'grid' },
   { mode: 'cross', label: 'Cross', pattern: 'cross' },
   { mode: 'stripes', label: 'Stripes', pattern: 'stripes' },
   { mode: 'noise', label: 'Noise', pattern: 'random' },
@@ -390,6 +389,10 @@ app.innerHTML = `
               ${DITHER_MODE_OPTIONS.map((option) => `<button class="mode-button${option.mode === state.mode ? ' active' : ''}" data-mode="${option.mode}" type="button">${modeRow(option.mode)}</button>`).join('')}
             </div>
           </div>
+          <div class="pattern-space-toggle" id="patternSpaceToggle" role="group" aria-label="Pattern space" hidden>
+            <button type="button" data-pattern-space="uv" class="active">UV</button>
+            <button type="button" data-pattern-space="world">World</button>
+          </div>
           ${rangeControl('strength', 'Dither strength', 0, 100, 1, 85, '85%', 'Error diffusion amount')}
           <div class="stripe-angle-control" id="stripeAngleControl" hidden>
             ${rangeControl('stripeAngle', 'Stripe angle', 0, 135, 1, 45, '45°', 'Band direction')}
@@ -477,6 +480,7 @@ const paletteSearchInput = document.querySelector<HTMLInputElement>('#paletteSea
 const paletteSortToggle = document.querySelector<HTMLButtonElement>('#paletteSortToggle')!;
 const modeDropdown = document.querySelector<HTMLDivElement>('#modeDropdown')!;
 const modeSelect = document.querySelector<HTMLButtonElement>('#modeSelect')!;
+const patternSpaceToggle = document.querySelector<HTMLDivElement>('#patternSpaceToggle')!;
 const upscaleSelect = document.querySelector<HTMLSelectElement>('#upscale')!;
 const customPaletteSection = document.querySelector<HTMLDivElement>('.custom-palette')!;
 const paletteEditorToggle = document.querySelector<HTMLButtonElement>('#paletteEditorToggle')!;
@@ -1291,7 +1295,9 @@ document.querySelector<HTMLInputElement>('#showFloorGrid')!.addEventListener('ch
 function updatePatternControls(): void {
   stripeAngleControl.hidden = state.mode !== 'stripes';
   noiseScaleControl.hidden = state.mode !== 'noise';
-  worldspaceScaleControl.hidden = state.mode !== 'worldspace';
+  const patternMode = isPatternMode(state.mode);
+  patternSpaceToggle.hidden = !patternMode;
+  worldspaceScaleControl.hidden = !(patternMode && state.patternSpace === 'world');
   halftoneScaleControl.hidden = state.mode !== 'halftone';
 }
 
@@ -2036,6 +2042,7 @@ function syncControlsFromState(): void {
   syncRangeValue(noiseScaleInput, noiseScaleValue, state.noiseScale, formatPixels);
   syncRangeValue(worldspaceScaleInput, worldspaceScaleValue, state.worldspaceScale, formatCellsPerUnit);
   syncRangeValue(halftoneScaleInput, halftoneScaleValue, state.halftoneScale, formatTimes2);
+  syncActiveButton(patternSpaceToggle, '[data-pattern-space]', (button) => button.dataset.patternSpace === state.patternSpace);
   syncRangeValue(seedInput, seedValue, state.seed, formatPlain);
   setActiveMode(state.mode);
   updatePatternControls();
@@ -2774,6 +2781,14 @@ document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => 
   setActiveMode(state.mode);
   updatePatternControls();
   closeModeDropdown();
+  render();
+}));
+// The UV/World toggle switches coordinate-pattern modes between image-space
+// sampling and triplanar world-space projection; it only shows for pattern modes.
+document.querySelectorAll<HTMLButtonElement>('[data-pattern-space]').forEach((button) => button.addEventListener('click', () => {
+  state.patternSpace = button.dataset.patternSpace as 'uv' | 'world';
+  syncActiveButton(patternSpaceToggle, '[data-pattern-space]', (candidate) => candidate.dataset.patternSpace === state.patternSpace);
+  updatePatternControls();
   render();
 }));
 // The trigger toggles the dropdown; picking an option applies it and closes

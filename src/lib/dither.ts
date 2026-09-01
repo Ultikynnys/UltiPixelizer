@@ -1,8 +1,9 @@
+import { DEFAULT_WORLDSPACE_SCALE } from './defaults';
 import { hexToRgb } from './palettes';
 import { clamp, LUMA, type RGB } from './math';
 import { createWasmMatcher } from './wasmLinearMatch';
 
-export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'worldspace' | 'halftone' | 'cross' | 'stripes' | 'noise' | 'checker' | 'none';
+export type DitherMode = 'floyd' | 'atkinson' | 'ordered' | 'halftone' | 'cross' | 'stripes' | 'noise' | 'checker' | 'none';
 
 export type ProcessOptions = {
   palette: string[];
@@ -14,11 +15,15 @@ export type ProcessOptions = {
   stripeAngle: number;
   noiseScale: number;
   seed: number;
+  /** Pattern sampling space: 'uv' samples the pattern in image space (one
+   * threshold cell per output pixel); 'world' projects it triplanar onto the
+   * bake surface. Only coordinate-pattern modes honor this. */
+  patternSpace?: 'uv' | 'world';
   /** XYZ world position for each output texel, stored as three floats per
-   * pixel. Required by worldspace mode. */
+   * pixel. Required when patternSpace is 'world'. */
   worldPositions?: Float32Array | null;
   /** World-space surface normal for each output texel, three floats per
-   * pixel. Required by worldspace mode for the triplanar projection. */
+   * pixel. Required when patternSpace is 'world' for the triplanar projection. */
   worldNormals?: Float32Array | null;
   /** Marks texels covered by bake geometry. Required with worldPositions so
    * uncovered UV-space pixels are never interpreted as the world origin. */
@@ -42,7 +47,7 @@ const BAYER_4 = [
 ];
 
 
-const thresholdModes = new Set<DitherMode>(['ordered', 'worldspace', 'cross', 'stripes', 'noise', 'checker']);
+const thresholdModes = new Set<DitherMode>(['ordered', 'cross', 'stripes', 'noise', 'checker']);
 
 /** True for coordinate-pattern modes. Error diffusion, halftone and 'none'
  * have no pattern coordinates. */
@@ -58,37 +63,44 @@ function positiveModulo(value: number, divisor: number): number {
   return ((value % divisor) + divisor) % divisor;
 }
 
-/** 2D Bayer 4×4 threshold for one axis-plane projection: `u`/`v` are the two
- * world coordinates of that plane, so the pattern repeats every 1/scale world
- * units in both directions. */
-function bayer2D(u: number, v: number, scale: number): number {
-  const cellU = positiveModulo(Math.floor(u * scale), 4);
-  const cellV = positiveModulo(Math.floor(v * scale), 4);
-  return BAYER_4[cellV][cellU] / 15;
+/** Resolves the world-space pattern scale (cells per world unit), rejecting
+ * non-positive values. Shared by the triplanar threshold and the dither
+ * pipeline's fail-fast validation. */
+function worldspaceScaleValue(scale: number | undefined): number {
+  const value = scale ?? DEFAULT_WORLDSPACE_SCALE;
+  if (!Number.isFinite(value) || value <= 0) throw new Error('worldspaceScale must be a positive finite number.');
+  return value;
 }
 
-/** Triplanar world-space threshold. The 2D Bayer pattern is projected from
- * each of the three axis planes (X → YZ, Y → XZ, Z → XY) and blended by the
- * squared surface-normal components, so the pattern follows the surface
- * instead of slicing through it at a fixed world orientation. A degenerate
- * (zero-length) normal yields the neutral 0.5 threshold. */
-export function worldspaceThresholdTriplanar(x: number, y: number, z: number, nx: number, ny: number, nz: number, scale = 64): number {
-  if (!Number.isFinite(scale) || scale <= 0) throw new Error('worldspaceScale must be a positive finite number.');
+/** Triplanar world-space threshold for any coordinate-pattern mode. The
+ * pattern is projected from each of the three axis planes (X → YZ, Y → XZ,
+ * Z → XY) with world coordinates scaled by `scale` cells per world unit, and
+ * blended by the squared surface-normal components, so the pattern follows
+ * the surface instead of slicing through it at a fixed world orientation. A
+ * degenerate (zero-length) normal yields the neutral 0.5 threshold. */
+export function worldspacePatternThreshold(mode: DitherMode, x: number, y: number, z: number, nx: number, ny: number, nz: number, scale = DEFAULT_WORLDSPACE_SCALE, stripeAngle = 45, noiseScale = 1, seed = 0): number {
+  const resolved = worldspaceScaleValue(scale);
   const wx = nx * nx;
   const wy = ny * ny;
   const wz = nz * nz;
   const sum = wx + wy + wz;
   if (sum === 0) return 0.5;
-  return (bayer2D(y, z, scale) * wx + bayer2D(x, z, scale) * wy + bayer2D(x, y, scale) * wz) / sum;
+  return (
+    patternThreshold(mode, y * resolved, z * resolved, stripeAngle, noiseScale, seed) * wx
+    + patternThreshold(mode, x * resolved, z * resolved, stripeAngle, noiseScale, seed) * wy
+    + patternThreshold(mode, x * resolved, y * resolved, stripeAngle, noiseScale, seed) * wz
+  ) / sum;
 }
 
 export function patternThreshold(mode: DitherMode, x: number, y: number, stripeAngle = 45, noiseScale = 1, seed = 0): number {
   switch (mode) {
     case 'ordered':
-      return BAYER_4[y % 4][x % 4] / 15;
+      return BAYER_4[positiveModulo(y, 4)][positiveModulo(x, 4)] / 15;
     case 'cross': {
-      const horizontal = y % 4 === 1 || y % 4 === 2;
-      const vertical = x % 4 === 1 || x % 4 === 2;
+      const row = positiveModulo(y, 4);
+      const col = positiveModulo(x, 4);
+      const horizontal = row === 1 || row === 2;
+      const vertical = col === 1 || col === 2;
       return horizontal && vertical ? 0.08 : horizontal || vertical ? 0.38 : 0.88;
     }
     case 'stripes': {
@@ -106,7 +118,7 @@ export function patternThreshold(mode: DitherMode, x: number, y: number, stripeA
       return (hash >>> 0) / 4294967296;
     }
     case 'checker':
-      return (x + y) % 2 === 0 ? 0.2 : 0.8;
+      return positiveModulo(x + y, 2) === 0 ? 0.2 : 0.8;
     default:
       return 0.5;
   }
@@ -355,20 +367,21 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
   const isFloyd = options.mode === 'floyd';
   const isAtkinson = options.mode === 'atkinson';
   const tone = toneAdjustParams(options.brightness, options.contrast, options.saturation);
-  const isWorldspace = options.mode === 'worldspace';
-  if (isWorldspace) {
+  const useWorldPattern = options.patternSpace === 'world' && isThreshold;
+  // Resolved once up front: the per-pixel triplanar sampling reuses it, and
+  // an invalid scale fails fast before any pixel work.
+  const worldScale = useWorldPattern ? worldspaceScaleValue(options.worldspaceScale) : 0;
+  if (useWorldPattern) {
     const pixelCount = width * height;
     if (!options.worldPositions || options.worldPositions.length !== pixelCount * 3) {
-      throw new Error(`worldspace mode requires ${pixelCount * 3} world-position values.`);
+      throw new Error(`worldspace pattern requires ${pixelCount * 3} world-position values.`);
     }
     if (!options.worldPositionCoverage || options.worldPositionCoverage.length !== pixelCount) {
-      throw new Error(`worldspace mode requires ${pixelCount} world-position coverage values.`);
+      throw new Error(`worldspace pattern requires ${pixelCount} world-position coverage values.`);
     }
     if (!options.worldNormals || options.worldNormals.length !== pixelCount * 3) {
-      throw new Error(`worldspace mode requires ${pixelCount * 3} world-normal values.`);
+      throw new Error(`worldspace pattern requires ${pixelCount * 3} world-normal values.`);
     }
-    const scale = options.worldspaceScale ?? 64;
-    if (!Number.isFinite(scale) || scale <= 0) throw new Error('worldspaceScale must be a positive finite number.');
   }
 
   // Halftone splits color from shading: the base is the palette hard-map of
@@ -402,20 +415,24 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
 
       if (isThreshold) {
         // Image-space patterns sample one threshold cell per output pixel.
-        // Worldspace samples interpolated XYZ only for covered UV texels;
-        // uncovered texture pixels receive no invented coordinate or offset.
+        // World-space patterns sample interpolated XYZ only for covered UV
+        // texels; uncovered texture pixels receive no invented coordinate.
         let threshold = 0.5;
-        if (isWorldspace) {
+        if (useWorldPattern) {
           if (options.worldPositionCoverage![pixel] !== 0) {
             const position = pixel * 3;
-            threshold = worldspaceThresholdTriplanar(
+            threshold = worldspacePatternThreshold(
+              options.mode,
               options.worldPositions![position],
               options.worldPositions![position + 1],
               options.worldPositions![position + 2],
               options.worldNormals![position],
               options.worldNormals![position + 1],
               options.worldNormals![position + 2],
-              options.worldspaceScale ?? 64,
+              worldScale,
+              options.stripeAngle,
+              options.noiseScale,
+              options.seed,
             );
           }
         } else {

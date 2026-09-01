@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { adjustColor, ditherImageData, isPatternMode, nearestColor, patternThreshold, processImageData, worldspaceThresholdTriplanar, type DitherMode } from '../src/lib/dither';
+import { adjustColor, ditherImageData, isPatternMode, nearestColor, patternThreshold, processImageData, worldspacePatternThreshold, type DitherMode } from '../src/lib/dither';
 import { hexToRgb, hslToRgb, hsvToRgb, palettes, paletteCategories, rgbToHex, rgbToHsl, rgbToHsv } from '../src/lib/palettes';
 import { FakeImageData, installDomStubs } from './helpers/domStubs';
 
@@ -119,23 +119,25 @@ describe('dithering engine', () => {
     ]);
     const worldNormals = new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
     const worldPositionCoverage = new Uint8Array([1, 1, 1, 1]);
-    const first = processImageData(source, { ...options('worldspace'), worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 4 });
-    const second = processImageData(source, { ...options('worldspace'), worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 4 });
+    const first = processImageData(source, { ...options('ordered'), patternSpace: 'world', worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 4 });
+    const second = processImageData(source, { ...options('ordered'), patternSpace: 'world', worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 4 });
     expect([...first.data]).toEqual([...second.data]);
     expect(new Set([first.data[0], first.data[4], first.data[8], first.data[12]]).size).toBeGreaterThan(1);
-    expect(worldspaceThresholdTriplanar(-0.25, 0, 0, 0, 1, 0, 4)).toBe(worldspaceThresholdTriplanar(0.75, 0, 0, 0, 1, 0, 4));
+    expect(worldspacePatternThreshold('ordered', -0.25, 0, 0, 0, 1, 0, 4)).toBe(worldspacePatternThreshold('ordered', 0.75, 0, 0, 0, 1, 0, 4));
   });
 
   it('requires complete world-position inputs instead of falling back to image space', () => {
     const source = imageData([[128, 128, 128, 255]], 1);
-    expect(() => processImageData(source, options('worldspace'))).toThrow('world-position values');
+    expect(() => processImageData(source, { ...options('ordered'), patternSpace: 'world' })).toThrow('world-position values');
     expect(() => processImageData(source, {
-      ...options('worldspace'),
+      ...options('ordered'),
+      patternSpace: 'world',
       worldPositions: new Float32Array([0, 0, 0]),
       worldPositionCoverage: new Uint8Array([1]),
     })).toThrow('world-normal values');
     expect(() => processImageData(source, {
-      ...options('worldspace'),
+      ...options('ordered'),
+      patternSpace: 'world',
       worldPositions: new Float32Array([0, 0, 0]),
       worldPositionCoverage: new Uint8Array([1]),
       worldNormals: new Float32Array([0, 1, 0]),
@@ -166,7 +168,6 @@ describe('dithering engine', () => {
 
   it('classifies coordinate-pattern modes', () => {
     expect(isPatternMode('ordered')).toBe(true);
-    expect(isPatternMode('worldspace')).toBe(true);
     expect(isPatternMode('cross')).toBe(true);
     expect(isPatternMode('stripes')).toBe(true);
     expect(isPatternMode('noise')).toBe(true);

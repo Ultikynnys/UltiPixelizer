@@ -51,6 +51,8 @@ export type State = {
   cameraDirection: DirectionVector;
   stripeAngle: number;
   noiseScale: number;
+  /** Pattern sampling space: 'uv' (image space) or 'world' (triplanar). */
+  patternSpace: 'uv' | 'world';
   /** Ordered-pattern cells per world unit. */
   worldspaceScale: number;
   halftoneScale: number;

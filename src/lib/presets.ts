@@ -11,13 +11,15 @@ import type { PaletteSearchSort, State } from './state';
 
 export const PRESET_VERSION = 7;
 
-export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'worldspace', 'cross', 'stripes', 'noise', 'checker', 'halftone', 'none'];
+export const ditherModes: DitherMode[] = ['floyd', 'atkinson', 'ordered', 'cross', 'stripes', 'noise', 'checker', 'halftone', 'none'];
 
 export const upscaleMethods: UpscaleMethod[] = ['nearest', 'bilinear'];
 
 export type ConversionConfig = {
   resolution: number;
   mode: DitherMode;
+  /** Pattern sampling space: 'uv' (image space) or 'world' (triplanar). */
+  patternSpace: 'uv' | 'world';
   strength: number;
   brightness: number;
   contrast: number;
@@ -143,6 +145,7 @@ const isSavedCamera = (value: unknown): value is SavedCamera => {
 export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'resolution', path: ['resolution'], default: 128, validate: inRange(1, 4096) },
   { key: 'mode', path: ['mode'], default: 'floyd', validate: isEnum(ditherModes) },
+  { key: 'patternSpace', path: ['patternSpace'], default: 'uv', migrateDefault: 'uv', validate: isEnum(['uv', 'world']) },
   { key: 'strength', path: ['strength'], default: 0.85, validate: inRange(0, 1) },
   { key: 'brightness', path: ['brightness'], default: 0, validate: inRange(-100, 100) },
   { key: 'contrast', path: ['contrast'], default: 8, validate: inRange(-100, 100) },
@@ -302,6 +305,12 @@ function migratePreset(value: unknown): unknown {
   } else if (migrated.mode === 'vertical') {
     migrated.mode = 'stripes';
     migrated.stripeAngle = 0;
+  }
+  // v7 had a dedicated 'worldspace' mode; the UV/World pattern-space toggle
+  // folds it into the ordered grid it was built on.
+  if (migrated.mode === 'worldspace') {
+    migrated.mode = 'ordered';
+    migrated.patternSpace = 'world';
   }
   // v7 renamed AO "Scale" to "Power"; older migrations that jumped straight
   // to the current version may still carry aoScale  convert and drop it.

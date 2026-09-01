@@ -314,6 +314,19 @@ select option { background: var(--card); color: var(--paper); }
   background: transparent; border: 0; color: inherit; cursor: pointer;
   font: 700 9px 'Manrope', system-ui, sans-serif; letter-spacing: .08em; padding: 6px 12px;
 }
+/* UV/World pattern-space toggle: the same segmented pill as the 2D/3D preview
+   toggle, but inline in the Pattern panel under the mode dropdown. */
+.pattern-space-toggle {
+  align-items: center; background: color-mix(in srgb, var(--ink) 92%, transparent);
+  display: flex; gap: 2px; margin: 8px 0 0; padding: 3px; width: max-content;
+}
+.pattern-space-toggle[hidden] { display: none; }
+.pattern-space-toggle button {
+  background: transparent; border: 0; color: inherit; cursor: pointer;
+  font: 700 9px 'Manrope', system-ui, sans-serif; letter-spacing: .08em; padding: 6px 12px;
+}
+.pattern-space-toggle button:not(:disabled):hover, .pattern-space-toggle button.active { background: var(--paper); color: var(--ink); }
+.pattern-space-toggle button:focus-visible { color: var(--paper); }
 /* Keep the full view-mode enum inside its pane. It stays on one line when
    space permits and wraps only when its seven segments outgrow the frame. */
 .preview-view-toggle {

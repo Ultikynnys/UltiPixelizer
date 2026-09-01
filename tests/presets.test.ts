@@ -39,6 +39,7 @@ const config: ConversionConfig = {
   palette: palettes.pico8,
   stripeAngle: 45,
   noiseScale: 1,
+  patternSpace: 'uv',
   worldspaceScale: 64,
   halftoneScale: 1,
   seed: 1,
@@ -98,6 +99,13 @@ describe('conversion presets', () => {
     const legacy = createPreset('Legacy worldspace', '', config);
     const parsed = parsePreset(JSON.stringify({ ...legacy, worldspaceScale: 4 }));
     expect(parsed.worldspaceScale).toBe(64);
+  });
+
+  it('folds the legacy worldspace mode into the world pattern-space toggle', () => {
+    const legacy = createPreset('Legacy worldspace mode', '', config);
+    const parsed = parsePreset(JSON.stringify({ ...legacy, mode: 'worldspace' }));
+    expect(parsed.mode).toBe('ordered');
+    expect(parsed.patternSpace).toBe('world');
   });
 
   it('backfills the palette-library filter/query/sort into presets saved before they existed', () => {
@@ -161,7 +169,7 @@ describe('conversion presets', () => {
   });
 
   it('backfills and validates worldspace scale', () => {
-    const current = createPreset('Worldspace', '', { ...config, mode: 'worldspace', worldspaceScale: 128 });
+    const current = createPreset('Worldspace', '', { ...config, mode: 'ordered', patternSpace: 'world', worldspaceScale: 128 });
     const { worldspaceScale: _removed, ...legacy } = current;
     expect(parsePreset(JSON.stringify(legacy)).worldspaceScale).toBe(64);
     expect(isConversionPreset({ ...current, worldspaceScale: 64 })).toBe(true);
@@ -342,7 +350,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(35);
+    expect(Object.keys(defaults)).toHaveLength(36);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -354,6 +362,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       upscale: 'nearest',
       stripeAngle: 45,
       noiseScale: 1,
+      patternSpace: 'uv',
       worldspaceScale: 64,
       halftoneScale: 1,
       seed: 1,
