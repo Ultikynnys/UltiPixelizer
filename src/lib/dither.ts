@@ -1,4 +1,4 @@
-import { DEFAULT_WORLDSPACE_SCALE } from './defaults';
+import { DEFAULT_WORLDSPACE_SCALE, UV_SCALE_MAX, UV_SCALE_MIN } from './defaults';
 import { hexToRgb } from './palettes';
 import { clamp, LUMA, type RGB } from './math';
 import { createWasmMatcher } from './wasmLinearMatch';
@@ -369,6 +369,9 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
   const { width, height } = source;
   const strength = options.strength;
   const uvScale = options.uvScale ?? 1;
+  if (!Number.isFinite(uvScale) || uvScale < UV_SCALE_MIN || uvScale > UV_SCALE_MAX) {
+    throw new Error(`uvScale must be between ${UV_SCALE_MIN} and ${UV_SCALE_MAX} cells per pixel.`);
+  }
   const isThreshold = thresholdModes.has(options.mode);
   const isHalftone = options.mode === 'halftone';
   const isFloyd = options.mode === 'floyd';

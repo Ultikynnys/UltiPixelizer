@@ -167,6 +167,16 @@ describe('conversion presets', () => {
     expect(isConversionPreset({ ...base, pixelation: -1 })).toBe(false);
   });
 
+  it('clamps legacy UV scales and validates the new range', () => {
+    const current = createPreset('UV scale', '', { ...config, uvScale: 1 });
+    expect(parsePreset(JSON.stringify({ ...current, uvScale: 0.25 })).uvScale).toBe(0.5);
+    expect(isConversionPreset({ ...current, uvScale: 0.5 })).toBe(true);
+    expect(isConversionPreset({ ...current, uvScale: 0.55 })).toBe(true);
+    expect(isConversionPreset({ ...current, uvScale: 8 })).toBe(true);
+    expect(isConversionPreset({ ...current, uvScale: 0.49 })).toBe(false);
+    expect(isConversionPreset({ ...current, uvScale: 8.01 })).toBe(false);
+  });
+
   it('backfills and validates worldspace scale', () => {
     const current = createPreset('Worldspace', '', { ...config, mode: 'ordered', patternSpace: 'world', worldspaceScale: 128 });
     const { worldspaceScale: _removed, ...legacy } = current;
