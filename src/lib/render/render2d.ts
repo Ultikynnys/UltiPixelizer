@@ -1,6 +1,6 @@
 import { applyAO, aoMultiplier, imageAOFactors, redChannelFactors } from '../ao';
 import { cloneImageData, createCanvas, drawImageToCanvas, imagePixels, pixelateCanvas, pixelsToCanvas, resampleAndPixelate, resizeImage } from '../canvas';
-import { processImageData, isPatternMode, type ProcessOptions } from '../dither';
+import { processImageData, isWorldCapable, type ProcessOptions } from '../dither';
 import { DEFAULT_WORLDSPACE_SCALE } from '../defaults';
 import { webgpuUsable } from '../gpuCommon';
 import { gpuDitherCovers, processImageDataAsync } from '../gpuDither';
@@ -126,7 +126,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
    * besides the input pixels. Slider values are discrete state, so String()
    * round-trips exactly. */
   function ditherKey(options: ProcessOptions, extra = ''): string {
-    return `${options.mode}|${options.palette.join(',')}|${options.strength}|${options.brightness}|${options.contrast}|${options.saturation}|${options.stripeAngle}|${options.noiseScale}|${options.seed}|${options.halftoneScale ?? 1}|${options.worldspaceScale ?? DEFAULT_WORLDSPACE_SCALE}|${options.patternSpace ?? 'uv'}|${extra}`;
+    return `${options.mode}|${options.palette.join(',')}|${options.strength}|${options.brightness}|${options.contrast}|${options.saturation}|${options.stripeAngle}|${options.noiseScale}|${options.seed}|${options.halftoneScale ?? 1}|${options.worldspaceScale ?? DEFAULT_WORLDSPACE_SCALE}|${options.uvScale ?? 1}|${options.patternSpace ?? 'uv'}|${extra}`;
   }
 
   function lookupDither(key: string, input: Uint8ClampedArray): ImageData | null {
@@ -403,9 +403,10 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
         stripeAngle: state.stripeAngle, noiseScale: state.noiseScale, seed: state.seed,
         halftoneScale: state.halftoneScale,
         worldspaceScale: state.worldspaceScale,
+        uvScale: state.uvScale,
         patternSpace: state.patternSpace,
       };
-      const worldPosition = state.patternSpace === 'world' && isPatternMode(state.mode) ? currentWorldPositionMap(width, height) : null;
+      const worldPosition = state.patternSpace === 'world' && isWorldCapable(state.mode) ? currentWorldPositionMap(width, height) : null;
       if (worldPosition) {
         processedOptions.worldPositions = worldPosition.map.positions;
         processedOptions.worldNormals = worldPosition.map.normals;

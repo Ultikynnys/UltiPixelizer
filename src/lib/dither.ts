@@ -19,6 +19,8 @@ export type ProcessOptions = {
    * threshold cell per output pixel); 'world' projects it triplanar onto the
    * bake surface. Only coordinate-pattern modes honor this. */
   patternSpace?: 'uv' | 'world';
+  /** Pattern cells per pixel in UV space. */
+  uvScale?: number;
   /** XYZ world position for each output texel, stored as three floats per
    * pixel. Required when patternSpace is 'world'. */
   worldPositions?: Float32Array | null;
@@ -53,6 +55,12 @@ const thresholdModes = new Set<DitherMode>(['ordered', 'cross', 'stripes', 'nois
  * have no pattern coordinates. */
 export function isPatternMode(mode: DitherMode): boolean {
   return thresholdModes.has(mode);
+}
+
+/** True for modes that can sample in world space: the coordinate-pattern
+ * modes and halftone. */
+export function isWorldCapable(mode: DitherMode): boolean {
+  return isPatternMode(mode) || mode === 'halftone';
 }
 
 // Base halftone dot-cell size in pixels; `halftoneScale` multiplies it so the
@@ -362,16 +370,22 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
   const matcher = buildPaletteMatcher(options.palette);
   const { width, height } = source;
   const strength = options.strength;
+  const uvScale = options.uvScale ?? 1;
   const isThreshold = thresholdModes.has(options.mode);
   const isHalftone = options.mode === 'halftone';
   const isFloyd = options.mode === 'floyd';
   const isAtkinson = options.mode === 'atkinson';
   const tone = toneAdjustParams(options.brightness, options.contrast, options.saturation);
   const useWorldPattern = options.patternSpace === 'world' && isThreshold;
+  const useWorldHalftone = options.patternSpace === 'world' && isHalftone;
+  const useWorld = useWorldPattern || useWorldHalftone;
   // Resolved once up front: the per-pixel triplanar sampling reuses it, and
   // an invalid scale fails fast before any pixel work.
-  const worldScale = useWorldPattern ? worldspaceScaleValue(options.worldspaceScale) : 0;
-  if (useWorldPattern) {
+  const worldScale = useWorld ? worldspaceScaleValue(options.worldspaceScale) : 0;
+  // The world scale already drives the noise cell size in world space, so the
+  // UV-space noise scale is locked at 1 px there.
+  const worldNoiseScale = options.mode === 'noise' ? 1 : options.noiseScale;
+  if (useWorld) {
     const pixelCount = width * height;
     if (!options.worldPositions || options.worldPositions.length !== pixelCount * 3) {
       throw new Error(`worldspace pattern requires ${pixelCount * 3} world-position values.`);
@@ -432,12 +446,12 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
               options.worldNormals![position + 2],
               worldScale,
               options.stripeAngle,
-              options.noiseScale,
+              worldNoiseScale,
               options.seed,
             );
           }
         } else {
-          threshold = patternThreshold(options.mode, x, y, options.stripeAngle, options.noiseScale, options.seed);
+          threshold = patternThreshold(options.mode, x * uvScale, y * uvScale, options.stripeAngle, options.noiseScale, options.seed);
         }
         const offset = (threshold - 0.5) * 96 * strength;
         r = clamp(r + offset, 0, 255);
@@ -460,39 +474,73 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
         // Dither strength deliberately does NOT touch the dots: halftone is
         // shading, not error diffusion.
         const cell = Math.max(1, Math.round(HALFTONE_CELL * (options.halftoneScale ?? 1)));
-        const row = Math.floor(y / cell);
-        const col = Math.floor(x / cell);
-        const maxRadius = Math.hypot(cell / 2, cell / 2);
-        const sampleAt = (centerX: number, centerY: number): number => {
-          const sampleX = clamp(Math.round(centerX), 0, width - 1);
-          const sampleY = clamp(Math.round(centerY), 0, height - 1);
+        // Pattern coordinates: image space uses pixel centers with the
+        // halftone cell; world space projects the world position onto the
+        // dominant normal plane, scaled by cells per world unit (cell = 1).
+        // World-space samples read the pixel's own texel, since the dot
+        // centers live in world space and have no direct texel.
+        let u: number;
+        let v: number;
+        let patternCell: number;
+        if (useWorldHalftone) {
+          const position = pixel * 3;
+          const wx = options.worldPositions![position];
+          const wy = options.worldPositions![position + 1];
+          const wz = options.worldPositions![position + 2];
+          const nx = options.worldNormals![position];
+          const ny = options.worldNormals![position + 1];
+          const nz = options.worldNormals![position + 2];
+          if (Math.abs(nx) >= Math.abs(ny) && Math.abs(nx) >= Math.abs(nz)) {
+            u = wy * worldScale;
+            v = wz * worldScale;
+          } else if (Math.abs(ny) >= Math.abs(nz)) {
+            u = wx * worldScale;
+            v = wz * worldScale;
+          } else {
+            u = wx * worldScale;
+            v = wy * worldScale;
+          }
+          patternCell = 1;
+        } else {
+          u = x + 0.5;
+          v = y + 0.5;
+          patternCell = cell / uvScale;
+        }
+        const maxRadius = Math.hypot(patternCell / 2, patternCell / 2);
+        const sampleAt = (centerU: number, centerV: number): number => {
+          if (useWorldHalftone) return pixel;
+          const sampleX = clamp(Math.round(centerU), 0, width - 1);
+          const sampleY = clamp(Math.round(centerV), 0, height - 1);
           return sampleY * width + sampleX;
         };
         const luminanceAt = (index: number): number => (work[index * 3] * LUMA.red + work[index * 3 + 1] * LUMA.green + work[index * 3 + 2] * LUMA.blue) / 255;
         const baseColorAt = (index: number): number => matchPalette(matcher, work[index * 3], work[index * 3 + 1], work[index * 3 + 2]);
-        const baseRadius = (luminance: number): number => Math.max(cell / 2, maxRadius * (1 - luminance));
+        const baseRadius = (luminance: number): number => Math.max(patternCell / 2, maxRadius * (1 - luminance));
+
+        const row = Math.floor(v / patternCell);
+        const col = Math.floor(u / patternCell);
 
         // Layer A: dots at cell centers.
-        const centerAX = (col + 0.5) * cell;
-        const centerAY = (row + 0.5) * cell;
-        const indexA = sampleAt(centerAX, centerAY);
-        const inA = Math.hypot(x + 0.5 - centerAX, y + 0.5 - centerAY) <= baseRadius(luminanceAt(indexA));
+        const centerAU = (col + 0.5) * patternCell;
+        const centerAV = (row + 0.5) * patternCell;
+        const indexA = sampleAt(centerAU, centerAV);
+        const inA = Math.hypot(u - centerAU, v - centerAV) <= baseRadius(luminanceAt(indexA));
 
         // Layer B: dots at cell corners (half a cell offset in both axes).
-        const centerBX = col * cell;
-        const centerBY = row * cell;
-        const indexB = sampleAt(centerBX, centerBY);
-        const inB = Math.hypot(x + 0.5 - centerBX, y + 0.5 - centerBY) <= baseRadius(luminanceAt(indexB));
+        const centerBU = col * patternCell;
+        const centerBV = row * patternCell;
+        const indexB = sampleAt(centerBU, centerBV);
+        const inB = Math.hypot(u - centerBU, v - centerBV) <= baseRadius(luminanceAt(indexB));
 
         // Lighting dot (staggered lattice): black ink, radius from the
         // AO×lightmap factor at the dot center, multiplied on top of the base.
         const rowOdd = row % 2 === 1;
-        const lightCenterX = rowOdd
-          ? (x - col * cell < cell / 2 ? col : col + 1) * cell
-          : (col + 0.5) * cell;
-        const lightCenterY = (row + 0.5) * cell;
-        const lightFactor = options.lighting ? options.lighting[sampleAt(lightCenterX, lightCenterY)] : 1;
-        const inLightDot = Math.hypot(x + 0.5 - lightCenterX, y + 0.5 - lightCenterY) <= maxRadius * (1 - lightFactor);
+        const lightCenterU = rowOdd
+          ? (u - col * patternCell < patternCell / 2 ? col : col + 1) * patternCell
+          : (col + 0.5) * patternCell;
+        const lightCenterV = (row + 0.5) * patternCell;
+        const lightFactor = options.lighting ? options.lighting[sampleAt(lightCenterU, lightCenterV)] : 1;
+        const inLightDot = Math.hypot(u - lightCenterU, v - lightCenterV) <= maxRadius * (1 - lightFactor);
 
         // −1 marks a lighting dot (black ink); otherwise the covering base
         // dot's color (layer A wins on overlap; the pixel's own hard-mapped

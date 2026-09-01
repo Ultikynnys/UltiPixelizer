@@ -40,6 +40,7 @@ const config: ConversionConfig = {
   stripeAngle: 45,
   noiseScale: 1,
   patternSpace: 'uv',
+  uvScale: 1,
   worldspaceScale: 64,
   halftoneScale: 1,
   seed: 1,
@@ -350,7 +351,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
 
   it('derives initial defaults for every serializable setting', () => {
     const defaults = defaultConfigValues();
-    expect(Object.keys(defaults)).toHaveLength(36);
+    expect(Object.keys(defaults)).toHaveLength(37);
     expect(defaults).toEqual({
       resolution: 128,
       mode: 'floyd',
@@ -363,6 +364,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       stripeAngle: 45,
       noiseScale: 1,
       patternSpace: 'uv',
+      uvScale: 1,
       worldspaceScale: 64,
       halftoneScale: 1,
       seed: 1,

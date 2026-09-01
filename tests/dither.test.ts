@@ -141,6 +141,59 @@ describe('dithering engine', () => {
     expect([...first.data]).toEqual([...second.data]);
   });
 
+  it('locks the noise scale at 1 px in world-space noise', () => {
+    const source = imageData(Array.from({ length: 4 }, () => [128, 128, 128, 255]), 4);
+    const worldPositions = new Float32Array([
+      0.1, 0.2, 0.3,
+      0.4, 0.5, 0.6,
+      0.7, 0.8, 0.9,
+      1.1, 1.2, 1.3,
+    ]);
+    const worldNormals = new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
+    const worldPositionCoverage = new Uint8Array([1, 1, 1, 1]);
+    // The world scale already drives the noise cell size, so any UV-space
+    // noise scale must be ignored in world mode.
+    const scaled = processImageData(source, { ...options('noise'), patternSpace: 'world', worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 64, noiseScale: 8 });
+    const locked = processImageData(source, { ...options('noise'), patternSpace: 'world', worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 64, noiseScale: 1 });
+    expect([...scaled.data]).toEqual([...locked.data]);
+  });
+
+  it('anchors halftone dots to world positions in world space', () => {
+    const source = imageData(Array(16).fill([128, 128, 128, 255]), 4);
+    const worldPositions = new Float32Array(48);
+    for (let i = 0; i < 16; i += 1) {
+      worldPositions[i * 3] = 0.1 + i * 0.05;
+      worldPositions[i * 3 + 1] = 0.2 + i * 0.03;
+      worldPositions[i * 3 + 2] = 0.3 + i * 0.07;
+    }
+    const worldNormals = new Float32Array(48);
+    for (let i = 0; i < 16; i += 1) worldNormals[i * 3 + 1] = 1;
+    const worldPositionCoverage = new Uint8Array(16).fill(1);
+    const lighting = new Float32Array(16).fill(0.5);
+    const uv = processImageData(source, { ...options('halftone'), lighting });
+    const world = processImageData(source, { ...options('halftone'), patternSpace: 'world', worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 64, lighting });
+    // The world-anchored lattice places the lighting dots differently than
+    // the image-space lattice.
+    expect([...world.data]).not.toEqual([...uv.data]);
+    const again = processImageData(source, { ...options('halftone'), patternSpace: 'world', worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 64, lighting });
+    expect([...again.data]).toEqual([...world.data]);
+  });
+
+  it('scales coordinate patterns by the UV scale', () => {
+    const source = imageData(Array(16).fill([128, 128, 128, 255]), 4);
+    const base = processImageData(source, { ...options('ordered'), uvScale: 1 });
+    const scaled = processImageData(source, { ...options('ordered'), uvScale: 2 });
+    expect([...scaled.data]).not.toEqual([...base.data]);
+  });
+
+  it('scales halftone dots by the UV scale', () => {
+    const source = imageData(Array(16).fill([128, 128, 128, 255]), 4);
+    const lighting = new Float32Array(16).fill(0.5);
+    const base = processImageData(source, { ...options('halftone'), lighting });
+    const scaled = processImageData(source, { ...options('halftone'), lighting, uvScale: 2 });
+    expect([...scaled.data]).not.toEqual([...base.data]);
+  });
+
   it('requires complete world-position inputs instead of falling back to image space', () => {
     const source = imageData([[128, 128, 128, 255]], 1);
     expect(() => processImageData(source, { ...options('ordered'), patternSpace: 'world' })).toThrow('world-position values');

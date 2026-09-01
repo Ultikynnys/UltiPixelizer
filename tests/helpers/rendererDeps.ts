@@ -65,6 +65,7 @@ export function createStateFixture(): State {
     stripeAngle: 45,
     noiseScale: 1,
     patternSpace: 'uv',
+    uvScale: 1,
     worldspaceScale: 64,
     halftoneScale: 1,
     seed: 1,

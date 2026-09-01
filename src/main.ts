@@ -4,7 +4,7 @@ import { clamp } from './lib/math';
 import { CONFIG_FOLDER, disableWebviewContextMenu, initTauriFileStore, openExternalLink, type TauriFileStore } from './lib/tauri';
 import { CUSTOM_PALETTE_STORAGE_KEY, createCustomPalette, deleteCustomPalette, deleteCustomPaletteFile, duplicatePalette, filePaletteFor, isCustomPalette, loadCustomPalettes, loadCustomPalettesFromFiles, matchingPaletteKey, paletteFileName, paletteFromImport, saveCustomPaletteFile, selectOrCreatePalette, serializePaletteHex, updateCustomPalette, upsertCustomPalette, watchPalettesFolder, type CustomPalette } from './lib/customPalettes';
 import type { StorageLike } from './lib/storage';
-import { isPatternMode, type DitherMode } from './lib/dither';
+import { isWorldCapable, type DitherMode } from './lib/dither';
 import { sampleColorAt } from './lib/eyedropper';
 import { hexToRgb, hsvToRgb, palettes, rgbToHex, rgbToHsv, type Palette, type PaletteCategory } from './lib/palettes';
 import { computePosterizeStats, posterizeColors, type PosterizeStats } from './lib/posterize';
@@ -402,7 +402,10 @@ app.innerHTML = `
             ${rangeControl('seed', 'Seed', 0, 9999, 1, 1, '1', 'Noise pattern')}
           </div>
           <div class="worldspace-scale-control" id="worldspaceScaleControl" hidden>
-            ${rangeControl('worldspaceScale', 'World scale', 64, 2048, 1, 64, '64 cells/unit', 'Ordered cells per world unit')}
+            ${rangeControl('worldspaceScale', 'World scale', 64, 2048, 1, 64, '64 cells/unit', 'Pattern cells per world unit')}
+          </div>
+          <div class="uv-scale-control" id="uvScaleControl" hidden>
+            ${rangeControl('uvScale', 'UV scale', 0.25, 8, 0.25, 1, '1 cells/px', 'Pattern cells per pixel')}
           </div>
           <div class="halftone-scale-control" id="halftoneScaleControl" hidden>
             ${rangeControl('halftoneScale', 'Dot scale', 0.5, 4, 0.1, 1, '1.00×', 'Halftone dot size')}
@@ -607,6 +610,9 @@ const noiseScaleValue = document.querySelector<HTMLOutputElement>('#noiseScaleVa
 const worldspaceScaleControl = document.querySelector<HTMLDivElement>('#worldspaceScaleControl')!;
 const worldspaceScaleInput = document.querySelector<HTMLInputElement>('#worldspaceScale')!;
 const worldspaceScaleValue = document.querySelector<HTMLOutputElement>('#worldspaceScaleValue')!;
+const uvScaleControl = document.querySelector<HTMLDivElement>('#uvScaleControl')!;
+const uvScaleInput = document.querySelector<HTMLInputElement>('#uvScale')!;
+const uvScaleValue = document.querySelector<HTMLOutputElement>('#uvScaleValue')!;
 const halftoneScaleControl = document.querySelector<HTMLDivElement>('#halftoneScaleControl')!;
 const halftoneScaleInput = document.querySelector<HTMLInputElement>('#halftoneScale')!;
 const halftoneScaleValue = document.querySelector<HTMLOutputElement>('#halftoneScaleValue')!;
@@ -962,6 +968,7 @@ const formatPercent = (value: number): string => `${value}%`;
 const formatDegrees = (value: number): string => `${value}°`;
 const formatPixels = (value: number): string => `${value} px`;
 const formatCellsPerUnit = (value: number): string => `${value} cells/unit`;
+const formatCellsPerPixel = (value: number): string => `${value} cells/px`;
 const formatPlain = (value: number): string => String(value);
 const formatSignedFixed2 = (value: number): string => `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
 const formatTimes2 = (value: number): string => `${value.toFixed(2)}×`;
@@ -1295,10 +1302,16 @@ document.querySelector<HTMLInputElement>('#showFloorGrid')!.addEventListener('ch
 function updatePatternControls(): void {
   stripeAngleControl.hidden = state.mode !== 'stripes';
   noiseScaleControl.hidden = state.mode !== 'noise';
-  const patternMode = isPatternMode(state.mode);
-  patternSpaceToggle.hidden = !patternMode;
-  worldspaceScaleControl.hidden = !(patternMode && state.patternSpace === 'world');
+  const worldCapable = isWorldCapable(state.mode);
+  patternSpaceToggle.hidden = !worldCapable;
+  worldspaceScaleControl.hidden = !(worldCapable && state.patternSpace === 'world');
+  uvScaleControl.hidden = !(worldCapable && state.patternSpace === 'uv');
   halftoneScaleControl.hidden = state.mode !== 'halftone';
+  // The world scale already drives the noise cell size in world space, so the
+  // UV-space noise scale is locked at 1 px there.
+  const worldNoise = state.mode === 'noise' && state.patternSpace === 'world';
+  noiseScaleInput.disabled = worldNoise;
+  syncRangeValue(noiseScaleInput, noiseScaleValue, worldNoise ? 1 : state.noiseScale, formatPixels);
 }
 
 function updateAOControls(): void {
@@ -2022,6 +2035,8 @@ function bindRangeValueEdit(input: HTMLInputElement, output: HTMLElement, apply:
     renderScheduler.request();
   };
   output.addEventListener('click', (event) => {
+    // Disabled sliders (e.g. the world-space noise scale lock) are read-only.
+    if (input.disabled) return;
     // preventDefault stops the wrapping <label for> from forwarding the click
     // to the range input  the edit field takes focus instead.
     event.preventDefault();
@@ -2050,6 +2065,7 @@ function syncControlsFromState(): void {
   syncRangeValue(stripeAngleInput, stripeAngleValue, state.stripeAngle, formatDegrees);
   syncRangeValue(noiseScaleInput, noiseScaleValue, state.noiseScale, formatPixels);
   syncRangeValue(worldspaceScaleInput, worldspaceScaleValue, state.worldspaceScale, formatCellsPerUnit);
+  syncRangeValue(uvScaleInput, uvScaleValue, state.uvScale, formatCellsPerPixel);
   syncRangeValue(halftoneScaleInput, halftoneScaleValue, state.halftoneScale, formatTimes2);
   syncActiveButton(patternSpaceToggle, '[data-pattern-space]', (button) => button.dataset.patternSpace === state.patternSpace);
   syncRangeValue(seedInput, seedValue, state.seed, formatPlain);
@@ -2704,6 +2720,13 @@ bindRange({
   format: formatCellsPerUnit,
   live: false,
   apply: (value) => { state.worldspaceScale = value; },
+});
+bindRange({
+  input: uvScaleInput,
+  output: uvScaleValue,
+  format: formatCellsPerPixel,
+  live: false,
+  apply: (value) => { state.uvScale = value; },
 });
 bindRange({
   input: halftoneScaleInput,

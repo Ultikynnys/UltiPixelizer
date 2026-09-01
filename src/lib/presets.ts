@@ -20,6 +20,8 @@ export type ConversionConfig = {
   mode: DitherMode;
   /** Pattern sampling space: 'uv' (image space) or 'world' (triplanar). */
   patternSpace: 'uv' | 'world';
+  /** Pattern cells per pixel in UV space. */
+  uvScale: number;
   strength: number;
   brightness: number;
   contrast: number;
@@ -146,6 +148,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'resolution', path: ['resolution'], default: 128, validate: inRange(1, 4096) },
   { key: 'mode', path: ['mode'], default: 'floyd', validate: isEnum(ditherModes) },
   { key: 'patternSpace', path: ['patternSpace'], default: 'uv', migrateDefault: 'uv', validate: isEnum(['uv', 'world']) },
+  { key: 'uvScale', path: ['uvScale'], default: 1, migrateDefault: 1, validate: inRange(0.25, 8) },
   { key: 'strength', path: ['strength'], default: 0.85, validate: inRange(0, 1) },
   { key: 'brightness', path: ['brightness'], default: 0, validate: inRange(-100, 100) },
   { key: 'contrast', path: ['contrast'], default: 8, validate: inRange(-100, 100) },
