@@ -1923,6 +1923,10 @@ type RangeBinding = {
    * value changes, but the (possibly heavy) apply runs once at rest. Used by
    * the quad-tessellation slider, which rebuilds geometry per change. */
   debounce?: number;
+  /** Release-only apply: the readout updates live while the value changes,
+   * but the apply (and render) waits for the change event on release. Used by
+   * the dither-parameter sliders, whose full re-dither is expensive. */
+  live?: boolean;
 };
 
 // Shared render-side sync for a range input + its value output  the mirror of
@@ -1952,7 +1956,7 @@ function bindRangeReset(input: HTMLInputElement): void {
   });
 }
 
-function bindRange({ input, output, format, apply, debounce }: RangeBinding): void {
+function bindRange({ input, output, format, apply, debounce, live = true }: RangeBinding): void {
   let timer = 0;
   const sync = (value: number): void => {
     apply(value);
@@ -1961,7 +1965,11 @@ function bindRange({ input, output, format, apply, debounce }: RangeBinding): vo
   };
   input.addEventListener('input', (event) => {
     const value = Number((event.target as HTMLInputElement).value);
-    if (debounce) {
+    if (!live) {
+      // Release-only sliders (the dither parameters): the readout keeps pace
+      // with the drag, but the heavy apply waits for the change event.
+      output.textContent = format(value);
+    } else if (debounce) {
       // The readout keeps pace with the drag; the apply fires once at rest.
       output.textContent = format(value);
       window.clearTimeout(timer);
@@ -1979,6 +1987,7 @@ function bindRange({ input, output, format, apply, debounce }: RangeBinding): vo
       apply(input.valueAsNumber);
       renderScheduler.request();
     }
+    if (!live) apply(input.valueAsNumber);
     renderScheduler.flush();
   });
   // Direct numeric entry  every generated slider gets click-to-edit for free.
@@ -2672,36 +2681,42 @@ bindRange({
   input: strengthInput,
   output: strengthValue,
   format: formatPercent,
+  live: false,
   apply: (value) => { state.strength = value / 100; },
 });
 bindRange({
   input: stripeAngleInput,
   output: stripeAngleValue,
   format: formatDegrees,
+  live: false,
   apply: (value) => { state.stripeAngle = value; },
 });
 bindRange({
   input: noiseScaleInput,
   output: noiseScaleValue,
   format: formatPixels,
+  live: false,
   apply: (value) => { state.noiseScale = value; },
 });
 bindRange({
   input: worldspaceScaleInput,
   output: worldspaceScaleValue,
   format: formatCellsPerUnit,
+  live: false,
   apply: (value) => { state.worldspaceScale = value; },
 });
 bindRange({
   input: halftoneScaleInput,
   output: halftoneScaleValue,
   format: formatTimes2,
+  live: false,
   apply: (value) => { state.halftoneScale = value; },
 });
 bindRange({
   input: seedInput,
   output: seedValue,
   format: formatPlain,
+  live: false,
   apply: (value) => { state.seed = value; },
 });
 bindRange({

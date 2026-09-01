@@ -126,6 +126,21 @@ describe('dithering engine', () => {
     expect(worldspacePatternThreshold('ordered', -0.25, 0, 0, 0, 1, 0, 4)).toBe(worldspacePatternThreshold('ordered', 0.75, 0, 0, 0, 1, 0, 4));
   });
 
+  it.each<DitherMode>(['ordered', 'cross', 'stripes', 'noise', 'checker'])('handles fractional world coordinates in %s triplanar patterns', (mode) => {
+    const source = imageData(Array.from({ length: 4 }, () => [128, 128, 128, 255]), 4);
+    const worldPositions = new Float32Array([
+      3.9556404799222946, 0.4427282586693764, 0.9824366569519043,
+      0.1, 0.37, 0.82,
+      1.5, 2.5, 3.5,
+      -0.25, -1.75, -3.125,
+    ]);
+    const worldNormals = new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
+    const worldPositionCoverage = new Uint8Array([1, 1, 1, 1]);
+    const first = processImageData(source, { ...options(mode), patternSpace: 'world', worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 64 });
+    const second = processImageData(source, { ...options(mode), patternSpace: 'world', worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 64 });
+    expect([...first.data]).toEqual([...second.data]);
+  });
+
   it('requires complete world-position inputs instead of falling back to image space', () => {
     const source = imageData([[128, 128, 128, 255]], 1);
     expect(() => processImageData(source, { ...options('ordered'), patternSpace: 'world' })).toThrow('world-position values');

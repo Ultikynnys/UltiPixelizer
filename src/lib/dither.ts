@@ -95,10 +95,10 @@ export function worldspacePatternThreshold(mode: DitherMode, x: number, y: numbe
 export function patternThreshold(mode: DitherMode, x: number, y: number, stripeAngle = 45, noiseScale = 1, seed = 0): number {
   switch (mode) {
     case 'ordered':
-      return BAYER_4[positiveModulo(y, 4)][positiveModulo(x, 4)] / 15;
+      return BAYER_4[positiveModulo(Math.floor(y), 4)][positiveModulo(Math.floor(x), 4)] / 15;
     case 'cross': {
-      const row = positiveModulo(y, 4);
-      const col = positiveModulo(x, 4);
+      const row = positiveModulo(Math.floor(y), 4);
+      const col = positiveModulo(Math.floor(x), 4);
       const horizontal = row === 1 || row === 2;
       const vertical = col === 1 || col === 2;
       return horizontal && vertical ? 0.08 : horizontal || vertical ? 0.38 : 0.88;
@@ -118,7 +118,7 @@ export function patternThreshold(mode: DitherMode, x: number, y: number, stripeA
       return (hash >>> 0) / 4294967296;
     }
     case 'checker':
-      return positiveModulo(x + y, 2) === 0 ? 0.2 : 0.8;
+      return positiveModulo(Math.floor(x) + Math.floor(y), 2) === 0 ? 0.2 : 0.8;
     default:
       return 0.5;
   }
