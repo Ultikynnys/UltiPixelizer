@@ -413,9 +413,9 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       }
       let processedData: ImageData;
       if (state.mode === 'halftone') {
-        // Halftone splits color from shading: the dots carry the base color
-        // (sampled at each cell center, unlit) and the dot screen carries the
-        // lighting, so lighting is not multiplied into the base. Inspected
+        // Halftone stacks two dot screens with no paper: the base color as
+        // two offset layers of dots (fully covering the frame) with the
+        // AO×lightmap halftone multiplied on top as black ink. Inspected
         // maps still skip lighting, exactly like the other modes. The
         // lighting array is part of the cache input.
         const lighting = processedOnlySource ? null : halftoneLighting(width, height);

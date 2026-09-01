@@ -59,10 +59,6 @@ export function isPatternMode(mode: DitherMode): boolean {
 // pattern period and the dots scale together (dots just touch at full black).
 const HALFTONE_CELL = 4;
 
-/** Halftone paper sentinel: outside the dots the frame is white, which may
- * not exist in the palette. */
-const PAPER = -2;
-
 function positiveModulo(value: number, divisor: number): number {
   return ((value % divisor) + divisor) % divisor;
 }
@@ -388,9 +384,10 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
     }
   }
 
-  // Halftone splits color from shading: the dots are the palette hard-map of
-  // the adjusted base color sampled at each cell center, and the dot screen
-  // carries the shading, so no ink/paper extremes are precomputed.
+  // Halftone stacks two dot screens with no paper: the base color as two
+  // offset layers of dots (fully covering the frame) with the AO×lightmap
+  // halftone multiplied on top as black ink, so no ink/paper extremes are
+  // precomputed.
 
   for (let pixel = 0; pixel < width * height; pixel += 1) {
     const index = pixel * 4;
@@ -450,43 +447,64 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
 
       let matchedIndex: number;
       if (isHalftone) {
-        // Staggered lattice of dot centers (mid-cell on even rows, shared
-        // boundary on odd rows). Each dot is a circle of the base color
-        // sampled at its cell center; the radius is driven by the shading
-        // factor (lighting × the base color's own luminance) sampled at the
-        // same point, so sizes stay uniform per cell and grade smoothly.
-        // Fully dark (factor 0) fills the cell with the base color; fully
-        // lit (factor 1) leaves paper. Dither strength deliberately does NOT
-        // touch the dots: halftone is shading, not error diffusion.
+        // Two stacked dot screens, no paper:
+        // 1. Base-color dots: two layers at a half-cell offset (cell centers
+        //    and cell corners) so the second layer fills the first's gaps and
+        //    the frame is fully covered. Each dot is a circle of the base
+        //    color sampled at its center; the radius is driven by the base
+        //    color's own luminance, floored at cell/2 so the layers always
+        //    overlap.
+        // 2. Lighting dots: the AO×lightmap halftone (black ink, radius from
+        //    the shading factor at the dot center) multiplied on top, so
+        //    shadowed areas print black over the base dots.
+        // Dither strength deliberately does NOT touch the dots: halftone is
+        // shading, not error diffusion.
         const cell = Math.max(1, Math.round(HALFTONE_CELL * (options.halftoneScale ?? 1)));
         const row = Math.floor(y / cell);
         const col = Math.floor(x / cell);
+        const maxRadius = Math.hypot(cell / 2, cell / 2);
+        const sampleAt = (centerX: number, centerY: number): number => {
+          const sampleX = clamp(Math.round(centerX), 0, width - 1);
+          const sampleY = clamp(Math.round(centerY), 0, height - 1);
+          return sampleY * width + sampleX;
+        };
+        const luminanceAt = (index: number): number => (work[index * 3] * LUMA.red + work[index * 3 + 1] * LUMA.green + work[index * 3 + 2] * LUMA.blue) / 255;
+        const baseColorAt = (index: number): number => matchPalette(matcher, work[index * 3], work[index * 3 + 1], work[index * 3 + 2]);
+        const baseRadius = (luminance: number): number => Math.max(cell / 2, maxRadius * (1 - luminance));
+
+        // Layer A: dots at cell centers.
+        const centerAX = (col + 0.5) * cell;
+        const centerAY = (row + 0.5) * cell;
+        const indexA = sampleAt(centerAX, centerAY);
+        const inA = Math.hypot(x + 0.5 - centerAX, y + 0.5 - centerAY) <= baseRadius(luminanceAt(indexA));
+
+        // Layer B: dots at cell corners (half a cell offset in both axes).
+        const centerBX = col * cell;
+        const centerBY = row * cell;
+        const indexB = sampleAt(centerBX, centerBY);
+        const inB = Math.hypot(x + 0.5 - centerBX, y + 0.5 - centerBY) <= baseRadius(luminanceAt(indexB));
+
+        // Lighting dot (staggered lattice): black ink, radius from the
+        // AO×lightmap factor at the dot center, multiplied on top of the base.
         const rowOdd = row % 2 === 1;
-        const centerX = rowOdd
+        const lightCenterX = rowOdd
           ? (x - col * cell < cell / 2 ? col : col + 1) * cell
           : (col + 0.5) * cell;
-        const centerY = (row + 0.5) * cell;
-        const distance = Math.hypot(x + 0.5 - centerX, y + 0.5 - centerY);
-        const sampleX = clamp(Math.round(centerX), 0, width - 1);
-        const sampleY = clamp(Math.round(centerY), 0, height - 1);
-        const sampleIndex = sampleY * width + sampleX;
-        const centerR = work[sampleIndex * 3];
-        const centerG = work[sampleIndex * 3 + 1];
-        const centerB = work[sampleIndex * 3 + 2];
-        const luminance = (centerR * LUMA.red + centerG * LUMA.green + centerB * LUMA.blue) / 255;
-        const factor = (options.lighting ? options.lighting[sampleIndex] : 1) * luminance;
-        const maxRadius = Math.hypot(cell / 2, cell / 2);
-        const dotRadius = maxRadius * (1 - factor);
-        // The dot is a circle of the base color sampled at the cell center;
-        // outside the dots the frame is paper (white).
-        matchedIndex = distance <= dotRadius ? matchPalette(matcher, centerR, centerG, centerB) : PAPER;
+        const lightCenterY = (row + 0.5) * cell;
+        const lightFactor = options.lighting ? options.lighting[sampleAt(lightCenterX, lightCenterY)] : 1;
+        const inLightDot = Math.hypot(x + 0.5 - lightCenterX, y + 0.5 - lightCenterY) <= maxRadius * (1 - lightFactor);
+
+        // −1 marks a lighting dot (black ink); otherwise the covering base
+        // dot's color (layer A wins on overlap; the pixel's own hard-mapped
+        // color is the defensive fallback for the radius floor's edge).
+        matchedIndex = inLightDot ? -1 : inA ? baseColorAt(indexA) : inB ? baseColorAt(indexB) : matchPalette(matcher, r, g, b);
       } else {
         matchedIndex = matchPalette(matcher, r, g, b);
       }
       const outputIndex = pixel * 4;
-      const mr = matchedIndex === PAPER ? 255 : matcher.flat[matchedIndex * 3];
-      const mg = matchedIndex === PAPER ? 255 : matcher.flat[matchedIndex * 3 + 1];
-      const mb = matchedIndex === PAPER ? 255 : matcher.flat[matchedIndex * 3 + 2];
+      const mr = matchedIndex < 0 ? 0 : matcher.flat[matchedIndex * 3];
+      const mg = matchedIndex < 0 ? 0 : matcher.flat[matchedIndex * 3 + 1];
+      const mb = matchedIndex < 0 ? 0 : matcher.flat[matchedIndex * 3 + 2];
       data[outputIndex] = mr;
       data[outputIndex + 1] = mg;
       data[outputIndex + 2] = mb;
