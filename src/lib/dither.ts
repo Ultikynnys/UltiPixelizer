@@ -104,7 +104,15 @@ function createWorldHalftoneSamples(positions: Float32Array, normals: Float32Arr
     else buckets.set(key, [pixel]);
   }
 
+  const centerSamples = new Map<string, number>();
   const nearest = (plane: number, u: number, v: number): number => {
+    // Dot centers always land on integer or half-integer lattice coordinates.
+    // Many texels share each center, so resolve its UV source once. Without
+    // this cache, a dense world cell rescans the same large bucket per texel.
+    const centerKey = `${plane}:${u * 2}:${v * 2}`;
+    const cached = centerSamples.get(centerKey);
+    if (cached !== undefined) return cached;
+
     const centerCol = Math.floor(u);
     const centerRow = Math.floor(v);
     let bestPixel = -1;
@@ -125,6 +133,7 @@ function createWorldHalftoneSamples(positions: Float32Array, normals: Float32Arr
       }
     }
     if (bestPixel < 0) throw new Error('World-space halftone center has no covered source texel.');
+    centerSamples.set(centerKey, bestPixel);
     return bestPixel;
   };
 

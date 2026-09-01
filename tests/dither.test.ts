@@ -223,6 +223,33 @@ describe('dithering engine', () => {
     ]);
   });
 
+  it('finishes dense world cells without rescanning the same center per texel', () => {
+    const width = 256;
+    const pixelCount = width * width;
+    const source = imageData(Array(pixelCount).fill([128, 128, 128, 255]), width);
+    const worldPositions = new Float32Array(pixelCount * 3);
+    const worldNormals = new Float32Array(pixelCount * 3);
+    for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+      worldPositions[pixel * 3] = (pixel % width) / width * 0.8 + 0.1;
+      worldPositions[pixel * 3 + 1] = Math.floor(pixel / width) / width * 0.8 + 0.1;
+      worldNormals[pixel * 3 + 2] = 1;
+    }
+    const started = performance.now();
+    const output = processImageData(source, {
+      ...options('halftone'),
+      patternSpace: 'world',
+      worldPositions,
+      worldNormals,
+      worldPositionCoverage: new Uint8Array(pixelCount).fill(1),
+      worldspaceScale: 1,
+      lighting: grayLighting(pixelCount, 0.5),
+    });
+    expect(output.data).toHaveLength(pixelCount * 4);
+    // A generous ceiling catches the former quadratic bucket rescan while
+    // avoiding sensitivity to normal CI variation.
+    expect(performance.now() - started).toBeLessThan(3000);
+  });
+
   it('does not treat uncovered UV texels as world-origin samples', () => {
     const source = imageData([[255, 0, 0, 255], [0, 0, 255, 255]], 2);
     const output = processImageData(source, {
