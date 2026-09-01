@@ -1297,7 +1297,10 @@ function updatePatternControls(): void {
   const worldCapable = isWorldCapable(state.mode);
   patternSpaceToggle.hidden = !worldCapable;
   worldspaceScaleControl.hidden = !(worldCapable && state.patternSpace === 'world');
-  uvScaleControl.hidden = !(worldCapable && state.patternSpace === 'uv');
+  // Halftone always uses UV-scale dot cells (it never leaves UV space), so its
+  // UV scale control shows regardless of the pattern-space toggle.
+  const usesUvScale = state.mode === 'halftone' || (worldCapable && state.patternSpace === 'uv');
+  uvScaleControl.hidden = !usesUvScale;
 }
 
 function updateAOControls(): void {
