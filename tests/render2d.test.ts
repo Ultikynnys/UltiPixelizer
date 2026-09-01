@@ -150,30 +150,6 @@ describe('createRender2D render pipeline', () => {
     expect(calls[1][1].worldspaceScale).toBe(128);
   });
 
-  it('passes rasterized world positions to worldspace halftone', async () => {
-    const geometry = new BufferGeometry();
-    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
-    geometry.setAttribute('normal', new Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
-    geometry.setAttribute('uv', new Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
-    const surface = new Scene();
-    surface.add(new Mesh(geometry, new MeshBasicMaterial()));
-    const deps = createRendererDeps({
-      getBakeSurface: () => surface,
-      textures: { base: { image: baseTexture(), name: '' } },
-    });
-    deps.state.mode = 'halftone';
-    deps.state.patternSpace = 'world';
-    const render2d = createRender2D(deps, sharedState());
-
-    await render2d.render();
-
-    const calls = vi.mocked(processImageData).mock.calls;
-    expect(calls).toHaveLength(1);
-    expect(calls[0][1].worldPositions).toBeInstanceOf(Float32Array);
-    expect(calls[0][1].worldNormals).toBeInstanceOf(Float32Array);
-    expect(calls[0][1].worldPositionCoverage).toBeInstanceOf(Uint8Array);
-    expect(calls[0][1].patternSpace).toBe('world');
-  });
 
   it('passes colored lightmap and AO data to halftone as normalized RGB', () => {
     const deps = createRendererDeps({

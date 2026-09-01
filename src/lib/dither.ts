@@ -54,91 +54,14 @@ export function isPatternMode(mode: DitherMode): boolean {
 }
 
 /** True for modes that can sample in world space: the coordinate-pattern
- * modes and halftone. */
+ * modes. Halftone stays in UV space: its dot lattice is anchored to image
+ * pixels, so the bake-surface projection is never involved. */
 export function isWorldCapable(mode: DitherMode): boolean {
-  return isPatternMode(mode) || mode === 'halftone';
+  return isPatternMode(mode);
 }
 
-// Base halftone dot-cell size in pixels; the UV scale (or world scale in
-// world space) is what sizes the dots.
+// Base halftone dot-cell size in pixels; the UV scale is what sizes the dots.
 const HALFTONE_CELL = 4;
-
-type WorldHalftoneSamples = {
-  planes: Uint8Array;
-  projectedU: Float64Array;
-  projectedV: Float64Array;
-  nearest: (plane: number, u: number, v: number) => number;
-};
-
-function worldHalftoneProjection(x: number, y: number, z: number, nx: number, ny: number, nz: number, scale: number): readonly [number, number, number] {
-  if (Math.abs(nx) >= Math.abs(ny) && Math.abs(nx) >= Math.abs(nz)) return [0, y * scale, z * scale];
-  if (Math.abs(ny) >= Math.abs(nz)) return [1, x * scale, z * scale];
-  return [2, x * scale, y * scale];
-}
-
-/** Connects world-space dot centers back to covered UV texels. Bucketing by
- * projected lattice cell keeps each center lookup local while preserving a
- * deterministic lowest-index tie break. */
-function createWorldHalftoneSamples(positions: Float32Array, normals: Float32Array, coverage: Uint8Array, scale: number): WorldHalftoneSamples {
-  const pixelCount = coverage.length;
-  const planes = new Uint8Array(pixelCount);
-  const projectedU = new Float64Array(pixelCount);
-  const projectedV = new Float64Array(pixelCount);
-  const buckets = new Map<string, number[]>();
-  const bucketKey = (plane: number, col: number, row: number): string => `${plane}:${col}:${row}`;
-
-  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
-    if (coverage[pixel] === 0) continue;
-    const offset = pixel * 3;
-    const [plane, u, v] = worldHalftoneProjection(
-      positions[offset], positions[offset + 1], positions[offset + 2],
-      normals[offset], normals[offset + 1], normals[offset + 2],
-      scale,
-    );
-    planes[pixel] = plane;
-    projectedU[pixel] = u;
-    projectedV[pixel] = v;
-    const key = bucketKey(plane, Math.floor(u), Math.floor(v));
-    const bucket = buckets.get(key);
-    if (bucket) bucket.push(pixel);
-    else buckets.set(key, [pixel]);
-  }
-
-  const centerSamples = new Map<string, number>();
-  const nearest = (plane: number, u: number, v: number): number => {
-    // Dot centers always land on integer or half-integer lattice coordinates.
-    // Many texels share each center, so resolve its UV source once. Without
-    // this cache, a dense world cell rescans the same large bucket per texel.
-    const centerKey = `${plane}:${u * 2}:${v * 2}`;
-    const cached = centerSamples.get(centerKey);
-    if (cached !== undefined) return cached;
-
-    const centerCol = Math.floor(u);
-    const centerRow = Math.floor(v);
-    let bestPixel = -1;
-    let bestDistance = Number.POSITIVE_INFINITY;
-    for (let rowOffset = -1; rowOffset <= 1; rowOffset += 1) {
-      for (let colOffset = -1; colOffset <= 1; colOffset += 1) {
-        const bucket = buckets.get(bucketKey(plane, centerCol + colOffset, centerRow + rowOffset));
-        if (!bucket) continue;
-        for (const pixel of bucket) {
-          const du = projectedU[pixel] - u;
-          const dv = projectedV[pixel] - v;
-          const distance = du * du + dv * dv;
-          if (distance < bestDistance || (distance === bestDistance && pixel < bestPixel)) {
-            bestDistance = distance;
-            bestPixel = pixel;
-          }
-        }
-      }
-    }
-    if (bestPixel < 0) throw new Error('World-space halftone center has no covered source texel.');
-    centerSamples.set(centerKey, bestPixel);
-    return bestPixel;
-  };
-
-  return { planes, projectedU, projectedV, nearest };
-}
 
 function positiveModulo(value: number, divisor: number): number {
   return ((value % divisor) + divisor) % divisor;
@@ -486,8 +409,7 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
     }
   }
   const useWorldPattern = options.patternSpace === 'world' && isThreshold;
-  const useWorldHalftone = options.patternSpace === 'world' && isHalftone;
-  const useWorld = useWorldPattern || useWorldHalftone;
+  const useWorld = useWorldPattern;
   // Resolved once up front: the per-pixel triplanar sampling reuses it, and
   // an invalid scale fails fast before any pixel work.
   const worldScale = useWorld ? worldspaceScaleValue(options.worldspaceScale) : 0;
@@ -502,9 +424,6 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
       throw new Error(`worldspace pattern requires ${pixelCount * 3} world-normal values.`);
     }
   }
-  const worldHalftoneSamples = useWorldHalftone
-    ? createWorldHalftoneSamples(options.worldPositions!, options.worldNormals!, options.worldPositionCoverage!, worldScale)
-    : null;
 
   // Halftone stacks two dot screens with no paper: the base color as two
   // offset layers of dots (fully covering the frame) with the AO×lightmap
@@ -567,7 +486,7 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
       }
 
       let matchedIndex: number;
-      if (isHalftone && (!useWorldHalftone || options.worldPositionCoverage![pixel] !== 0)) {
+      if (isHalftone) {
         // Two stacked dot screens, no paper:
         // 1. Base-color dots: two layers at a half-cell offset (cell centers
         //    and cell corners) so the second layer fills the first's gaps and
@@ -581,26 +500,12 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
         // Dither strength deliberately does NOT touch the dots: halftone is
         // shading, not error diffusion.
         const cell = HALFTONE_CELL;
-        // Pattern coordinates: image space uses pixel centers with the
-        // halftone cell; world space projects the world position onto the
-        // dominant normal plane, scaled by cells per world unit (cell = 1).
-        let plane = 0;
-        let u: number;
-        let v: number;
-        let patternCell: number;
-        if (worldHalftoneSamples) {
-          plane = worldHalftoneSamples.planes[pixel];
-          u = worldHalftoneSamples.projectedU[pixel];
-          v = worldHalftoneSamples.projectedV[pixel];
-          patternCell = 1;
-        } else {
-          u = x + 0.5;
-          v = y + 0.5;
-          patternCell = cell / uvScale;
-        }
+        // Pattern coordinates use pixel centers with the halftone cell.
+        const u = x + 0.5;
+        const v = y + 0.5;
+        const patternCell = cell / uvScale;
         const maxRadius = Math.hypot(patternCell / 2, patternCell / 2);
         const sampleAt = (centerU: number, centerV: number): number => {
-          if (worldHalftoneSamples) return worldHalftoneSamples.nearest(plane, centerU, centerV);
           const sampleX = clamp(Math.round(centerU), 0, width - 1);
           const sampleY = clamp(Math.round(centerV), 0, height - 1);
           return sampleY * width + sampleX;
