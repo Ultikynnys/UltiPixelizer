@@ -151,7 +151,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'upscale', path: ['upscale'], default: 'nearest', migrateDefault: 'nearest', validate: isEnum(upscaleMethods) },
   { key: 'stripeAngle', path: ['stripeAngle'], default: 45, migrateDefault: 45, validate: inRange(0, 135) },
   { key: 'noiseScale', path: ['noiseScale'], default: 1, migrateDefault: 1, validate: inRange(1, 32) },
-  { key: 'worldspaceScale', path: ['worldspaceScale'], default: DEFAULT_WORLDSPACE_SCALE, migrateDefault: DEFAULT_WORLDSPACE_SCALE, validate: inRange(0.25, 64) },
+  { key: 'worldspaceScale', path: ['worldspaceScale'], default: DEFAULT_WORLDSPACE_SCALE, migrateDefault: DEFAULT_WORLDSPACE_SCALE, validate: inRange(64, 2048) },
   { key: 'halftoneScale', path: ['halftoneScale'], default: 1, migrateDefault: 1, validate: inRange(0.5, 4) },
   { key: 'seed', path: ['seed'], default: 1, migrateDefault: 1, validate: inRange(0, 9999) },
   { key: 'aoBias', path: ['aoBias'], default: 0, migrateDefault: 0, validate: inRange(-1, 1) },
@@ -322,6 +322,9 @@ function migratePreset(value: unknown): unknown {
   // into unusably tiny blocks. Files saved above the cap are clamped so they
   // still load, with the chunkiest allowed look landing at the new max.
   if (migrated.pixelation !== undefined) migrated.pixelation = Math.min(Number(migrated.pixelation), 80);
+  // The world-space dither scale floor was raised from 0.25 to 64 cells/unit:
+  // files saved below the new floor are raised so they still load.
+  if (migrated.worldspaceScale !== undefined) migrated.worldspaceScale = Math.max(Number(migrated.worldspaceScale), 64);
   for (const field of CONFIG_FIELDS) {
     if (field.migrateDefault !== undefined && migrated[field.key] === undefined) migrated[field.key] = field.migrateDefault;
   }

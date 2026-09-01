@@ -39,7 +39,7 @@ const config: ConversionConfig = {
   palette: palettes.pico8,
   stripeAngle: 45,
   noiseScale: 1,
-  worldspaceScale: 4,
+  worldspaceScale: 64,
   halftoneScale: 1,
   seed: 1,
   aoBias: 0,
@@ -92,6 +92,12 @@ describe('conversion presets', () => {
     const legacy = createPreset('Legacy pixelation', '', config);
     const parsed = parsePreset(JSON.stringify({ ...legacy, pixelation: 95 }));
     expect(parsed.pixelation).toBe(80);
+  });
+
+  it('raises worldspace scale saved below the 64 floor', () => {
+    const legacy = createPreset('Legacy worldspace', '', config);
+    const parsed = parsePreset(JSON.stringify({ ...legacy, worldspaceScale: 4 }));
+    expect(parsed.worldspaceScale).toBe(64);
   });
 
   it('backfills the palette-library filter/query/sort into presets saved before they existed', () => {
@@ -155,12 +161,12 @@ describe('conversion presets', () => {
   });
 
   it('backfills and validates worldspace scale', () => {
-    const current = createPreset('Worldspace', '', { ...config, mode: 'worldspace', worldspaceScale: 8 });
+    const current = createPreset('Worldspace', '', { ...config, mode: 'worldspace', worldspaceScale: 128 });
     const { worldspaceScale: _removed, ...legacy } = current;
-    expect(parsePreset(JSON.stringify(legacy)).worldspaceScale).toBe(4);
-    expect(isConversionPreset({ ...current, worldspaceScale: 0.25 })).toBe(true);
+    expect(parsePreset(JSON.stringify(legacy)).worldspaceScale).toBe(64);
     expect(isConversionPreset({ ...current, worldspaceScale: 64 })).toBe(true);
-    expect(isConversionPreset({ ...current, worldspaceScale: 0 })).toBe(false);
+    expect(isConversionPreset({ ...current, worldspaceScale: 2048 })).toBe(true);
+    expect(isConversionPreset({ ...current, worldspaceScale: 63 })).toBe(false);
   });
 
   it('accepts halftone dot scales from 0.5 to 4', () => {
@@ -348,7 +354,7 @@ describe('shared settings schema (CONFIG_FIELDS)', () => {
       upscale: 'nearest',
       stripeAngle: 45,
       noiseScale: 1,
-      worldspaceScale: 4,
+      worldspaceScale: 64,
       halftoneScale: 1,
       seed: 1,
       aoBias: 0,

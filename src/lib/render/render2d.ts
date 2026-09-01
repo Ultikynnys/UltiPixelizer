@@ -125,7 +125,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
    * besides the input pixels. Slider values are discrete state, so String()
    * round-trips exactly. */
   function ditherKey(options: ProcessOptions, extra = ''): string {
-    return `${options.mode}|${options.palette.join(',')}|${options.strength}|${options.brightness}|${options.contrast}|${options.saturation}|${options.stripeAngle}|${options.noiseScale}|${options.seed}|${options.halftoneScale ?? 1}|${options.worldspaceScale ?? 4}|${extra}`;
+    return `${options.mode}|${options.palette.join(',')}|${options.strength}|${options.brightness}|${options.contrast}|${options.saturation}|${options.stripeAngle}|${options.noiseScale}|${options.seed}|${options.halftoneScale ?? 1}|${options.worldspaceScale ?? 64}|${extra}`;
   }
 
   function lookupDither(key: string, input: Uint8ClampedArray): ImageData | null {
@@ -406,6 +406,7 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       const worldPosition = state.mode === 'worldspace' ? currentWorldPositionMap(width, height) : null;
       if (worldPosition) {
         processedOptions.worldPositions = worldPosition.map.positions;
+        processedOptions.worldNormals = worldPosition.map.normals;
         processedOptions.worldPositionCoverage = worldPosition.map.coverage;
       }
       let processedData: ImageData;

@@ -17,6 +17,9 @@ export type ProcessOptions = {
   /** XYZ world position for each output texel, stored as three floats per
    * pixel. Required by worldspace mode. */
   worldPositions?: Float32Array | null;
+  /** World-space surface normal for each output texel, three floats per
+   * pixel. Required by worldspace mode for the triplanar projection. */
+  worldNormals?: Float32Array | null;
   /** Marks texels covered by bake geometry. Required with worldPositions so
    * uncovered UV-space pixels are never interpreted as the world origin. */
   worldPositionCoverage?: Uint8Array | null;
@@ -51,21 +54,32 @@ export function isPatternMode(mode: DitherMode): boolean {
 // pattern period and the dots scale together (dots just touch at full black).
 const HALFTONE_CELL = 4;
 
-const BAYER_Z_4 = [0, 2, 1, 3];
-
 function positiveModulo(value: number, divisor: number): number {
   return ((value % divisor) + divisor) % divisor;
 }
 
-/** A 4×4×4 ordered threshold lattice. The familiar Bayer 4×4 rank controls
- * XY while a permuted Z rank subdivides every value, producing each rank from
- * 0 through 63 exactly once per world-space cell volume. */
-export function worldspaceThreshold(x: number, y: number, z: number, scale = 4): number {
+/** 2D Bayer 4×4 threshold for one axis-plane projection: `u`/`v` are the two
+ * world coordinates of that plane, so the pattern repeats every 1/scale world
+ * units in both directions. */
+function bayer2D(u: number, v: number, scale: number): number {
+  const cellU = positiveModulo(Math.floor(u * scale), 4);
+  const cellV = positiveModulo(Math.floor(v * scale), 4);
+  return BAYER_4[cellV][cellU] / 15;
+}
+
+/** Triplanar world-space threshold. The 2D Bayer pattern is projected from
+ * each of the three axis planes (X → YZ, Y → XZ, Z → XY) and blended by the
+ * squared surface-normal components, so the pattern follows the surface
+ * instead of slicing through it at a fixed world orientation. A degenerate
+ * (zero-length) normal yields the neutral 0.5 threshold. */
+export function worldspaceThresholdTriplanar(x: number, y: number, z: number, nx: number, ny: number, nz: number, scale = 64): number {
   if (!Number.isFinite(scale) || scale <= 0) throw new Error('worldspaceScale must be a positive finite number.');
-  const cellX = positiveModulo(Math.floor(x * scale), 4);
-  const cellY = positiveModulo(Math.floor(y * scale), 4);
-  const cellZ = positiveModulo(Math.floor(z * scale), 4);
-  return (BAYER_4[cellY][cellX] * 4 + BAYER_Z_4[cellZ]) / 63;
+  const wx = nx * nx;
+  const wy = ny * ny;
+  const wz = nz * nz;
+  const sum = wx + wy + wz;
+  if (sum === 0) return 0.5;
+  return (bayer2D(y, z, scale) * wx + bayer2D(x, z, scale) * wy + bayer2D(x, y, scale) * wz) / sum;
 }
 
 export function patternThreshold(mode: DitherMode, x: number, y: number, stripeAngle = 45, noiseScale = 1, seed = 0): number {
@@ -350,7 +364,10 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
     if (!options.worldPositionCoverage || options.worldPositionCoverage.length !== pixelCount) {
       throw new Error(`worldspace mode requires ${pixelCount} world-position coverage values.`);
     }
-    const scale = options.worldspaceScale ?? 4;
+    if (!options.worldNormals || options.worldNormals.length !== pixelCount * 3) {
+      throw new Error(`worldspace mode requires ${pixelCount * 3} world-normal values.`);
+    }
+    const scale = options.worldspaceScale ?? 64;
     if (!Number.isFinite(scale) || scale <= 0) throw new Error('worldspaceScale must be a positive finite number.');
   }
 
@@ -391,11 +408,14 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
         if (isWorldspace) {
           if (options.worldPositionCoverage![pixel] !== 0) {
             const position = pixel * 3;
-            threshold = worldspaceThreshold(
+            threshold = worldspaceThresholdTriplanar(
               options.worldPositions![position],
               options.worldPositions![position + 1],
               options.worldPositions![position + 2],
-              options.worldspaceScale ?? 4,
+              options.worldNormals![position],
+              options.worldNormals![position + 1],
+              options.worldNormals![position + 2],
+              options.worldspaceScale ?? 64,
             );
           }
         } else {

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { adjustColor, ditherImageData, isPatternMode, nearestColor, patternThreshold, processImageData, worldspaceThreshold, type DitherMode } from '../src/lib/dither';
+import { adjustColor, ditherImageData, isPatternMode, nearestColor, patternThreshold, processImageData, worldspaceThresholdTriplanar, type DitherMode } from '../src/lib/dither';
 import { hexToRgb, hslToRgb, hsvToRgb, palettes, paletteCategories, rgbToHex, rgbToHsl, rgbToHsv } from '../src/lib/palettes';
 import { FakeImageData, installDomStubs } from './helpers/domStubs';
 
@@ -109,7 +109,7 @@ describe('dithering engine', () => {
     }
   });
 
-  it('uses a deterministic ordered lattice anchored to world positions', () => {
+  it('uses a deterministic triplanar lattice anchored to world positions', () => {
     const source = imageData(Array.from({ length: 4 }, () => [128, 128, 128, 255]), 4);
     const worldPositions = new Float32Array([
       0, 0, 0,
@@ -117,12 +117,13 @@ describe('dithering engine', () => {
       0.5, 0, 0,
       0.75, 0, 0,
     ]);
+    const worldNormals = new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
     const worldPositionCoverage = new Uint8Array([1, 1, 1, 1]);
-    const first = processImageData(source, { ...options('worldspace'), worldPositions, worldPositionCoverage, worldspaceScale: 4 });
-    const second = processImageData(source, { ...options('worldspace'), worldPositions, worldPositionCoverage, worldspaceScale: 4 });
+    const first = processImageData(source, { ...options('worldspace'), worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 4 });
+    const second = processImageData(source, { ...options('worldspace'), worldPositions, worldNormals, worldPositionCoverage, worldspaceScale: 4 });
     expect([...first.data]).toEqual([...second.data]);
     expect(new Set([first.data[0], first.data[4], first.data[8], first.data[12]]).size).toBeGreaterThan(1);
-    expect(worldspaceThreshold(-0.25, 0, 0, 4)).toBe(worldspaceThreshold(0.75, 0, 0, 4));
+    expect(worldspaceThresholdTriplanar(-0.25, 0, 0, 0, 1, 0, 4)).toBe(worldspaceThresholdTriplanar(0.75, 0, 0, 0, 1, 0, 4));
   });
 
   it('requires complete world-position inputs instead of falling back to image space', () => {
@@ -132,6 +133,12 @@ describe('dithering engine', () => {
       ...options('worldspace'),
       worldPositions: new Float32Array([0, 0, 0]),
       worldPositionCoverage: new Uint8Array([1]),
+    })).toThrow('world-normal values');
+    expect(() => processImageData(source, {
+      ...options('worldspace'),
+      worldPositions: new Float32Array([0, 0, 0]),
+      worldPositionCoverage: new Uint8Array([1]),
+      worldNormals: new Float32Array([0, 1, 0]),
       worldspaceScale: 0,
     })).toThrow('positive finite');
   });

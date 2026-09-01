@@ -399,7 +399,7 @@ app.innerHTML = `
             ${rangeControl('seed', 'Seed', 0, 9999, 1, 1, '1', 'Noise pattern')}
           </div>
           <div class="worldspace-scale-control" id="worldspaceScaleControl" hidden>
-            ${rangeControl('worldspaceScale', 'World scale', 0.25, 64, 0.25, 4, '4 cells/unit', 'Ordered cells per world unit')}
+            ${rangeControl('worldspaceScale', 'World scale', 64, 2048, 1, 64, '64 cells/unit', 'Ordered cells per world unit')}
           </div>
           <div class="halftone-scale-control" id="halftoneScaleControl" hidden>
             ${rangeControl('halftoneScale', 'Dot scale', 0.5, 4, 0.1, 1, '1.00×', 'Halftone dot size')}

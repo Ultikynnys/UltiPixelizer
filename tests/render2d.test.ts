@@ -127,7 +127,7 @@ describe('createRender2D render pipeline', () => {
       textures: { base: { image: baseTexture(), name: '' } },
     });
     deps.state.mode = 'worldspace';
-    deps.state.worldspaceScale = 4;
+    deps.state.worldspaceScale = 64;
     const render2d = createRender2D(deps, sharedState());
 
     await render2d.render();
@@ -137,13 +137,15 @@ describe('createRender2D render pipeline', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0][1].worldPositions).toBeInstanceOf(Float32Array);
     expect(calls[0][1].worldPositions).toHaveLength(12);
+    expect(calls[0][1].worldNormals).toBeInstanceOf(Float32Array);
+    expect(calls[0][1].worldNormals).toHaveLength(12);
     expect(calls[0][1].worldPositionCoverage).toBeInstanceOf(Uint8Array);
-    expect(calls[0][1].worldspaceScale).toBe(4);
+    expect(calls[0][1].worldspaceScale).toBe(64);
 
-    deps.state.worldspaceScale = 8;
+    deps.state.worldspaceScale = 128;
     await render2d.render();
     expect(calls).toHaveLength(2);
-    expect(calls[1][1].worldspaceScale).toBe(8);
+    expect(calls[1][1].worldspaceScale).toBe(128);
   });
 
   it('applies pixelization to the source before the dither pass', () => {

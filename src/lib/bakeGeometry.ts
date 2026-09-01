@@ -378,6 +378,8 @@ export function uvToTexturePoint(uv: readonly [number, number], width: number, h
 export type WorldPositionMap = {
   /** Interleaved XYZ values, three floats per UV-space texel. */
   positions: Float32Array;
+  /** Interleaved world-space surface normals, three floats per texel. */
+  normals: Float32Array;
   /** One for texels written by bake geometry, zero for uncovered UV space. */
   coverage: Uint8Array;
 };
@@ -390,20 +392,24 @@ export function rasterizeWorldPositions(scene: Pick<BakeScene, 'vertices' | 'tri
     throw new Error('World-position raster dimensions must be positive integers.');
   }
   const positions = new Float32Array(width * height * 3);
+  const normals = new Float32Array(width * height * 3);
   const coverage = new Uint8Array(width * height);
   rasterizeBake(width, height, scene.triangles, (px, py, w0, w1, w2, triangle) => {
-    const a = scene.vertices[triangle.verts[0]]?.position;
-    const b = scene.vertices[triangle.verts[1]]?.position;
-    const c = scene.vertices[triangle.verts[2]]?.position;
-    if (!a || !b || !c) throw new Error('Bake triangle references a missing world-space vertex.');
+    const va = scene.vertices[triangle.verts[0]];
+    const vb = scene.vertices[triangle.verts[1]];
+    const vc = scene.vertices[triangle.verts[2]];
+    if (!va || !vb || !vc) throw new Error('Bake triangle references a missing world-space vertex.');
     const pixel = py * width + px;
     const offset = pixel * 3;
-    positions[offset] = a.x * w0 + b.x * w1 + c.x * w2;
-    positions[offset + 1] = a.y * w0 + b.y * w1 + c.y * w2;
-    positions[offset + 2] = a.z * w0 + b.z * w1 + c.z * w2;
+    positions[offset] = va.position.x * w0 + vb.position.x * w1 + vc.position.x * w2;
+    positions[offset + 1] = va.position.y * w0 + vb.position.y * w1 + vc.position.y * w2;
+    positions[offset + 2] = va.position.z * w0 + vb.position.z * w1 + vc.position.z * w2;
+    normals[offset] = va.normal.x * w0 + vb.normal.x * w1 + vc.normal.x * w2;
+    normals[offset + 1] = va.normal.y * w0 + vb.normal.y * w1 + vc.normal.y * w2;
+    normals[offset + 2] = va.normal.z * w0 + vb.normal.z * w1 + vc.normal.z * w2;
     coverage[pixel] = 1;
   });
-  return { positions, coverage };
+  return { positions, normals, coverage };
 }
 
 export function rasterizeBake<T extends { uv: readonly [readonly [number, number], readonly [number, number], readonly [number, number]] }>(

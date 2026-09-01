@@ -144,14 +144,17 @@ describe('collectBakeScene', () => {
 });
 
 describe('rasterizeWorldPositions', () => {
-  it('interpolates world XYZ and keeps uncovered texels explicit', () => {
+  it('interpolates world XYZ and normals, keeping uncovered texels explicit', () => {
     const scene = collectBakeScene(new Object3D().add(uvTriangle()));
     const result = rasterizeWorldPositions(scene, 2, 2);
 
     expect(result.positions).toHaveLength(12);
+    expect(result.normals).toHaveLength(12);
     expect(result.coverage).toEqual(new Uint8Array([1, 0, 1, 1]));
     expect(Array.from(result.positions.slice(6, 9))).toEqual([0.25, 0.25, 0]);
     expect(Array.from(result.positions.slice(3, 6))).toEqual([0, 0, 0]);
+    expect(Array.from(result.normals.slice(6, 9))).toEqual([0, 0, 1]);
+    expect(Array.from(result.normals.slice(3, 6))).toEqual([0, 0, 0]);
   });
 
   it('rejects invalid dimensions and missing vertex references', () => {

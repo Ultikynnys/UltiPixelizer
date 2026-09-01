@@ -64,7 +64,7 @@ export function createStateFixture(): State {
     worldAxis: 'maya',
     stripeAngle: 45,
     noiseScale: 1,
-    worldspaceScale: 4,
+    worldspaceScale: 64,
     halftoneScale: 1,
     seed: 1,
     aoBias: 0,
