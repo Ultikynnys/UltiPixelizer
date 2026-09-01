@@ -413,10 +413,11 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       }
       let processedData: ImageData;
       if (state.mode === 'halftone') {
-        // Halftone splits color from shading: the dot screen carries the
-        // lighting, so the base is the hard-mapped *unlit* color (lighting is
-        // not multiplied into it). Inspected maps still skip lighting, exactly
-        // like the other modes. The lighting array is part of the cache input.
+        // Halftone splits color from shading: the dots carry the base color
+        // (sampled at each cell center, unlit) and the dot screen carries the
+        // lighting, so lighting is not multiplied into the base. Inspected
+        // maps still skip lighting, exactly like the other modes. The
+        // lighting array is part of the cache input.
         const lighting = processedOnlySource ? null : halftoneLighting(width, height);
         const lightingBytes = lighting ? new Uint8ClampedArray(lighting.buffer, lighting.byteOffset, lighting.byteLength) : null;
         const input = new Uint8ClampedArray(sourceData.data.length + (lightingBytes ? lightingBytes.length : 0));

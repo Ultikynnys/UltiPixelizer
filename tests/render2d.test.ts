@@ -332,38 +332,47 @@ describe('createRender2D render pipeline', () => {
   });
 
   it('halftone dots follow implicit lightmap changes (sun re-bakes)', () => {
-    const deps = createRendererDeps({ textures: { base: { image: solidTexture([200, 200, 200, 255]), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    const deps = createRendererDeps({ textures: { base: { image: solidTexture([96, 96, 96, 255]), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
     deps.state.mode = 'halftone';
+    deps.state.resolution = 4;
     const shared = sharedState();
     const render2d = createRender2D(deps, shared);
 
     // Sun moved to full shadow: the implicit lightmap goes black and the dot
-    // screen fills with black over the hard-mapped white base.
+    // screen fills with the base color (black for this base).
     shared.implicitLightmapCanvas = solidTexture([0, 0, 0, 255]) as unknown as HTMLCanvasElement;
     render2d.render();
-    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(64).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
 
-    // Sun moved to full light: the dots disappear and the plain base returns.
+    // Sun moved to full light: the base color's own luminance still drives
+    // dots, so the frame mixes base-color dots with paper.
     shared.implicitLightmapCanvas = solidTexture([255, 255, 255, 255]) as unknown as HTMLCanvasElement;
     render2d.render();
-    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
+    const values = new Set<number>();
+    const pixels = Array.from(deps.previewCanvas.context.pixels);
+    for (let i = 0; i < pixels.length; i += 4) values.add(pixels[i]);
+    expect(values).toEqual(new Set([0, 255]));
   });
 
   it('halftone dots follow AO changes', () => {
-    const deps = createRendererDeps({ textures: { base: { image: solidTexture([200, 200, 200, 255]), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    const deps = createRendererDeps({ textures: { base: { image: solidTexture([96, 96, 96, 255]), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
     deps.state.mode = 'halftone';
+    deps.state.resolution = 4;
     const shared = sharedState();
     const render2d = createRender2D(deps, shared);
 
-    // No AO yet: luminance-driven dots on a bright base stay below dot size in
-    // the 2×2 cell, so the preview is the plain white base.
+    // No AO yet: luminance-driven dots on a mid-dark base leave the cell
+    // corners as paper, so the frame mixes base-color dots with paper.
     render2d.render();
-    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
+    const values = new Set<number>();
+    const pixels = Array.from(deps.previewCanvas.context.pixels);
+    for (let i = 0; i < pixels.length; i += 4) values.add(pixels[i]);
+    expect(values).toEqual(new Set([0, 255]));
 
-    // AO bake lands (fully occluded): the dot screen fills with black.
+    // AO bake lands (fully occluded): the dot screen fills with the base color.
     deps.textures.ao.image = solidTexture([0, 0, 0, 255]);
     render2d.render();
-    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(64).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 
   it('shows the raw lightmap in both panes when lightmap-only mode is on', () => {

@@ -59,6 +59,10 @@ export function isPatternMode(mode: DitherMode): boolean {
 // pattern period and the dots scale together (dots just touch at full black).
 const HALFTONE_CELL = 4;
 
+/** Halftone paper sentinel: outside the dots the frame is white, which may
+ * not exist in the palette. */
+const PAPER = -2;
+
 function positiveModulo(value: number, divisor: number): number {
   return ((value % divisor) + divisor) % divisor;
 }
@@ -384,9 +388,9 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
     }
   }
 
-  // Halftone splits color from shading: the base is the palette hard-map of
-  // the adjusted color and the dot screen carries the shading, so no ink/paper
-  // extremes are precomputed.
+  // Halftone splits color from shading: the dots are the palette hard-map of
+  // the adjusted base color sampled at each cell center, and the dot screen
+  // carries the shading, so no ink/paper extremes are precomputed.
 
   for (let pixel = 0; pixel < width * height; pixel += 1) {
     const index = pixel * 4;
@@ -447,12 +451,13 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
       let matchedIndex: number;
       if (isHalftone) {
         // Staggered lattice of dot centers (mid-cell on even rows, shared
-        // boundary on odd rows). Each dot's radius is driven by the shading
-        // factor sampled at its cell center, so sizes stay uniform per cell
-        // and grade smoothly across the image. Fully dark (factor 0) fills
-        // the cell with black; fully lit (factor 1) leaves no dot at all.
-        // Dither strength deliberately does NOT touch the dots: halftone is
-        // shading, not error diffusion.
+        // boundary on odd rows). Each dot is a circle of the base color
+        // sampled at its cell center; the radius is driven by the shading
+        // factor (lighting × the base color's own luminance) sampled at the
+        // same point, so sizes stay uniform per cell and grade smoothly.
+        // Fully dark (factor 0) fills the cell with the base color; fully
+        // lit (factor 1) leaves paper. Dither strength deliberately does NOT
+        // touch the dots: halftone is shading, not error diffusion.
         const cell = Math.max(1, Math.round(HALFTONE_CELL * (options.halftoneScale ?? 1)));
         const row = Math.floor(y / cell);
         const col = Math.floor(x / cell);
@@ -462,25 +467,26 @@ export function ditherImageData(source: ImageData, options: ProcessOptions): Ima
           : (col + 0.5) * cell;
         const centerY = (row + 0.5) * cell;
         const distance = Math.hypot(x + 0.5 - centerX, y + 0.5 - centerY);
-        let factor: number;
-        if (options.lighting) {
-          const sampleX = clamp(Math.round(centerX), 0, width - 1);
-          const sampleY = clamp(Math.round(centerY), 0, height - 1);
-          factor = options.lighting[sampleY * width + sampleX];
-        } else {
-          factor = (r * LUMA.red + g * LUMA.green + b * LUMA.blue) / 255;
-        }
+        const sampleX = clamp(Math.round(centerX), 0, width - 1);
+        const sampleY = clamp(Math.round(centerY), 0, height - 1);
+        const sampleIndex = sampleY * width + sampleX;
+        const centerR = work[sampleIndex * 3];
+        const centerG = work[sampleIndex * 3 + 1];
+        const centerB = work[sampleIndex * 3 + 2];
+        const luminance = (centerR * LUMA.red + centerG * LUMA.green + centerB * LUMA.blue) / 255;
+        const factor = (options.lighting ? options.lighting[sampleIndex] : 1) * luminance;
         const maxRadius = Math.hypot(cell / 2, cell / 2);
         const dotRadius = maxRadius * (1 - factor);
-        // −1 marks an ink dot (pure black); the base is the hard-mapped color.
-        matchedIndex = distance <= dotRadius ? -1 : matchPalette(matcher, r, g, b);
+        // The dot is a circle of the base color sampled at the cell center;
+        // outside the dots the frame is paper (white).
+        matchedIndex = distance <= dotRadius ? matchPalette(matcher, centerR, centerG, centerB) : PAPER;
       } else {
         matchedIndex = matchPalette(matcher, r, g, b);
       }
       const outputIndex = pixel * 4;
-      const mr = matchedIndex < 0 ? 0 : matcher.flat[matchedIndex * 3];
-      const mg = matchedIndex < 0 ? 0 : matcher.flat[matchedIndex * 3 + 1];
-      const mb = matchedIndex < 0 ? 0 : matcher.flat[matchedIndex * 3 + 2];
+      const mr = matchedIndex === PAPER ? 255 : matcher.flat[matchedIndex * 3];
+      const mg = matchedIndex === PAPER ? 255 : matcher.flat[matchedIndex * 3 + 1];
+      const mb = matchedIndex === PAPER ? 255 : matcher.flat[matchedIndex * 3 + 2];
       data[outputIndex] = mr;
       data[outputIndex + 1] = mg;
       data[outputIndex + 2] = mb;
