@@ -333,7 +333,7 @@ function migratePreset(value: unknown): unknown {
   // UV scale does not permit values below 0.05 cells per output pixel.
   // Raise legacy values to the floor so old preset files remain loadable.
   if (migrated.uvScale !== undefined) migrated.uvScale = Math.max(Number(migrated.uvScale), UV_SCALE_MIN);
-  // World scale does not permit values below one cell per world unit.
+  // World scale does not permit values below 0.1 cells per world unit.
   // Raise legacy values to the floor so old preset files remain loadable.
   if (migrated.worldspaceScale !== undefined) migrated.worldspaceScale = Math.max(Number(migrated.worldspaceScale), WORLDSPACE_SCALE_MIN);
   for (const field of CONFIG_FIELDS) {

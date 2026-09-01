@@ -18,7 +18,7 @@ import { computeAverageTexelDensity, computeUVStretchData } from './lib/texelDen
 import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, upscaleMethods, type ConversionPreset, type SavedCamera } from './lib/presets';
 import { lightmapMatchesBaseColor } from './lib/lightmap';
 import { imageHeightmapPixels, sampleHeightmap, type NormalFormat } from './lib/normal';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY, DEFAULT_UV_STRETCH_SENSITIVITY, UV_SCALE_MAX, UV_SCALE_MIN, UV_SCALE_STEP, WORLDSPACE_SCALE_MAX, WORLDSPACE_SCALE_MIN } from './lib/defaults';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY, DEFAULT_UV_STRETCH_SENSITIVITY, DEFAULT_WORLDSPACE_SCALE, UV_SCALE_MAX, UV_SCALE_MIN, UV_SCALE_STEP, WORLDSPACE_SCALE_MAX, WORLDSPACE_SCALE_MIN } from './lib/defaults';
 import { createRenderer } from './lib/render';
 import { createPreview2D, type Preview2DApi } from './lib/preview2d';
 import { lightmapIsActive, type LightState, type PreviewMode, type PreviewViewMode, type SourceImage, type State, type TextureChannelId, type TextureSlot } from './lib/state';
@@ -30,6 +30,7 @@ import exampleBaseColorUrl from '../Example/Book_BaseColor.png?url';
 import exampleNormalUrl from '../Example/Book_NormalMap.png?url';
 import { initDitherWasm } from './lib/wasmLinearMatch';
 import { UV_SCALE_SLIDER_MAX, UV_SCALE_SLIDER_MIDPOINT, UV_SCALE_SLIDER_MIN, UV_SCALE_SLIDER_STEP, uvScaleFromSliderPosition, uvScaleToSliderPosition } from './lib/uvScale';
+import { WORLDSPACE_SCALE_SLIDER_MAX, WORLDSPACE_SCALE_SLIDER_MIN, WORLDSPACE_SCALE_SLIDER_STEP, worldspaceScaleFromSliderPosition, worldspaceScaleToSliderPosition } from './lib/worldspaceScale';
 
 const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string; bake?: boolean }> = [
   { id: 'base', label: 'BaseColor' },
@@ -402,7 +403,7 @@ app.innerHTML = `
             ${rangeControl('seed', 'Seed', 0, 9999, 1, 1, '1', 'Noise pattern')}
           </div>
           <div class="worldspace-scale-control" id="worldspaceScaleControl" hidden>
-            ${rangeControl('worldspaceScale', 'World scale', WORLDSPACE_SCALE_MIN, WORLDSPACE_SCALE_MAX, 1, 64, '64 cells/unit', 'Pattern cells per world unit')}
+            ${worldspaceScaleRangeControl()}
           </div>
           <div class="uv-scale-control" id="uvScaleControl" hidden>
             ${uvScaleRangeControl()}
@@ -1685,6 +1686,16 @@ function uvScaleRangeControl(): string {
   `;
 }
 
+function worldspaceScaleRangeControl(): string {
+  const defaultPosition = Math.round(worldspaceScaleToSliderPosition(DEFAULT_WORLDSPACE_SCALE) / WORLDSPACE_SCALE_SLIDER_STEP) * WORLDSPACE_SCALE_SLIDER_STEP;
+  return `
+    <div class="control-row">
+      <label for="worldspaceScale"><span><strong>World scale</strong><small>Pattern cells per world unit</small></span><output id="worldspaceScaleValue" title="Click to type a value">${DEFAULT_WORLDSPACE_SCALE} cells/unit</output><input class="range-value-edit" id="worldspaceScaleEdit" type="number" min="${WORLDSPACE_SCALE_MIN}" max="${WORLDSPACE_SCALE_MAX}" step="any" value="${DEFAULT_WORLDSPACE_SCALE}" aria-label="World scale value" hidden /></label>
+      <input class="range" id="worldspaceScale" type="range" min="${WORLDSPACE_SCALE_SLIDER_MIN}" max="${WORLDSPACE_SCALE_SLIDER_MAX}" step="${WORLDSPACE_SCALE_SLIDER_STEP}" value="${defaultPosition}" data-default="${defaultPosition}" style="--default-position:${defaultPosition}%" title="Double-click to reset to ${DEFAULT_WORLDSPACE_SCALE}" aria-label="World scale" />
+    </div>
+  `;
+}
+
 // Single color-picker generator  visually-hidden input + live --swatch chip, matching the palette editor.
 // Every color input in the app goes through this; syncColorChip keeps the chip in lockstep with the value.
 function colorControl(value: string, ariaLabel: string, attrs: string = ''): string {
@@ -2064,7 +2075,7 @@ function bindRangeValueEdit(input: HTMLInputElement, output: HTMLElement, apply:
 function syncControlsFromState(): void {
   syncRangeValue(strengthInput, strengthValue, Math.round(state.strength * 100), formatPercent);
   syncRangeValue(stripeAngleInput, stripeAngleValue, state.stripeAngle, formatDegrees);
-  syncRangeValue(worldspaceScaleInput, worldspaceScaleValue, state.worldspaceScale, formatCellsPerUnit);
+  syncRangeValue(worldspaceScaleInput, worldspaceScaleValue, state.worldspaceScale, formatCellsPerUnit, worldspaceScaleToSliderPosition);
   syncRangeValue(uvScaleInput, uvScaleValue, state.uvScale, formatCellsPerPixel, uvScaleToSliderPosition);
   syncActiveButton(patternSpaceToggle, '[data-pattern-space]', (button) => button.dataset.patternSpace === state.patternSpace);
   syncRangeValue(seedInput, seedValue, state.seed, formatPlain);
@@ -2711,6 +2722,8 @@ bindRange({
   output: worldspaceScaleValue,
   format: formatCellsPerUnit,
   live: false,
+  fromInput: worldspaceScaleFromSliderPosition,
+  toInput: worldspaceScaleToSliderPosition,
   apply: (value) => { state.worldspaceScale = value; },
 });
 bindRange({

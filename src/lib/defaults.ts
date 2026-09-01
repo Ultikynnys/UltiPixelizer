@@ -7,8 +7,8 @@ export const UV_SCALE_MIN = 0.05;
 export const UV_SCALE_MAX = 8;
 export const UV_SCALE_STEP = 0.05;
 /** World-space pattern scale constraints in cells per world unit. */
-export const WORLDSPACE_SCALE_MIN = 1;
-export const WORLDSPACE_SCALE_MAX = 2048;
+export const WORLDSPACE_SCALE_MIN = 0.1;
+export const WORLDSPACE_SCALE_MAX = 2000;
 /** Ordered-pattern cells per world unit for world-space dithering. */
 export const DEFAULT_WORLDSPACE_SCALE = 64;
 /** UV-stretch heatmap sensitivity: scales each face's distortion (octaves)
