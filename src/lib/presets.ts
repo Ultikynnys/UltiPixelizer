@@ -330,8 +330,8 @@ function migratePreset(value: unknown): unknown {
   // into unusably tiny blocks. Files saved above the cap are clamped so they
   // still load, with the chunkiest allowed look landing at the new max.
   if (migrated.pixelation !== undefined) migrated.pixelation = Math.min(Number(migrated.pixelation), 80);
-  // UV scale no longer permits cells below half a cell per output pixel.
-  // Raise legacy values to the new floor so old preset files remain loadable.
+  // UV scale does not permit values below 0.05 cells per output pixel.
+  // Raise legacy values to the floor so old preset files remain loadable.
   if (migrated.uvScale !== undefined) migrated.uvScale = Math.max(Number(migrated.uvScale), UV_SCALE_MIN);
   // The world-space dither scale floor was raised from 0.25 to 64 cells/unit:
   // files saved below the new floor are raised so they still load.

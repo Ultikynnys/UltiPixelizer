@@ -29,6 +29,7 @@ import exampleModelUrl from '../Example/Book.fbx?url';
 import exampleBaseColorUrl from '../Example/Book_BaseColor.png?url';
 import exampleNormalUrl from '../Example/Book_NormalMap.png?url';
 import { initDitherWasm } from './lib/wasmLinearMatch';
+import { UV_SCALE_SLIDER_MAX, UV_SCALE_SLIDER_MIDPOINT, UV_SCALE_SLIDER_MIN, UV_SCALE_SLIDER_STEP, uvScaleFromSliderPosition, uvScaleToSliderPosition } from './lib/uvScale';
 
 const TEXTURE_CHANNELS: ReadonlyArray<{ id: TextureChannelId; label: string; bake?: boolean }> = [
   { id: 'base', label: 'BaseColor' },
@@ -404,7 +405,7 @@ app.innerHTML = `
             ${rangeControl('worldspaceScale', 'World scale', 64, 2048, 1, 64, '64 cells/unit', 'Pattern cells per world unit')}
           </div>
           <div class="uv-scale-control" id="uvScaleControl" hidden>
-            ${rangeControl('uvScale', 'UV scale', UV_SCALE_MIN, UV_SCALE_MAX, UV_SCALE_STEP, 1, '1 cells/px', 'Pattern cells per pixel')}
+            ${uvScaleRangeControl()}
           </div>
         </section>
 
@@ -1672,6 +1673,15 @@ function rangeControl(key: string, label: string, min: number, max: number, step
   `;
 }
 
+function uvScaleRangeControl(): string {
+  return `
+    <div class="control-row">
+      <label for="uvScale"><span><strong>UV scale</strong><small>Pattern cells per pixel</small></span><output id="uvScaleValue" title="Click to type a value">1 cells/px</output><input class="range-value-edit" id="uvScaleEdit" type="number" min="${UV_SCALE_MIN}" max="${UV_SCALE_MAX}" step="${UV_SCALE_STEP}" value="1" aria-label="UV scale value" hidden /></label>
+      <input class="range" id="uvScale" type="range" min="${UV_SCALE_SLIDER_MIN}" max="${UV_SCALE_SLIDER_MAX}" step="${UV_SCALE_SLIDER_STEP}" value="${UV_SCALE_SLIDER_MIDPOINT}" data-default="${UV_SCALE_SLIDER_MIDPOINT}" style="--default-position:50%" title="Double-click to reset to 1" aria-label="UV scale" />
+    </div>
+  `;
+}
+
 // Single color-picker generator  visually-hidden input + live --swatch chip, matching the palette editor.
 // Every color input in the app goes through this; syncColorChip keeps the chip in lockstep with the value.
 function colorControl(value: string, ariaLabel: string, attrs: string = ''): string {
@@ -1925,13 +1935,16 @@ type RangeBinding = {
    * but the apply (and render) waits for the change event on release. Used by
    * the dither-parameter sliders, whose full re-dither is expensive. */
   live?: boolean;
+  /** Optional mapping between the range input's position and domain value. */
+  fromInput?: (value: number) => number;
+  toInput?: (value: number) => number;
 };
 
 // Shared render-side sync for a range input + its value output  the mirror of
 // `bindRange` (listener side). Every control render that writes both fields in
 // lockstep goes through this.
-function syncRangeValue(input: HTMLInputElement, output: HTMLElement, value: number, format: (value: number) => string): void {
-  input.value = String(value);
+function syncRangeValue(input: HTMLInputElement, output: HTMLElement, value: number, format: (value: number) => string, toInput: (value: number) => number = (raw) => raw): void {
+  input.value = String(toInput(value));
   output.textContent = format(value);
   // The click-to-edit number field mirrors the raw value, so opening it after
   // any programmatic change shows the live value, not a stale one.
@@ -1954,7 +1967,7 @@ function bindRangeReset(input: HTMLInputElement): void {
   });
 }
 
-function bindRange({ input, output, format, apply, debounce, live = true }: RangeBinding): void {
+function bindRange({ input, output, format, apply, debounce, live = true, fromInput = (raw) => raw, toInput = (value) => value }: RangeBinding): void {
   let timer = 0;
   const sync = (value: number): void => {
     apply(value);
@@ -1962,7 +1975,7 @@ function bindRange({ input, output, format, apply, debounce, live = true }: Rang
     renderScheduler.request();
   };
   input.addEventListener('input', (event) => {
-    const value = Number((event.target as HTMLInputElement).value);
+    const value = fromInput(Number((event.target as HTMLInputElement).value));
     if (!live) {
       // Release-only sliders (the dither parameters): the readout keeps pace
       // with the drag, but the heavy apply waits for the change event.
@@ -1982,14 +1995,14 @@ function bindRange({ input, output, format, apply, debounce, live = true }: Rang
     if (debounce && timer) {
       window.clearTimeout(timer);
       timer = 0;
-      apply(input.valueAsNumber);
+      apply(fromInput(input.valueAsNumber));
       renderScheduler.request();
     }
-    if (!live) apply(input.valueAsNumber);
+    if (!live) apply(fromInput(input.valueAsNumber));
     renderScheduler.flush();
   });
   // Direct numeric entry  every generated slider gets click-to-edit for free.
-  bindRangeValueEdit(input, output, apply, format);
+  bindRangeValueEdit(input, output, apply, format, fromInput, toInput);
 }
 
 /** Direct numeric entry for a generated slider: clicking the formatted value
@@ -1998,7 +2011,7 @@ function bindRange({ input, output, format, apply, debounce, live = true }: Rang
  * cancels and restores the readout. The edit input id is derived from the
  * output's `${key}Value` id, so every rangeControl slider gains this without
  * extra wiring. */
-function bindRangeValueEdit(input: HTMLInputElement, output: HTMLElement, apply: (value: number) => void, format: (value: number) => string): void {
+function bindRangeValueEdit(input: HTMLInputElement, output: HTMLElement, apply: (value: number) => void, format: (value: number) => string, fromInput: (value: number) => number = (raw) => raw, toInput: (value: number) => number = (value) => value): void {
   const edit = document.querySelector<HTMLInputElement>(`#${output.id.replace(/Value$/, '')}Edit`);
   if (!edit) return;
   const commit = (): void => {
@@ -2011,10 +2024,10 @@ function bindRangeValueEdit(input: HTMLInputElement, output: HTMLElement, apply:
     const max = edit.max !== '' ? Number(edit.max) : Infinity;
     const step = edit.step !== '' && edit.step !== 'any' ? Number(edit.step) : 0;
     let value = Number(edit.value);
-    if (!Number.isFinite(value)) value = input.valueAsNumber;
+    if (!Number.isFinite(value)) value = fromInput(input.valueAsNumber);
     value = clamp(value, min, max);
     if (step > 0) value = Number((Math.round(value / step) * step).toFixed(6));
-    input.value = String(value);
+    input.value = String(toInput(value));
     apply(value);
     output.textContent = format(value);
     renderScheduler.request();
@@ -2025,7 +2038,7 @@ function bindRangeValueEdit(input: HTMLInputElement, output: HTMLElement, apply:
     // preventDefault stops the wrapping <label for> from forwarding the click
     // to the range input  the edit field takes focus instead.
     event.preventDefault();
-    edit.value = String(input.valueAsNumber);
+    edit.value = String(fromInput(input.valueAsNumber));
     edit.hidden = false;
     output.hidden = true;
     edit.focus();
@@ -2038,7 +2051,7 @@ function bindRangeValueEdit(input: HTMLInputElement, output: HTMLElement, apply:
     } else if (event.key === 'Escape') {
       edit.hidden = true;
       output.hidden = false;
-      edit.value = String(input.valueAsNumber);
+      edit.value = String(fromInput(input.valueAsNumber));
     }
   });
   edit.addEventListener('blur', commit);
@@ -2049,7 +2062,7 @@ function syncControlsFromState(): void {
   syncRangeValue(strengthInput, strengthValue, Math.round(state.strength * 100), formatPercent);
   syncRangeValue(stripeAngleInput, stripeAngleValue, state.stripeAngle, formatDegrees);
   syncRangeValue(worldspaceScaleInput, worldspaceScaleValue, state.worldspaceScale, formatCellsPerUnit);
-  syncRangeValue(uvScaleInput, uvScaleValue, state.uvScale, formatCellsPerPixel);
+  syncRangeValue(uvScaleInput, uvScaleValue, state.uvScale, formatCellsPerPixel, uvScaleToSliderPosition);
   syncActiveButton(patternSpaceToggle, '[data-pattern-space]', (button) => button.dataset.patternSpace === state.patternSpace);
   syncRangeValue(seedInput, seedValue, state.seed, formatPlain);
   setActiveMode(state.mode);
@@ -2702,6 +2715,8 @@ bindRange({
   output: uvScaleValue,
   format: formatCellsPerPixel,
   live: false,
+  fromInput: uvScaleFromSliderPosition,
+  toInput: uvScaleToSliderPosition,
   apply: (value) => { state.uvScale = value; },
 });
 bindRange({

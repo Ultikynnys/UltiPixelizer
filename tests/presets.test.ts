@@ -169,11 +169,12 @@ describe('conversion presets', () => {
 
   it('clamps legacy UV scales and validates the new range', () => {
     const current = createPreset('UV scale', '', { ...config, uvScale: 1 });
-    expect(parsePreset(JSON.stringify({ ...current, uvScale: 0.25 })).uvScale).toBe(0.5);
-    expect(isConversionPreset({ ...current, uvScale: 0.5 })).toBe(true);
-    expect(isConversionPreset({ ...current, uvScale: 0.55 })).toBe(true);
+    expect(parsePreset(JSON.stringify({ ...current, uvScale: 0.04 })).uvScale).toBe(0.05);
+    expect(parsePreset(JSON.stringify({ ...current, uvScale: 0.25 })).uvScale).toBe(0.25);
+    expect(isConversionPreset({ ...current, uvScale: 0.05 })).toBe(true);
+    expect(isConversionPreset({ ...current, uvScale: 0.1 })).toBe(true);
     expect(isConversionPreset({ ...current, uvScale: 8 })).toBe(true);
-    expect(isConversionPreset({ ...current, uvScale: 0.49 })).toBe(false);
+    expect(isConversionPreset({ ...current, uvScale: 0.04 })).toBe(false);
     expect(isConversionPreset({ ...current, uvScale: 8.01 })).toBe(false);
   });
 

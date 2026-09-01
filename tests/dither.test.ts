@@ -184,9 +184,9 @@ describe('dithering engine', () => {
 
   it('enforces UV scale bounds for direct processing', () => {
     const source = imageData([[128, 128, 128, 255]], 1);
-    expect(() => processImageData(source, { ...options('ordered'), uvScale: 0.49 })).toThrow('uvScale must be between 0.5 and 8');
-    expect(() => processImageData(source, { ...options('ordered'), uvScale: 8.01 })).toThrow('uvScale must be between 0.5 and 8');
-    expect(() => processImageData(source, { ...options('ordered'), uvScale: 0.5 })).not.toThrow();
+    expect(() => processImageData(source, { ...options('ordered'), uvScale: 0.04 })).toThrow('uvScale must be between 0.05 and 8');
+    expect(() => processImageData(source, { ...options('ordered'), uvScale: 8.01 })).toThrow('uvScale must be between 0.05 and 8');
+    expect(() => processImageData(source, { ...options('ordered'), uvScale: 0.05 })).not.toThrow();
   });
 
   it('scales halftone dots by the UV scale', () => {
