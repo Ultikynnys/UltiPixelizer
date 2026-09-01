@@ -212,8 +212,16 @@ describe('dithering engine', () => {
       worldPositions: new Float32Array([0, 0, 0]),
       worldPositionCoverage: new Uint8Array([1]),
       worldNormals: new Float32Array([0, 1, 0]),
-      worldspaceScale: 0,
-    })).toThrow('positive finite');
+      worldspaceScale: 0.99,
+    })).toThrow('worldspaceScale must be between 1 and 2048');
+    expect(() => processImageData(source, {
+      ...options('ordered'),
+      patternSpace: 'world',
+      worldPositions: new Float32Array([0, 0, 0]),
+      worldPositionCoverage: new Uint8Array([1]),
+      worldNormals: new Float32Array([0, 1, 0]),
+      worldspaceScale: 1,
+    })).not.toThrow();
   });
 
   it('produces deterministic ordered and noise output and preserves the source', () => {

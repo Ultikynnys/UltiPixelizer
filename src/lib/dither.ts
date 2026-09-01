@@ -1,4 +1,4 @@
-import { DEFAULT_WORLDSPACE_SCALE, UV_SCALE_MAX, UV_SCALE_MIN } from './defaults';
+import { DEFAULT_WORLDSPACE_SCALE, UV_SCALE_MAX, UV_SCALE_MIN, WORLDSPACE_SCALE_MAX, WORLDSPACE_SCALE_MIN } from './defaults';
 import { hexToRgb } from './palettes';
 import { clamp, LUMA, type RGB } from './math';
 import { createWasmMatcher } from './wasmLinearMatch';
@@ -67,12 +67,12 @@ function positiveModulo(value: number, divisor: number): number {
   return ((value % divisor) + divisor) % divisor;
 }
 
-/** Resolves the world-space pattern scale (cells per world unit), rejecting
- * non-positive values. Shared by the triplanar threshold and the dither
- * pipeline's fail-fast validation. */
+/** Resolves and validates the world-space pattern scale in cells per unit. */
 function worldspaceScaleValue(scale: number | undefined): number {
   const value = scale ?? DEFAULT_WORLDSPACE_SCALE;
-  if (!Number.isFinite(value) || value <= 0) throw new Error('worldspaceScale must be a positive finite number.');
+  if (!Number.isFinite(value) || value < WORLDSPACE_SCALE_MIN || value > WORLDSPACE_SCALE_MAX) {
+    throw new Error(`worldspaceScale must be between ${WORLDSPACE_SCALE_MIN} and ${WORLDSPACE_SCALE_MAX} cells per unit.`);
+  }
   return value;
 }
 

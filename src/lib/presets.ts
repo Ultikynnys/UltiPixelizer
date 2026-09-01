@@ -4,7 +4,7 @@ import type { UpscaleMethod } from './canvas';
 import { clamp01 } from './math';
 import { parseJsonFile, serializeJsonFile } from './storage';
 import { slugify } from './strings';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY, DEFAULT_UV_STRETCH_SENSITIVITY, DEFAULT_WORLDSPACE_SCALE, UV_SCALE_MAX, UV_SCALE_MIN } from './defaults';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY, DEFAULT_UV_STRETCH_SENSITIVITY, DEFAULT_WORLDSPACE_SCALE, UV_SCALE_MAX, UV_SCALE_MIN, WORLDSPACE_SCALE_MAX, WORLDSPACE_SCALE_MIN } from './defaults';
 import type { NormalFormat } from './normal';
 import { DEFAULT_SUN_DIRECTION, type DirectionVector } from './sunDirection';
 import type { PaletteSearchSort, State } from './state';
@@ -154,7 +154,7 @@ export const CONFIG_FIELDS: ReadonlyArray<ConfigField> = [
   { key: 'pixelation', path: ['pixelation'], default: 0, migrateDefault: 0, validate: inRange(0, 80) },
   { key: 'upscale', path: ['upscale'], default: 'nearest', migrateDefault: 'nearest', validate: isEnum(upscaleMethods) },
   { key: 'stripeAngle', path: ['stripeAngle'], default: 45, migrateDefault: 45, validate: inRange(0, 135) },
-  { key: 'worldspaceScale', path: ['worldspaceScale'], default: DEFAULT_WORLDSPACE_SCALE, migrateDefault: DEFAULT_WORLDSPACE_SCALE, validate: inRange(64, 2048) },
+  { key: 'worldspaceScale', path: ['worldspaceScale'], default: DEFAULT_WORLDSPACE_SCALE, migrateDefault: DEFAULT_WORLDSPACE_SCALE, validate: inRange(WORLDSPACE_SCALE_MIN, WORLDSPACE_SCALE_MAX) },
   { key: 'seed', path: ['seed'], default: 1, migrateDefault: 1, validate: inRange(0, 9999) },
   { key: 'aoBias', path: ['aoBias'], default: 0, migrateDefault: 0, validate: inRange(-1, 1) },
   { key: 'aoPower', path: ['aoPower'], default: 1, migrateDefault: 1, validate: inRange(0, 16) },
@@ -333,9 +333,9 @@ function migratePreset(value: unknown): unknown {
   // UV scale does not permit values below 0.05 cells per output pixel.
   // Raise legacy values to the floor so old preset files remain loadable.
   if (migrated.uvScale !== undefined) migrated.uvScale = Math.max(Number(migrated.uvScale), UV_SCALE_MIN);
-  // The world-space dither scale floor was raised from 0.25 to 64 cells/unit:
-  // files saved below the new floor are raised so they still load.
-  if (migrated.worldspaceScale !== undefined) migrated.worldspaceScale = Math.max(Number(migrated.worldspaceScale), 64);
+  // World scale does not permit values below one cell per world unit.
+  // Raise legacy values to the floor so old preset files remain loadable.
+  if (migrated.worldspaceScale !== undefined) migrated.worldspaceScale = Math.max(Number(migrated.worldspaceScale), WORLDSPACE_SCALE_MIN);
   for (const field of CONFIG_FIELDS) {
     if (field.migrateDefault !== undefined && migrated[field.key] === undefined) migrated[field.key] = field.migrateDefault;
   }

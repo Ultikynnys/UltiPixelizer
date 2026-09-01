@@ -94,10 +94,10 @@ describe('conversion presets', () => {
     expect(parsed.pixelation).toBe(80);
   });
 
-  it('raises worldspace scale saved below the 64 floor', () => {
+  it('clamps worldspace scale below 1 and preserves valid legacy values', () => {
     const legacy = createPreset('Legacy worldspace', '', config);
-    const parsed = parsePreset(JSON.stringify({ ...legacy, worldspaceScale: 4 }));
-    expect(parsed.worldspaceScale).toBe(64);
+    expect(parsePreset(JSON.stringify({ ...legacy, worldspaceScale: 0.5 })).worldspaceScale).toBe(1);
+    expect(parsePreset(JSON.stringify({ ...legacy, worldspaceScale: 4 })).worldspaceScale).toBe(4);
   });
 
   it('folds the legacy worldspace mode into the world pattern-space toggle', () => {
@@ -182,9 +182,10 @@ describe('conversion presets', () => {
     const current = createPreset('Worldspace', '', { ...config, mode: 'ordered', patternSpace: 'world', worldspaceScale: 128 });
     const { worldspaceScale: _removed, ...legacy } = current;
     expect(parsePreset(JSON.stringify(legacy)).worldspaceScale).toBe(64);
-    expect(isConversionPreset({ ...current, worldspaceScale: 64 })).toBe(true);
+    expect(isConversionPreset({ ...current, worldspaceScale: 1 })).toBe(true);
     expect(isConversionPreset({ ...current, worldspaceScale: 2048 })).toBe(true);
-    expect(isConversionPreset({ ...current, worldspaceScale: 63 })).toBe(false);
+    expect(isConversionPreset({ ...current, worldspaceScale: 0.99 })).toBe(false);
+    expect(isConversionPreset({ ...current, worldspaceScale: 2049 })).toBe(false);
   });
 
   it('validates lighting colors and intensity bounds', () => {

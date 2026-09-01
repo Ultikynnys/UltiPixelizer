@@ -18,7 +18,7 @@ import { computeAverageTexelDensity, computeUVStretchData } from './lib/texelDen
 import { applyConfigValues, collectConfigValues, createPreset, defaultConfigValues, parsePreset, serializePreset, upscaleMethods, type ConversionPreset, type SavedCamera } from './lib/presets';
 import { lightmapMatchesBaseColor } from './lib/lightmap';
 import { imageHeightmapPixels, sampleHeightmap, type NormalFormat } from './lib/normal';
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY, DEFAULT_UV_STRETCH_SENSITIVITY, UV_SCALE_MAX, UV_SCALE_MIN, UV_SCALE_STEP } from './lib/defaults';
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_NORMAL_STRENGTH, DEFAULT_SUN_INTENSITY, DEFAULT_UV_STRETCH_SENSITIVITY, UV_SCALE_MAX, UV_SCALE_MIN, UV_SCALE_STEP, WORLDSPACE_SCALE_MAX, WORLDSPACE_SCALE_MIN } from './lib/defaults';
 import { createRenderer } from './lib/render';
 import { createPreview2D, type Preview2DApi } from './lib/preview2d';
 import { lightmapIsActive, type LightState, type PreviewMode, type PreviewViewMode, type SourceImage, type State, type TextureChannelId, type TextureSlot } from './lib/state';
@@ -402,7 +402,7 @@ app.innerHTML = `
             ${rangeControl('seed', 'Seed', 0, 9999, 1, 1, '1', 'Noise pattern')}
           </div>
           <div class="worldspace-scale-control" id="worldspaceScaleControl" hidden>
-            ${rangeControl('worldspaceScale', 'World scale', 64, 2048, 1, 64, '64 cells/unit', 'Pattern cells per world unit')}
+            ${rangeControl('worldspaceScale', 'World scale', WORLDSPACE_SCALE_MIN, WORLDSPACE_SCALE_MAX, 1, 64, '64 cells/unit', 'Pattern cells per world unit')}
           </div>
           <div class="uv-scale-control" id="uvScaleControl" hidden>
             ${uvScaleRangeControl()}
