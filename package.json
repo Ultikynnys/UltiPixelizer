@@ -4,8 +4,13 @@
   "version": "1.0.0",
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "ultipixelizer": "dist-cli/ultipixelizer.mjs"
+  },
   "scripts": {
     "predev": "node scripts/ensure-wasm.mjs",
+    "build:cli": "vite build --config vite.cli.config.ts",
+    "cli": "npm run build:cli && node dist-cli/ultipixelizer.mjs",
     "dev": "vite",
     "build:wasm": "node scripts/build-wasm.mjs",
     "build": "npm run build:wasm && tsc && vite build",
@@ -21,6 +26,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^26.2.0",
+    "@types/pngjs": "^6.0.5",
     "@vitest/coverage-v8": "^3.2.7",
     "typescript": "^5.9.2",
     "vite": "^7.1.0",
@@ -33,6 +39,8 @@
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@types/three": "^0.185.4",
     "three": "^0.185.1",
-    "three-mesh-bvh": "^0.9.14"
+    "three-mesh-bvh": "^0.9.14",
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0"
   }
 }

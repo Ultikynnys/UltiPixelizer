@@ -52,6 +52,53 @@ Build your own palettes with the custom palette editor, save them in the app, an
 
 Open the live app at [ultikynnys.github.io/UltiPixelizer](https://ultikynnys.github.io/UltiPixelizer/).
 
+## Headless CLI
+
+UltiPixelizer also runs headless  the same dither pipeline, palettes, and
+settings format as the web app, with no browser or GPU. Build it once:
+
+```bash
+npm install
+npm run build:cli          # -> dist-cli/ultipixelizer.mjs
+```
+
+Then dither any texture to a pixel-art PNG:
+
+```bash
+node dist-cli/ultipixelizer.mjs --input texture.png --output out.png --palette gameboy --mode floyd --resolution 128
+```
+
+Or, once the package is linked (`npm link`), via the `ultipixelizer` bin:
+
+```bash
+ultipixelizer -i texture.png -o out.png -p ultipixelizer-settings.json
+```
+
+Key options (full list via `--help`):
+
+| Option | Meaning |
+| --- | --- |
+| `-i, --input <file>` | Source image (`.png` / `.jpg` / `.jpeg`) |
+| `-o, --output <file>` | Output PNG (default `<input>_ultipixelized.png`) |
+| `-p, --preset <file>` | Load an app settings/preset JSON (same format as the in-app export) |
+| `--palette <key>` | Built-in palette key (`--list-palettes`) |
+| `--palette-file <file>` | Custom palette (`.json` or a one-color-per-line `.hex` list) |
+| `-m, --mode <mode>` | Dither mode (`--list-modes`) |
+| `-r, --resolution <n>` | Target pixel width, 1–4096 |
+| `--strength --brightness --contrast --saturation --pixelation --upscale --stripe-angle --seed` | Tone / dither controls |
+| `--json` | Emit a machine-readable result summary |
+
+```bash
+# Batch a folder to GameBoy-color thumbnails
+for f in textures/*.png; do
+  node dist-cli/ultipixelizer.mjs -i "$f" --palette gameboy -r 64
+done
+```
+
+Preset values are used as-is; any flag you pass on the command line overrides
+the corresponding preset field. The `world` pattern space (which needs per-texel
+world positions from a 3D bake) is intentionally not available in the CLI.
+
 ## License
 
 [MIT](LICENSE)
