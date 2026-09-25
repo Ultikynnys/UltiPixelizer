@@ -230,12 +230,35 @@ describe('runCli', () => {
     expect(JSON.parse(stdout).mode).toBe('floyd');
   });
 
-  it('rejects the world pattern space (needs a 3D bake)', async () => {
+  it('dithers in world pattern space with no model (fallback quad)', async () => {
     const input = join(workdir, 'world.png');
-    writePng(input, makeImage(8, 8));
-    const { code, stderr } = await run(['--input', input, '--pattern-space', 'world']);
-    expect(code).toBe(2);
-    expect(stderr).toMatch(/world/);
+    writePng(input, makeImage(16, 16));
+    const { code } = await run([
+      '--input', input, '--pattern-space', 'world', '--mode', 'noise', '--resolution', '16',
+    ]);
+    expect(code).toBe(0);
+    const produced = PNG.sync.read(readFileSync(join(workdir, 'world_Combined.png')));
+    expect([produced.width, produced.height]).toEqual([16, 16]);
+  });
+
+  it('round-trips a world-space preset and dithers with it', async () => {
+    const input = join(workdir, 'world-rt.png');
+    writePng(input, makeImage(16, 16));
+    const preset = join(workdir, 'world.settings.json');
+    const dumped = await run([
+      '--input', input, '--mode', 'noise', '--pattern-space', 'world',
+      '--worldspace-scale', '160', '--palette', 'gameboy', '--dump-config', preset,
+    ]);
+    expect(dumped.code).toBe(0);
+    const json = JSON.parse(readFileSync(preset, 'utf8'));
+    expect(json.patternSpace).toBe('world');
+    expect(json.mode).toBe('noise');
+
+    const { code, stdout } = await run(['--input', input, '--preset', preset, '--resolution', '16', '--json']);
+    expect(code).toBe(0);
+    const result = JSON.parse(stdout);
+    expect(result.mode).toBe('noise');
+    expect(result.paletteColors).toBe(4);
   });
 
   it('bakes AO with no model (fallback quad) and writes the AO view', async () => {

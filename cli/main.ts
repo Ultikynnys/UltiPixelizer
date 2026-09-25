@@ -16,6 +16,9 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import type { Object3D } from 'three';
 import { ditherModes } from '../src/lib/presets';
 import { redChannelFactors } from '../src/lib/ao';
+import { isWorldCapable } from '../src/lib/dither';
+import { getBakeScene } from '../src/lib/bakeSceneCache';
+import { rasterizeWorldPositions, type WorldPositionMap } from '../src/lib/bakeGeometry';
 import { createPreset, serializePreset } from '../src/lib/presets';
 import { palettes } from '../src/lib/palettes';
 import { decodeImage, encodePng } from './imageIo';
@@ -153,9 +156,6 @@ async function runPipeline(
   colors: string[],
   paletteLabel: string,
 ): Promise<number> {
-  if (config.patternSpace === 'world') {
-    throw new CliError('pattern space "world" needs per-texel world positions from a 3D bake; the headless CLI supports "uv".');
-  }
   const base = await decodeImage(resolve(options.input!));
   const normal = options.normal ? await decodeImage(resolve(options.normal)) : null;
   const aoInput = options.aoMap ? await decodeImage(resolve(options.aoMap)) : null;
@@ -164,6 +164,10 @@ async function runPipeline(
   const reference = base ?? normal ?? aoInput ?? lightmapInput;
   const { width, height } = computeOutputDimensions(config.resolution, reference!);
 
+  // World-space dithering needs per-texel world positions baked from the scene.
+  const useWorld = config.patternSpace === 'world' && isWorldCapable(config.mode);
+  let worldPositions: WorldPositionMap | null = null;
+
   // Scene for bakes (a model, else the fallback quad) and for stretch/variance
   // views (a model only).
   let scene: Object3D | null = null;
@@ -171,10 +175,15 @@ async function runPipeline(
   if (options.model) {
     scene = await loadModel(resolve(options.model));
     modelPrep = prepareModel(scene, { worldAxis: options.worldAxis, lod: options.lod, uvMap: options.uvMap });
-  } else if (options.generateAo || options.bakeLighting) {
+  } else if (options.generateAo || options.bakeLighting || useWorld) {
     scene = fallbackQuad(config.quadTessellation, config.quadGrid);
   }
   const viewScene: Object3D | null = options.model ? scene : null;
+
+  if (useWorld && scene) {
+    const bakeScene = getBakeScene(scene);
+    if (bakeScene) worldPositions = rasterizeWorldPositions(bakeScene, width, height);
+  }
 
   const normalAtBake = normal ? normalMapAtBakeResolution(normal, width, height, config.pixelation, config.upscale) : null;
 
@@ -195,7 +204,7 @@ async function runPipeline(
   }
 
   const output = composeView({
-    base, normal, aoFactors, lightmap, scene: viewScene,
+    base, normal, aoFactors, lightmap, scene: viewScene, worldPositions,
     width, height, config, colors, view: options.view,
   });
 

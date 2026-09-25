@@ -14,7 +14,7 @@ import type { Object3D } from 'three';
 import { processImageData } from '../src/lib/dither';
 import { aoMultiplier, applyAO, redChannelFactors } from '../src/lib/ao';
 import { applyLightmap } from '../src/lib/lightmap';
-import { rasterizeBake } from '../src/lib/bakeGeometry';
+import { rasterizeBake, type WorldPositionMap } from '../src/lib/bakeGeometry';
 import { computeTexelVarianceData, computeUVStretchData, recolorUVStretchData, type UVStretchData } from '../src/lib/texelDensity';
 import type { ConversionConfig } from '../src/lib/presets';
 import type { PreviewViewMode } from '../src/lib/state';
@@ -30,6 +30,8 @@ export type ComposeInput = {
   lightmap: Uint8ClampedArray | null;
   /** Scene for uv-stretch / texel-variance views (may be null). */
   scene: Object3D | null;
+  /** Per-texel world positions for `patternSpace: 'world'` (may be null). */
+  worldPositions: WorldPositionMap | null;
   width: number;
   height: number;
   config: ConversionConfig;
@@ -167,6 +169,7 @@ export function composeView(input: ComposeInput): Uint8ClampedArray {
   }
 
   const imageData = new ImageDataCtorRef(working.data, working.width, working.height);
+  const world = config.patternSpace === 'world' ? input.worldPositions : null;
   const processed = processImageData(imageData, {
     palette: colors,
     mode: config.mode,
@@ -178,7 +181,10 @@ export function composeView(input: ComposeInput): Uint8ClampedArray {
     seed: config.seed,
     uvScale: config.uvScale,
     worldspaceScale: config.worldspaceScale,
-    patternSpace: 'uv',
+    patternSpace: config.patternSpace,
+    worldPositions: world ? world.positions : null,
+    worldNormals: world ? world.normals : null,
+    worldPositionCoverage: world ? world.coverage : null,
   });
   return processed.data;
 }
