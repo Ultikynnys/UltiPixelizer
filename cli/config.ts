@@ -115,7 +115,7 @@ export type CliOptions = {
 const DEFAULTS: Omit<CliOptions, 'overrides'> = {
   input: null, output: null, preset: null, paletteKey: null, paletteFile: null,
   model: null, normal: null, aoMap: null, lightmapMap: null,
-  uvMap: 'uv', lod: 0, worldAxis: 'maya',
+  uvMap: 'uv', lod: 0, worldAxis: 'blender',
   view: 'flat', json: false, dumpConfig: null,
   generateAo: false, bakeLighting: false, aoSamples: 64,
   sunDirection: null, sunAzimuth: null, sunElevation: null,

@@ -58,7 +58,7 @@ View mode (the output texture type  see --list-views):
       --model <file>          Model for bakes (.fbx / .obj / .gltf / .glb)
       --uv-map <name>         UV channel for baking                    [uv]
       --lod <n>               LOD level to bake                       [0]
-      --world-axis <axis>     blender | maya                          [maya]
+      --world-axis <axis>     blender | maya                          [blender]
       --generate-ao           Bake ambient occlusion from the model
       --bake-lighting         Bake a lightmap from the model
       --ao-samples <n>        Hemisphere samples per texel            [64]
