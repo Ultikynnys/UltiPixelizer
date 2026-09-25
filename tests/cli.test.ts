@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { PNG } from 'pngjs';
 import { runCli } from '../cli/main';
+import { sunDirectionFromAngles } from '../cli/config';
 import { computeOutputDimensions, pixelate, resampleAndPixelate, resize } from '../cli/resample';
 import { palettes } from '../src/lib/palettes';
 
@@ -73,11 +74,30 @@ describe('resample', () => {
   });
 });
 
+describe('sunDirectionFromAngles', () => {
+  it('reproduces the default sun (azimuth 45, elevation 45)', () => {
+    const sun = sunDirectionFromAngles(45, 45);
+    // DEFAULT_SUN_DIRECTION is (-0.5, -sqrt(1/2), -0.5).
+    expect(sun.x).toBeCloseTo(-0.5, 3);
+    expect(sun.y).toBeCloseTo(-0.7071, 3);
+    expect(sun.z).toBeCloseTo(-0.5, 3);
+  });
+
+  it('defaults both angles when null', () => {
+    const sun = sunDirectionFromAngles(null, null);
+    expect(Math.hypot(sun.x, sun.y, sun.z)).toBeCloseTo(1, 5);
+  });
+});
+
 describe('runCli', () => {
   it('prints help and returns 0', async () => {
     const { code, stdout } = await run(['--help']);
     expect(code).toBe(0);
     expect(stdout).toContain('UltiPixelizer CLI');
+    // Every serialized setting shows up in the help.
+    expect(stdout).toContain('--ao-bias');
+    expect(stdout).toContain('--sun-intensity');
+    expect(stdout).toContain('--displacement-flip');
   });
 
   it('lists modes', async () => {
@@ -93,10 +113,23 @@ describe('runCli', () => {
     expect(stdout).toContain('gameboy');
   });
 
+  it('lists view modes', async () => {
+    const { code, stdout } = await run(['--list-views']);
+    expect(code).toBe(0);
+    expect(stdout).toContain('basecolor');
+    expect(stdout).toContain('lightmap-ao');
+  });
+
   it('rejects an unknown mode', async () => {
     const { code, stderr } = await run(['--input', 'x.png', '--mode', 'bogus']);
     expect(code).toBe(2);
-    expect(stderr).toMatch(/Unknown mode/);
+    expect(stderr).toMatch(/must be one of/);
+  });
+
+  it('rejects an unknown view', async () => {
+    const { code, stderr } = await run(['--input', 'x.png', '--view', 'bogus']);
+    expect(code).toBe(2);
+    expect(stderr).toMatch(/Unknown view/);
   });
 
   it('rejects an unknown option', async () => {
@@ -109,6 +142,14 @@ describe('runCli', () => {
     const { code, stderr } = await run([]);
     expect(code).toBe(2);
     expect(stderr).toMatch(/--input/);
+  });
+
+  it('rejects an out-of-range numeric config value', async () => {
+    const input = join(workdir, 'range.png');
+    writePng(input, makeImage(8, 8));
+    const { code, stderr } = await run(['--input', input, '--ao-distance', '99']);
+    expect(code).toBe(2);
+    expect(stderr).toMatch(/out of range/);
   });
 
   it('dithers a PNG to the requested resolution and palette', async () => {
@@ -126,6 +167,7 @@ describe('runCli', () => {
     expect(summary.resolution).toBe(32);
     expect(summary.size).toEqual({ width: 32, height: 32 });
     expect(summary.paletteColors).toBe(4);
+    expect(summary.view).toBe('flat');
 
     const written = PNG.sync.read(readFileSync(output));
     expect([written.width, written.height]).toEqual([32, 32]);
@@ -142,12 +184,21 @@ describe('runCli', () => {
     }
   });
 
+  it('names the output by the view mode', async () => {
+    const input = join(workdir, 'view-named.png');
+    writePng(input, makeImage(16, 16));
+    const { code } = await run(['--input', input, '--view', 'basecolor', '--resolution', '16']);
+    expect(code).toBe(0);
+    const produced = PNG.sync.read(readFileSync(join(workdir, 'view-named_BaseColor.png')));
+    expect(produced.width).toBe(16);
+  });
+
   it('defaults the output path next to the input', async () => {
     const input = join(workdir, 'default-out.png');
     writePng(input, makeImage(16, 16));
     const { code } = await run(['--input', input, '--palette', 'gameboy']);
     expect(code).toBe(0);
-    const produced = PNG.sync.read(readFileSync(join(workdir, 'default-out_ultipixelized.png')));
+    const produced = PNG.sync.read(readFileSync(join(workdir, 'default-out_Combined.png')));
     expect(produced.width).toBe(128);
   });
 
@@ -163,11 +214,75 @@ describe('runCli', () => {
     expect(JSON.parse(stdout).paletteColors).toBe(3);
   });
 
+  it('accepts every serialized config flag as a plain --flag value', async () => {
+    const input = join(workdir, 'flags.png');
+    writePng(input, makeImage(16, 16));
+    const { code, stdout } = await run([
+      '--input', input, '--resolution', '16', '--json',
+      '--ao-bias', '0.2', '--ao-power', '1.5', '--ao-distance', '1.4',
+      '--sun-color', '#ffcc88', '--sun-intensity', '1.6',
+      '--ambient-color', '#334455', '--ambient-intensity', '0.4',
+      '--normal-strength', '0.8', '--normal-format', 'directx',
+      '--uv-stretch-sensitivity', '2', '--quad-tessellation', '24',
+      '--displacement-strength', '0.1',
+    ]);
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout).mode).toBe('floyd');
+  });
+
   it('rejects the world pattern space (needs a 3D bake)', async () => {
     const input = join(workdir, 'world.png');
     writePng(input, makeImage(8, 8));
     const { code, stderr } = await run(['--input', input, '--pattern-space', 'world']);
     expect(code).toBe(2);
     expect(stderr).toMatch(/world/);
+  });
+
+  it('bakes AO with no model (fallback quad) and writes the AO view', async () => {
+    const input = join(workdir, 'ao-bake.png');
+    writePng(input, makeImage(16, 16));
+    const { code } = await run(['--input', input, '--generate-ao', '--view', 'ao', '--resolution', '16']);
+    expect(code).toBe(0);
+    const produced = PNG.sync.read(readFileSync(join(workdir, 'ao-bake_AO.png')));
+    expect([produced.width, produced.height]).toEqual([16, 16]);
+  });
+
+  it('bakes a lightmap with a custom sun angle and writes the lightmap view', async () => {
+    const input = join(workdir, 'lm-bake.png');
+    writePng(input, makeImage(16, 16));
+    const { code } = await run([
+      '--input', input, '--bake-lighting', '--view', 'lightmap', '--resolution', '16',
+      '--sun-azimuth', '120', '--sun-elevation', '35', '--sun-intensity', '1.4',
+    ]);
+    expect(code).toBe(0);
+    const produced = PNG.sync.read(readFileSync(join(workdir, 'lm-bake_Lightmap.png')));
+    expect(produced.width).toBe(16);
+  });
+
+  it('round-trips settings through --dump-config', async () => {
+    const input = join(workdir, 'roundtrip.png');
+    writePng(input, makeImage(16, 16));
+    const preset = join(workdir, 'rt.settings.json');
+    const dumped = await run([
+      '--input', input, '--palette', 'c64', '--mode', 'ordered', '--resolution', '32',
+      '--ao-bias', '0.1', '--sun-azimuth', '120', '--sun-elevation', '35',
+      '--dump-config', preset,
+    ]);
+    expect(dumped.code).toBe(0);
+
+    const json = JSON.parse(readFileSync(preset, 'utf8'));
+    expect(json.version).toBe(7);
+    expect(json.mode).toBe('ordered');
+    expect(json.resolution).toBe(32);
+    expect(json.paletteKey).toBe('c64');
+    // azimuth 120 / elevation 35 -> travel (-0.709, -0.574, 0.410)
+    expect(json.sunDirection.x).toBeCloseTo(-0.709, 2);
+    expect(json.sunDirection.y).toBeCloseTo(-0.574, 2);
+
+    // A second run loads it back through --preset.
+    const reused = await run(['--input', input, '--preset', preset, '--view', 'basecolor', '--json']);
+    expect(reused.code).toBe(0);
+    expect(JSON.parse(reused.stdout).mode).toBe('ordered');
+    expect(JSON.parse(reused.stdout).paletteColors).toBe(16);
   });
 });

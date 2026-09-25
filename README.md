@@ -54,8 +54,9 @@ Open the live app at [ultikynnys.github.io/UltiPixelizer](https://ultikynnys.git
 
 ## Headless CLI
 
-UltiPixelizer also runs headless  the same dither pipeline, palettes, and
-settings format as the web app, with no browser or GPU. Build it once:
+UltiPixelizer also runs headless  the same dither **and bake** pipeline,
+palettes, and settings format as the web app, with no browser or GPU. Build it
+once:
 
 ```bash
 npm install
@@ -74,19 +75,58 @@ Or, once the package is linked (`npm link`), via the `ultipixelizer` bin:
 ultipixelizer -i texture.png -o out.png -p ultipixelizer-settings.json
 ```
 
-Key options (full list via `--help`):
+### Output texture type = view mode
+
+`--view` selects which texture is written  exactly like the app's Export PNG
+button, including the file-name suffix (`--list-views`):
+
+| `--view` | Output |
+| --- | --- |
+| `flat` | BaseColor, dithered, with AO × lightmap applied (`*_Combined.png`) |
+| `basecolor` | BaseColor, dithered, no lighting (`*_BaseColor.png`) |
+| `normals` | Normal map, pixelized (`*_Normal.png`) |
+| `ao` | Bias/power-remapped AO (`*_AO.png`) |
+| `lightmap` | Raw lightmap (`*_Lightmap.png`) |
+| `lightmap-ao` | AO × lightmap (`*_LightmapAO.png`) |
+| `uv-stretch` / `texel-variance` | UV diagnostics from the model |
+| `directionality` | UV-directionality reference |
+
+### Every setting is a flag
+
+All serialized settings are exposed as `--kebab-case` flags with the same
+validation as the app (`--help` lists them all)  e.g. `--ao-bias`, `--ao-power`,
+`--ao-distance`, `--sun-color`, `--sun-intensity`, `--ambient-color`,
+`--ambient-intensity`, `--normal-strength`, `--normal-format`,
+`--uv-stretch-sensitivity`, `--quad-tessellation`, `--quad-grid`,
+`--displacement-strength`, `--displacement-flip`, `--pattern-space`,
+`--uv-scale`, `--worldspace-scale`, `--seed`, and the palette-library fields.
+
+```bash
+# Bake AO + a lightmap from a model, then export the combined texture
+node dist-cli/ultipixelizer.mjs \
+  -i texture.png --model prop.fbx --normal texture_Normal.png \
+  --generate-ao --bake-lighting \
+  --sun-azimuth 120 --sun-elevation 35 --sun-intensity 1.4 --ambient-intensity 0.3 \
+  --palette c64 --view flat -r 256
+```
+
+Key options:
 
 | Option | Meaning |
 | --- | --- |
-| `-i, --input <file>` | Source image (`.png` / `.jpg` / `.jpeg`) |
-| `-o, --output <file>` | Output PNG (default `<input>_ultipixelized.png`) |
-| `-p, --preset <file>` | Load an app settings/preset JSON (same format as the in-app export) |
-| `--palette <key>` | Built-in palette key (`--list-palettes`) |
-| `--palette-file <file>` | Custom palette (`.json` or a one-color-per-line `.hex` list) |
-| `-m, --mode <mode>` | Dither mode (`--list-modes`) |
-| `-r, --resolution <n>` | Target pixel width, 1–4096 |
-| `--strength --brightness --contrast --saturation --pixelation --upscale --stripe-angle --seed` | Tone / dither controls |
-| `--json` | Emit a machine-readable result summary |
+| `-i, --input <file>` | Source base texture (`.png` / `.jpg` / `.jpeg`) |
+| `-o, --output <file>` | Output PNG (default `<input>_<View>.png`) |
+| `-p, --preset <file>` | Load an app settings/preset JSON |
+| `--palette <key>` / `--palette-file <file>` | Built-in palette, or custom JSON/`.hex` |
+| `--normal <file>` / `--ao <file>` / `--lightmap <file>` | Map inputs |
+| `-m, --mode <mode>`, `-r, --resolution <n>` | Dither mode (`--list-modes`), target width |
+| `--model <file>` | Model for bakes (`.fbx` / `.obj` / `.gltf` / `.glb`) |
+| `--uv-map`, `--lod`, `--world-axis` | Model preparation |
+| `--generate-ao` / `--bake-lighting` | Bake from the model (fallback quad if none) |
+| `--sun-azimuth` / `--sun-elevation` / `--sun-direction x,y,z` | Sun angle |
+| `--dump-config [<file>]` | Write the current settings as a preset JSON and exit |
+| `--json` | Machine-readable result summary |
+| `--list-palettes` / `--list-modes` / `--list-views` | Discover values |
 
 ```bash
 # Batch a folder to GameBoy-color thumbnails
