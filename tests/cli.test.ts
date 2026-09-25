@@ -20,6 +20,22 @@ function makeImage(width: number, height: number, rgba: [number, number, number,
   return { data, width, height };
 }
 
+/** Left half red, right half blue  a non-uniform image for spatial checks. */
+function makeHalves(width: number, height: number) {
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4;
+      const left = x < width / 2;
+      data[i] = left ? 220 : 20;
+      data[i + 1] = 40;
+      data[i + 2] = left ? 40 : 220;
+      data[i + 3] = 255;
+    }
+  }
+  return { data, width, height };
+}
+
 function writePng(path: string, image: { data: Uint8ClampedArray; width: number; height: number }): void {
   const png = new PNG({ width: image.width, height: image.height });
   png.data = Buffer.from(image.data.buffer, image.data.byteOffset, image.data.byteLength);
@@ -200,6 +216,23 @@ describe('runCli', () => {
     expect(code).toBe(0);
     const produced = PNG.sync.read(readFileSync(join(workdir, 'default-out_Combined.png')));
     expect(produced.width).toBe(128);
+  });
+
+  it('resamples a non-uniform input at a differing resolution without skewing', async () => {
+    const input = join(workdir, 'halves.png');
+    writePng(input, makeHalves(64, 64));
+    const { code } = await run(['--input', input, '--resolution', '32', '--mode', 'none']);
+    expect(code).toBe(0);
+    const out = PNG.sync.read(readFileSync(join(workdir, 'halves_Combined.png')));
+    expect([out.width, out.height]).toEqual([32, 32]);
+    const px = (x: number, y: number) => {
+      const i = (y * 32 + x) * 4;
+      return [out.data[i], out.data[i + 1], out.data[i + 2]];
+    };
+    const left = px(4, 16);
+    const right = px(28, 16);
+    expect(left[0]).toBeGreaterThan(left[2]); // left half stayed red
+    expect(right[2]).toBeGreaterThan(right[0]); // right half stayed blue
   });
 
   it('loads a .hex custom palette file', async () => {

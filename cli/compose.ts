@@ -121,35 +121,37 @@ export function composeView(input: ComposeInput): Uint8ClampedArray {
     return data ? rasterizeFaces(data, width, height) : null;
   };
 
+  const asImage = (data: Uint8ClampedArray): DecodedImage => ({ data, width, height });
+
   // The inspected map for this view mode (null for the 'flat' combined view).
-  const inspectionSource = (): Uint8ClampedArray | null => {
+  // Raw decoded inputs (base, normal) keep their own dimensions; every map the
+  // CLI computes is already at (width, height).
+  const inspectionSource = (): DecodedImage | null => {
     switch (view) {
-      case 'basecolor': return input.base?.data ?? null;
-      case 'normals': return input.normal?.data ?? null;
-      case 'ao': return aoRgba;
-      case 'lightmap': return lightmapRgba;
-      case 'lightmap-ao': return combinedRgba();
-      case 'uv-stretch': return stretchRgba();
-      case 'texel-variance': return varianceRgba();
-      case 'directionality': return directionality(width, height);
+      case 'basecolor': return input.base;
+      case 'normals': return input.normal;
+      case 'ao': return aoRgba ? asImage(aoRgba) : null;
+      case 'lightmap': return lightmapRgba ? asImage(lightmapRgba) : null;
+      case 'lightmap-ao': { const rgba = combinedRgba(); return rgba ? asImage(rgba) : null; }
+      case 'uv-stretch': { const rgba = stretchRgba(); return rgba ? asImage(rgba) : null; }
+      case 'texel-variance': { const rgba = varianceRgba(); return rgba ? asImage(rgba) : null; }
+      case 'directionality': return asImage(directionality(width, height));
       default: return null; // flat
     }
   };
   const inspected = inspectionSource();
 
-  const asImage = (data: Uint8ClampedArray): DecodedImage => ({ data, width, height });
-
   // Direct-inspection modes are pixelized nearest, never dithered.
   if (DIRECT_INSPECTION.has(view)) {
     if (!inspected) throw new Error(`View "${view}" needs input that was not provided (normal map, or a model for stretch/variance views).`);
-    return resampleAndPixelate(asImage(inspected), width, height, config.pixelation, upscale).data;
+    return resampleAndPixelate(inspected, width, height, config.pixelation, upscale).data;
   }
 
   // Everything else: resample + pixelate the inspected map (or the base for
   // 'flat'), optionally light it, then palette-dither.
-  const source = inspected ?? input.base?.data ?? null;
+  const source = inspected ?? input.base;
   if (!source) throw new Error('No base texture: pass --input <image> for Texture1 modes.');
-  let working = resampleAndPixelate(asImage(source), width, height, config.pixelation, upscale);
+  let working = resampleAndPixelate(source, width, height, config.pixelation, upscale);
 
   if (!inspected) {
     // 'flat' combined: apply AO x lightmap. When pixelating, the maps go chunky too.
