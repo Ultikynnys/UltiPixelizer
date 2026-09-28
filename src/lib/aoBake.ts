@@ -49,7 +49,10 @@ const MAX_AO_WORKERS = 8;
 /** Minimum rows per band; a smaller band isn't worth another worker's BVH build. */
 const MIN_BAND_ROWS = 16;
 
-function roundedSamples(requested?: number): number {
+/** Rounds a requested sample count up to an even number (paired hemisphere
+ * symmetry), floored at 2. Shared with the CLI's GPU AO path so both build the
+ * same sample kernel. */
+export function roundedSamples(requested?: number): number {
   const samples = Math.max(2, Math.floor(requested ?? 128));
   return samples + (samples % 2);
 }

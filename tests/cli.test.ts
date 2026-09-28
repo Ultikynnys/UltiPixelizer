@@ -4,9 +4,15 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { PNG } from 'pngjs';
 import { runCli } from '../cli/main';
+import { setCliHost } from '../cli/host';
+import { nodeCliHost } from '../cli/hostNode';
 import { sunDirectionFromAngles } from '../cli/config';
 import { computeOutputDimensions, pixelate, resampleAndPixelate, resize } from '../cli/resample';
 import { palettes } from '../src/lib/palettes';
+
+// The CLI core is host-agnostic; the Node host backs these tests (the shipped
+// host is the Tauri webview — see src/cli/).
+setCliHost(nodeCliHost);
 
 /** Solid-color RGBA image the size of `size`. */
 function makeImage(width: number, height: number, rgba: [number, number, number, number] = [200, 90, 40, 255]) {
@@ -300,6 +306,20 @@ describe('runCli', () => {
     const { code } = await run(['--input', input, '--generate-ao', '--view', 'ao', '--resolution', '16']);
     expect(code).toBe(0);
     const produced = PNG.sync.read(readFileSync(join(workdir, 'ao-bake_AO.png')));
+    expect([produced.width, produced.height]).toEqual([16, 16]);
+  });
+
+  it('honors --no-gpu by staying on the CPU bake path', async () => {
+    const input = join(workdir, 'ao-nogpu.png');
+    writePng(input, makeImage(16, 16));
+    const { code, stdout } = await run([
+      '--input', input, '--generate-ao', '--view', 'ao', '--resolution', '16', '--no-gpu', '--json',
+    ]);
+    expect(code).toBe(0);
+    // No GPU is used under --no-gpu (nor under the test runner), so the
+    // summary reports a null GPU and still produces the AO texture set.
+    expect(JSON.parse(stdout).gpu).toBe(false);
+    const produced = PNG.sync.read(readFileSync(join(workdir, 'ao-nogpu_AO.png')));
     expect([produced.width, produced.height]).toEqual([16, 16]);
   });
 

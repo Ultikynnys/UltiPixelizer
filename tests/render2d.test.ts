@@ -7,12 +7,7 @@ import type { UVStretchData } from '../src/lib/texelDensity';
 import { createRendererDeps, createRenderShared } from './helpers/rendererDeps';
 import { asSourceImage, FakeCanvas, installDomStubs, stubDocument } from './helpers/domStubs';
 
-// The pixelization filter must downscale the source before the dither pass
-// consumes it; spy on both stages to pin the call order.
-vi.mock('../src/lib/canvas', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/lib/canvas')>();
-  return { ...actual, pixelateCanvas: vi.fn(actual.pixelateCanvas) };
-});
+// Spy on the dither stage so tests can pin what the composition feeds it.
 vi.mock('../src/lib/dither', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/dither')>();
   return { ...actual, processImageData: vi.fn(actual.processImageData) };
@@ -27,7 +22,6 @@ vi.mock('../src/lib/gpuDither', async (importOriginal) => {
     processImageDataAsync: vi.fn(async (source: ImageData, options: ProcessOptions) => processImageData(source, options)),
   };
 });
-import { pixelateCanvas } from '../src/lib/canvas';
 import { processImageData, type ProcessOptions } from '../src/lib/dither';
 import { processImageDataAsync } from '../src/lib/gpuDither';
 
@@ -171,16 +165,18 @@ describe('createRender2D render pipeline', () => {
     expect(lighting![2]).toBeCloseTo((64 / 255) * (128 / 255));
   });
 
-  it('applies pixelization to the source before the dither pass', () => {
+  it('applies pixelization before the dither pass', () => {
     const deps = createRendererDeps({ textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } } });
+    deps.state.pixelation = 50;
     const shared = sharedState();
     createRender2D(deps, shared).render();
 
-    // Pixelation (downscale/upscale) runs first, then the dither consumes the
-    // pixelated image, not the other way around.
-    expect(vi.mocked(pixelateCanvas)).toHaveBeenCalledTimes(1);
+    // The shared composition core resamples + pixelates before the dither runs:
+    // the dither receives the composed (2×2-blocked) pixels exactly once. With a
+    // 2×2 source at 50%, the whole frame samples the block's pixel (40).
     expect(vi.mocked(processImageData)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(pixelateCanvas).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(processImageData).mock.invocationCallOrder[0]);
+    const input = vi.mocked(processImageData).mock.calls[0][0];
+    expect(input.data[0]).toBe(40);
   });
 
   it('quantizes the source into pixel blocks at the full output resolution', () => {
@@ -201,12 +197,12 @@ describe('createRender2D render pipeline', () => {
     createRender2D(deps, shared).render();
 
     // The 4×4 output keeps its resolution, but reads from 2×2 blocks: each
-    // block carries its top-left pixel.
+    // block carries its downscale-sampled pixel.
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual([
-      10, 10, 10, 255, 10, 10, 10, 255, 30, 30, 30, 255, 30, 30, 30, 255,
-      10, 10, 10, 255, 10, 10, 10, 255, 30, 30, 30, 255, 30, 30, 30, 255,
-      12, 12, 12, 255, 12, 12, 12, 255, 32, 32, 32, 255, 32, 32, 32, 255,
-      12, 12, 12, 255, 12, 12, 12, 255, 32, 32, 32, 255, 32, 32, 32, 255,
+      21, 21, 21, 255, 21, 21, 21, 255, 41, 41, 41, 255, 41, 41, 41, 255,
+      21, 21, 21, 255, 21, 21, 21, 255, 41, 41, 41, 255, 41, 41, 41, 255,
+      23, 23, 23, 255, 23, 23, 23, 255, 43, 43, 43, 255, 43, 43, 43, 255,
+      23, 23, 23, 255, 23, 23, 23, 255, 43, 43, 43, 255, 43, 43, 43, 255,
     ]);
   });
 
@@ -302,10 +298,9 @@ describe('createRender2D render pipeline', () => {
       10, 10, 10, 255, 10, 10, 10, 255,
       8, 8, 8, 255, 5, 5, 5, 255,
     ]);
-    // Dithered pane: the AO block takes its top-left factor (255 = unoccluded),
-    // so the whole 2×2 block keeps the base's top-left pixel  one uniform
-    // lighting value per base block, matching the pixelized base.
-    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(10).flatMap((_v, index) => (index % 4 === 3 ? [255] : [10])));
+    // Dithered pane: the AO block takes one uniform sampled factor and the base
+    // block its sampled pixel, so the whole pane is one lit value (~5).
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(5).flatMap((_v, index) => (index % 4 === 3 ? [255] : [5])));
   });
 
   it('pixelizes the lightmap in the dithered pane, keeping the original pane smooth', () => {
@@ -327,9 +322,9 @@ describe('createRender2D render pipeline', () => {
       0, 0, 0, 255, 20, 20, 20, 255,
       30, 30, 30, 255, 40, 40, 40, 255,
     ]);
-    // Dithered pane: the lightmap block takes its top-left texel (black), so
-    // the whole block is shadowed like the base's own block.
-    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
+    // Dithered pane: the lightmap block takes one uniform sampled texel and the
+    // base block its sampled pixel, so the whole pane is one lit value (40).
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(40).flatMap((_v, index) => (index % 4 === 3 ? [255] : [40])));
   });
 
   it('pixelizes the AO before driving the halftone dot screen', () => {
@@ -347,9 +342,9 @@ describe('createRender2D render pipeline', () => {
     createRender2D(deps, shared).render();
 
     // Without pixelation the mixed AO map would darken three quarters of the
-    // dot screen; pixelization quantizes it to one uniform unoccluded block,
-    // so the dots disappear and the hard-mapped white base shows through.
-    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(255));
+    // dot screen; pixelization quantizes it to one uniform block (the sampled
+    // texel is occluded), so the lighting dots print black across the frame.
+    expect(Array.from(deps.previewCanvas.context.pixels)).toEqual(new Array(16).fill(0).flatMap((_v, index) => (index % 4 === 3 ? [255] : [0])));
   });
 
   it('halftone dots follow implicit lightmap changes (sun re-bakes)', () => {
@@ -436,12 +431,12 @@ describe('createRender2D render pipeline', () => {
     createRender2D(deps, shared).render();
 
     // The normals inspection shows the same chunky blocks as the dithered
-    // base: 2×2 blocks of the top-left normal at full output resolution.
+    // base: 2×2 blocks of the downscale-sampled normal at full output resolution.
     expect(Array.from(deps.previewCanvas.context.pixels)).toEqual([
-      10, 10, 10, 255, 10, 10, 10, 255, 20, 20, 20, 255, 20, 20, 20, 255,
-      10, 10, 10, 255, 10, 10, 10, 255, 20, 20, 20, 255, 20, 20, 20, 255,
-      30, 30, 30, 255, 30, 30, 30, 255, 40, 40, 40, 255, 40, 40, 40, 255,
-      30, 30, 30, 255, 30, 30, 30, 255, 40, 40, 40, 255, 40, 40, 40, 255,
+      13, 13, 13, 255, 13, 13, 13, 255, 23, 23, 23, 255, 23, 23, 23, 255,
+      13, 13, 13, 255, 13, 13, 13, 255, 23, 23, 23, 255, 23, 23, 23, 255,
+      33, 33, 33, 255, 33, 33, 33, 255, 43, 43, 43, 255, 43, 43, 43, 255,
+      33, 33, 33, 255, 33, 33, 33, 255, 43, 43, 43, 255, 43, 43, 43, 255,
     ]);
   });
 
@@ -678,6 +673,31 @@ describe('createRender2D render pipeline', () => {
     await render2d.render();
     const overlayLarge = originalViewport.setUVStretch.mock.calls[1][0] as UVStretchData;
     expect(overlayLarge.faces.map((face) => face.color)).toEqual(overlay.faces.map((face) => face.color));
+  });
+
+  it('renders the texel-variance processed pane via the shared composition core', async () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([
+      0, 0, 0, 2, 0, 0, 0, 1, 0,
+      0, 0, 0, 1, 0, 0, 0, 1, 0,
+    ], 3));
+    geometry.setAttribute('uv', new Float32BufferAttribute([
+      0, 0, 0.5, 0, 0, 1,
+      0.5, 0, 1, 0, 1, 1,
+    ], 2));
+    const scene = new Scene();
+    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+    const deps = createRendererDeps({
+      textures: { base: { image: baseTexture(), name: '' }, ao: { image: null, name: '' }, normal: { image: null, name: '' }, lightmap: { image: null, name: '' } },
+      getAOScene: () => scene,
+    });
+    deps.state.resolution = 4;
+    deps.state.viewModeProcessed = 'texel-variance';
+    await createRender2D(deps, sharedState()).render();
+
+    // The shared composition core rasterizes the variance faces into the
+    // processed pane (4×4) instead of dithering the base.
+    expect(deps.previewCanvas.context.pixels.length).toBe(4 * 4 * 4);
   });
 
   it('feeds the viewports when both are available', () => {

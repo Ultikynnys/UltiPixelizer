@@ -1,18 +1,19 @@
 /**
- * UltiPixelizer headless CLI.
+ * UltiPixelizer headless CLI core.
  *
- * Runs the app's dither + bake pipeline on files, with no browser or GPU:
- * every save-config setting is a flag, AO and lighting can be baked from a 3D
- * model, and the output texture type is chosen by the view mode  exactly like
- * the app's Export PNG button.
+ * Runs the app's dither + bake pipeline on files, with no browser: every
+ * save-config setting is a flag, AO and lighting can be baked from a 3D model,
+ * and the output texture type is chosen by the view mode  exactly like the
+ * app's Export PNG button.
  *
- * Import order matters: `./imagedata` installs the `ImageData` shim before the
- * pipeline modules load.
+ * Host-agnostic (see host.ts): the desktop binary drives this from its hidden
+ * `cli` webview (src/cli/main.ts)  where the webview supplies `navigator.gpu`,
+ * so AO bakes run on the GPU  and the Node test host drives it in CI. Import
+ * order matters: `./imagedata` installs the `ImageData` shim before the
+ * pipeline modules load (a no-op in the webview, which has ImageData natively).
  */
 import './imagedata';
 
-import { writeFileSync } from 'node:fs';
-import { basename, dirname, extname, join, resolve } from 'node:path';
 import type { Object3D } from 'three';
 import { ditherModes } from '../src/lib/presets';
 import { redChannelFactors } from '../src/lib/ao';
@@ -26,6 +27,8 @@ import { computeOutputDimensions, resampleAndPixelate } from './resample';
 import { bakeAO, bakeLighting, normalMapAtBakeResolution } from './bake';
 import { fallbackQuad, loadModel, prepareModel, type ModelPrep } from './model';
 import { composeView } from './compose';
+import { cliHost } from './host';
+import { basename, dirname, extname, join } from './path';
 import {
   buildConfig,
   configHelp,
@@ -39,7 +42,7 @@ import {
 const HELP = `UltiPixelizer CLI  headless texture dithering + baking
 
 Usage:
-  ultipixelizer --input <file> [--output <file>] [options]
+  UltiPixelizer --input <file> [--output <file>] [options]
 
 Input / output:
   -i, --input <file>          Source base texture (.png / .jpg / .jpeg)
@@ -62,6 +65,7 @@ View mode (the output texture type  see --list-views):
       --generate-ao           Bake ambient occlusion from the model
       --bake-lighting         Bake a lightmap from the model
       --ao-samples <n>        Hemisphere samples per texel            [64]
+      --gpu / --no-gpu        Run the AO bake on the GPU              [--gpu]
       --sun-direction <x,y,z> Sun travel direction
       --sun-azimuth <deg>     Sun azimuth (0 = +Z, toward +X)         [45]
       --sun-elevation <deg>   Sun elevation above horizon             [45]
@@ -81,71 +85,79 @@ ${configHelp()}`;
 
 function listPalettes(): void {
   const keys = Object.keys(palettes).sort();
-  process.stdout.write(`${keys.length} built-in palettes:\n`);
+  cliHost().log(`${keys.length} built-in palettes:\n`);
   for (const key of keys) {
     const p = palettes[key];
-    process.stdout.write(`  ${key.padEnd(22)} ${String(p.colors.length).padStart(3)} colors  ${p.name}\n`);
+    cliHost().log(`  ${key.padEnd(22)} ${String(p.colors.length).padStart(3)} colors  ${p.name}\n`);
   }
 }
 
 function listModes(): void {
-  process.stdout.write('Dither modes:\n');
-  for (const mode of ditherModes) process.stdout.write(`  ${mode}\n`);
+  cliHost().log('Dither modes:\n');
+  for (const mode of ditherModes) cliHost().log(`  ${mode}\n`);
 }
 
 function listViews(): void {
-  process.stdout.write('View modes (output texture type):\n');
+  cliHost().log('View modes (output texture type):\n');
   for (const view of VIEW_MODES) {
-    process.stdout.write(`  ${view.padEnd(16)} -> _${EXPORT_VIEW_SUFFIX[view]}.png\n`);
+    cliHost().log(`  ${view.padEnd(16)} -> _${EXPORT_VIEW_SUFFIX[view]}.png\n`);
   }
 }
 
-function defaultOutputPath(input: string, view: string): string {
-  return join(dirname(input), `${basename(input, extname(input))}_${EXPORT_VIEW_SUFFIX[view as keyof typeof EXPORT_VIEW_SUFFIX]}.png`);
+/** Output file name: `<stem>_<View>.png` in `dir`, matching the app's export
+ * naming (model stem when a model is loaded, else the base image stem). */
+function outputFileName(dir: string, stem: string, view: string): string {
+  return join(dir, `${stem}_${EXPORT_VIEW_SUFFIX[view as keyof typeof EXPORT_VIEW_SUFFIX]}.png`);
 }
 
 export async function runCli(argv: string[]): Promise<number> {
-  if (argv.includes('--list-palettes')) { listPalettes(); return 0; }
-  if (argv.includes('--list-modes')) { listModes(); return 0; }
-  if (argv.includes('--list-views')) { listViews(); return 0; }
+  const host = cliHost();
+  if (argv.includes('--list-palettes')) { listPalettes(); await host.flush(); return 0; }
+  if (argv.includes('--list-modes')) { listModes(); await host.flush(); return 0; }
+  if (argv.includes('--list-views')) { listViews(); await host.flush(); return 0; }
 
   let options: CliOptions;
   try {
     options = parseCli(argv);
   } catch (error) {
-    if (error instanceof CliError) { process.stderr.write(`error: ${error.message}\n`); return 2; }
+    if (error instanceof CliError) { host.error(`error: ${error.message}\n`); await host.flush(); return 2; }
     throw error;
   }
-  if (options.help) { process.stdout.write(`${HELP}\n`); return 0; }
+  if (options.help) { host.log(`${HELP}\n`); await host.flush(); return 0; }
 
   let config; let colors: string[]; let paletteLabel: string;
   try {
-    ({ config, colors, paletteLabel } = buildConfig(options));
+    ({ config, colors, paletteLabel } = await buildConfig(options));
   } catch (error) {
-    if (error instanceof CliError) { process.stderr.write(`error: ${error.message}\n`); return 2; }
+    if (error instanceof CliError) { host.error(`error: ${error.message}\n`); await host.flush(); return 2; }
     throw error;
   }
 
   // --dump-config writes a preset of the resolved settings and exits.
   if (options.dumpConfig !== null) {
     const path = options.dumpConfig || (options.input
-      ? join(dirname(resolve(options.input)), `${basename(options.input, extname(options.input))}.settings.json`)
+      ? join(dirname(host.resolvePath(options.input)), `${basename(options.input, extname(options.input))}.settings.json`)
       : 'ultipixelizer-settings.json');
     const name = basename(path, extname(path));
-    writeFileSync(resolve(path), serializePreset(createPreset(name, '', config)));
-    process.stdout.write(`Wrote preset: ${resolve(path)}\n`);
+    const resolved = host.resolvePath(path);
+    await host.writeFileBytes(resolved, new TextEncoder().encode(serializePreset(createPreset(name, '', config))));
+    host.log(`Wrote preset: ${resolved}\n`);
+    await host.flush();
     return 0;
   }
 
   if (!options.input) {
-    process.stderr.write('error: --input <file> is required. Try --help.\n');
+    host.error('error: --input <file> is required. Try --help.\n');
+    await host.flush();
     return 2;
   }
 
   try {
-    return await runPipeline(options, config, colors, paletteLabel);
+    const code = await runPipeline(options, config, colors, paletteLabel);
+    await host.flush();
+    return code;
   } catch (error) {
-    if (error instanceof CliError) { process.stderr.write(`error: ${error.message}\n`); return 2; }
+    if (error instanceof CliError) { host.error(`error: ${error.message}\n`); await host.flush(); return 2; }
     throw error;
   }
 }
@@ -156,10 +168,11 @@ async function runPipeline(
   colors: string[],
   paletteLabel: string,
 ): Promise<number> {
-  const base = await decodeImage(resolve(options.input!));
-  const normal = options.normal ? await decodeImage(resolve(options.normal)) : null;
-  const aoInput = options.aoMap ? await decodeImage(resolve(options.aoMap)) : null;
-  const lightmapInput = options.lightmapMap ? await decodeImage(resolve(options.lightmapMap)) : null;
+  const host = cliHost();
+  const base = await decodeImage(host.resolvePath(options.input!));
+  const normal = options.normal ? await decodeImage(host.resolvePath(options.normal)) : null;
+  const aoInput = options.aoMap ? await decodeImage(host.resolvePath(options.aoMap)) : null;
+  const lightmapInput = options.lightmapMap ? await decodeImage(host.resolvePath(options.lightmapMap)) : null;
 
   const reference = base ?? normal ?? aoInput ?? lightmapInput;
   const { width, height } = computeOutputDimensions(config.resolution, reference!);
@@ -173,7 +186,7 @@ async function runPipeline(
   let scene: Object3D | null = null;
   let modelPrep: ModelPrep | null = null;
   if (options.model) {
-    scene = await loadModel(resolve(options.model));
+    scene = await loadModel(host.resolvePath(options.model));
     modelPrep = prepareModel(scene, { worldAxis: options.worldAxis, lod: options.lod, uvMap: options.uvMap });
   } else if (options.generateAo || options.bakeLighting || useWorld) {
     scene = fallbackQuad(config.quadTessellation, config.quadGrid);
@@ -187,10 +200,11 @@ async function runPipeline(
 
   const normalAtBake = normal ? normalMapAtBakeResolution(normal, width, height, config.pixelation, config.upscale) : null;
 
-  // AO: bake, or use a provided map (resampled to the grid).
+  // AO: bake, or use a provided map (resampled to the grid). The bake runs on
+  // the GPU (via navigator.gpu) when available and `--no-gpu` was not passed.
   let aoFactors = null as Uint8ClampedArray | null;
   if (options.generateAo) {
-    aoFactors = bakeAO(scene!, width, height, config, options.aoSamples, normalAtBake);
+    aoFactors = await bakeAO(scene!, width, height, config, options.aoSamples, normalAtBake, options.gpu);
   } else if (aoInput) {
     aoFactors = redChannelFactors(resampleAndPixelate(aoInput, width, height, config.pixelation, config.upscale));
   }
@@ -208,12 +222,21 @@ async function runPipeline(
     width, height, config, colors, view: options.view,
   });
 
-  const outputPath = options.output ? resolve(options.output) : defaultOutputPath(resolve(options.input!), options.view);
+  const inputPath = host.resolvePath(options.input!);
+  const modelPath = options.model ? host.resolvePath(options.model) : null;
+  // The app names the export after the model when one is loaded, else the base
+  // image (both sans extension)  matched here.
+  const stem = modelPath ? basename(modelPath, extname(modelPath)) : basename(inputPath, extname(inputPath));
+  const outputPath = options.output ? host.resolvePath(options.output) : outputFileName(dirname(inputPath), stem, options.view);
   const bytes = await encodePng(outputPath, { data: output, width, height });
 
+  // Whether the AO bake ran on the GPU: WebGPU is present (the webview always
+  // provides it; Node never does) and neither the view nor --no-gpu forbade it.
+  const gpu = options.generateAo && options.gpu && typeof navigator !== 'undefined' && Boolean(navigator.gpu);
+
   if (options.json) {
-    process.stdout.write(`${JSON.stringify({
-      input: resolve(options.input!),
+    host.log(`${JSON.stringify({
+      input: inputPath,
       output: outputPath,
       view: options.view,
       resolution: config.resolution,
@@ -223,13 +246,15 @@ async function runPipeline(
       paletteColors: colors.length,
       generatedAo: options.generateAo,
       bakedLighting: options.bakeLighting,
-      model: options.model ? resolve(options.model) : null,
+      gpu,
+      model: options.model ? host.resolvePath(options.model) : null,
       modelPrep,
       bytes,
     }, null, 2)}\n`);
   } else {
-    process.stdout.write(`UltiPixelizer: ${resolve(options.input!)}  [${options.view}]\n`);
-    process.stdout.write(`  -> ${outputPath}  (${width}x${height}, ${config.mode}, ${paletteLabel})\n`);
+    host.log(`UltiPixelizer: ${inputPath}  [${options.view}]\n`);
+    host.log(`  -> ${outputPath}  (${width}x${height}, ${config.mode}, ${paletteLabel})\n`);
+    if (gpu) host.log(`  gpu: WebGPU (AO bake)\n`);
   }
   return 0;
 }

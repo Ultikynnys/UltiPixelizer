@@ -1,5 +1,7 @@
-import { applyAO, aoMultiplier, imageAOFactors, redChannelFactors } from '../ao';
-import { cloneImageData, createCanvas, drawImageToCanvas, imagePixels, pixelateCanvas, pixelsToCanvas, resampleAndPixelate, resizeImage } from '../canvas';
+import { applyAO, aoMultiplier, imageAOFactors } from '../ao';
+import { createCanvas, drawImageToCanvas, imagePixels, pixelsToCanvas } from '../canvas';
+import { collectConfigValues } from '../presets';
+import { prepareView } from '../pipeline/compose';
 import { processImageData, isWorldCapable, type ProcessOptions } from '../dither';
 import { DEFAULT_WORLDSPACE_SCALE } from '../defaults';
 import { webgpuUsable } from '../gpuCommon';
@@ -168,62 +170,29 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
     return output;
   }
 
-  /** Resamples a lighting map at the processed resolution, then pixelizes it
-   * with the same downscale/upscale amount as the base  each base block gets
-   * one uniform AO/lighting value, so the shading follows the chunky grid
-   * instead of varying smoothly inside a block. */
-  function resamplePixelated(image: SourceImage, width: number, height: number): Uint8ClampedArray {
-    const canvas = pixelateCanvas(drawImageToCanvas(image, width, height).canvas, state.pixelation, state.upscale);
-    return imagePixels(canvas, width, height);
-  }
-
-  function currentAOFactors(width: number, height: number, pixelate = false): Uint8ClampedArray | null {
+  function currentAOFactors(width: number, height: number): Uint8ClampedArray | null {
     const source = textures.ao.image;
     if (!source) return null;
-    if (pixelate && state.pixelation > 0) {
-      return redChannelFactors({ data: resamplePixelated(source, width, height), width, height });
-    }
     return imageAOFactors(source, width, height);
   }
 
-  function currentLightmapPixels(width: number, height: number, pixelate = false): Uint8ClampedArray | null {
+  function currentLightmapPixels(width: number, height: number): Uint8ClampedArray | null {
     const image = textures.lightmap.image ?? shared.implicitLightmapCanvas;
     if (!image) return null;
-    return pixelate && state.pixelation > 0 ? resamplePixelated(image, width, height) : imagePixels(image, width, height);
+    return imagePixels(image, width, height);
   }
 
-  function applyLighting(data: Uint8ClampedArray, width: number, height: number, pixelate = false): void {
-    const aoFactors = currentAOFactors(width, height, pixelate);
+  function applyLighting(data: Uint8ClampedArray, width: number, height: number): void {
+    const aoFactors = currentAOFactors(width, height);
     if (aoFactors) applyAO(data, aoFactors, state.aoBias, state.aoPower);
-    const lightmapPixels = currentLightmapPixels(width, height, pixelate);
+    const lightmapPixels = currentLightmapPixels(width, height);
     if (lightmapPixels) applyLightmap(data, lightmapPixels);
   }
 
-  /** Per-pixel RGB lighting for the halftone dot screen. AO visibility is
-   * folded into every lightmap channel so brightness, contrast, and saturation
-   * can adjust the complete lighting input before dot radii are derived.
-   * Returns null only when neither AO nor a lightmap is active. */
-  function halftoneLighting(width: number, height: number): Float32Array | null {
-    const aoFactors = currentAOFactors(width, height, true);
-    const lightmap = textures.lightmap.image ?? shared.implicitLightmapCanvas;
-    if (!aoFactors && !lightmap) return null;
-    const lightmapPixels = currentLightmapPixels(width, height, true);
-    const lighting = new Float32Array(width * height * 3);
-    for (let i = 0; i < width * height; i += 1) {
-      const ao = aoFactors ? aoMultiplier(aoFactors[i], state.aoBias, state.aoPower) : 1;
-      const lightOffset = i * 3;
-      if (lightmapPixels) {
-        const sourceOffset = i * 4;
-        lighting[lightOffset] = lightmapPixels[sourceOffset] / 255 * ao;
-        lighting[lightOffset + 1] = lightmapPixels[sourceOffset + 1] / 255 * ao;
-        lighting[lightOffset + 2] = lightmapPixels[sourceOffset + 2] / 255 * ao;
-      } else {
-        lighting[lightOffset] = ao;
-        lighting[lightOffset + 1] = ao;
-        lighting[lightOffset + 2] = ao;
-      }
-    }
-    return lighting;
+  /** Reads a SourceImage (canvas) into the PixelBuffer the shared composition
+   * core (../pipeline/compose) consumes. */
+  function toPixelBuffer(image: SourceImage): { data: Uint8ClampedArray; width: number; height: number } {
+    return { data: imagePixels(image, image.width, image.height), width: image.width, height: image.height };
   }
 
   function litCanvas(image: CanvasImageSource, width: number, height: number): HTMLCanvasElement {
@@ -369,91 +338,66 @@ export function createRender2D(deps: RendererDeps, shared: RenderShared): Render
       : viewMode === 'directionality' ? directionalitySource
       : null;
     const originalOnlySource = inspectionSource(state.viewModeOriginal);
-    const processedOnlySource = inspectionSource(state.viewModeProcessed);
 
     // Dithered pane: quantize the processed pane's chosen source. Normals are
     // the exception  a normal map can't be palette-dithered, so it's
     // pixelized with nearest-neighbor at the target resolution instead (the
     // same map the 3D processed viewport displays).
-    const processedSource = processedOnlySource ?? textures.base.image!;
-    const directInspection = (state.viewModeProcessed === 'normals' || state.viewModeProcessed === 'uv-stretch' || state.viewModeProcessed === 'texel-variance' || state.viewModeProcessed === 'directionality') && processedOnlySource !== null;
-    let nextCanvas: HTMLCanvasElement;
-    if (directInspection) {
-      // The normals inspection shows the same chunky blocks as the dithered
-      // base: the downscale/upscale pixelization applies on top of the
-      // target-resolution resample (normals can't be palette-dithered).
-      nextCanvas = resampleAndPixelate(processedSource, width, height, state.pixelation, state.upscale);
-    } else if (width > processedSource.width) {
-      // Upscaling (grid finer than the source) follows the chosen upscale
-      // method  nearest keeps the resample crisp for dithering, bilinear
-      // smooths it. Downscales keep the filtered drawImage path.
-      nextCanvas = pixelateCanvas(resizeImage(processedSource, width, height, state.upscale), state.pixelation, state.upscale);
-    } else {
-      nextCanvas = pixelateCanvas(drawImageToCanvas(processedSource, width, height).canvas, state.pixelation, state.upscale);
-    }
-    shared.renderedCanvas = nextCanvas;
-    const renderContext = nextCanvas.getContext('2d');
+    // Processed pane: the SHARED composition rules (src/lib/pipeline/compose)
+    // pick the inspected map, resample/pixelate it, and apply AO/lightmap — or
+    // assemble the halftone lighting — so the app and CLI compose identically.
+    // render2d still runs its (cached / GPU) dither on the prepared pixels.
+    // Canvas availability is probed up front so an unavailable context returns
+    // early (as before), without reading the source pixels.
+    const { canvas: nextCanvas, context: renderContext } = createCanvas(width, height);
     if (!renderContext) return;
-    // The pixelized normals map is already final; the dither pass would
-    // corrupt it.
-    if (!directInspection) {
-      const sourceData = renderContext.getImageData(0, 0, width, height);
+    const config = collectConfigValues(state);
+    const worldPosition = state.patternSpace === 'world' && isWorldCapable(state.mode) ? currentWorldPositionMap(width, height) : null;
+    const prepared = prepareView({
+      base: toPixelBuffer(textures.base.image!),
+      normal: textures.normal.image ? toPixelBuffer(textures.normal.image) : null,
+      aoFactors: currentAOFactors(width, height),
+      lightmap: currentLightmapPixels(width, height),
+      scene: getAOScene(),
+      worldPositions: worldPosition ? worldPosition.map : null,
+      width, height, config, colors: currentColors(), view: state.viewModeProcessed,
+    });
 
-      const processedOptions: ProcessOptions = {
-        palette: currentColors(), mode: state.mode, strength: state.strength,
-        brightness: state.brightness, contrast: state.contrast, saturation: state.saturation,
-        stripeAngle: state.stripeAngle, seed: state.seed,
-        worldspaceScale: state.worldspaceScale,
-        uvScale: state.uvScale,
-        patternSpace: state.patternSpace,
-      };
-      const worldPosition = state.patternSpace === 'world' && isWorldCapable(state.mode) ? currentWorldPositionMap(width, height) : null;
-      if (worldPosition) {
-        processedOptions.worldPositions = worldPosition.map.positions;
-        processedOptions.worldNormals = worldPosition.map.normals;
-        processedOptions.worldPositionCoverage = worldPosition.map.coverage;
-      }
+    let preparedData: Uint8ClampedArray;
+    if (prepared.direct) {
+      preparedData = prepared.rgba;
+    } else {
+      const options: ProcessOptions = { ...prepared.options, lighting: prepared.lighting };
+      const lit = prepared.lit;
       let processedData: ImageData;
-      if (state.mode === 'halftone') {
-        // Halftone stacks two dot screens with no paper: tone-adjusted base
-        // color dots with tone-adjusted AO×lightmap dots in the darkest palette
-        // color. Inspected maps still skip lighting, exactly like other modes.
-        // The RGB lighting array is part of the cache input.
-        const lighting = processedOnlySource ? null : halftoneLighting(width, height);
-        const lightingBytes = lighting ? new Uint8ClampedArray(lighting.buffer, lighting.byteOffset, lighting.byteLength) : null;
-        const input = new Uint8ClampedArray(sourceData.data.length + (lightingBytes ? lightingBytes.length : 0));
-        input.set(sourceData.data);
-        if (lightingBytes) input.set(lightingBytes, sourceData.data.length);
-        processedData = ditherSync(
-          `${ditherKey(processedOptions)}|halftone-light|${lightingBytes ? 1 : 0}`,
-          input,
-          () => processImageData(sourceData, { ...processedOptions, lighting }),
-        );
+      if (state.mode === 'none') {
+        // 'none' passes the lit source through unchanged — no dither to cache.
+        processedData = processImageData(lit, options);
+      } else if (state.mode === 'halftone') {
+        // The lighting array rides in the cache input (it changes the dots).
+        const lightingBytes = prepared.lighting
+          ? new Uint8ClampedArray(prepared.lighting.buffer, prepared.lighting.byteOffset, prepared.lighting.byteLength)
+          : null;
+        const input = new Uint8ClampedArray(lit.data.length + (lightingBytes ? lightingBytes.length : 0));
+        input.set(lit.data);
+        if (lightingBytes) input.set(lightingBytes, lit.data.length);
+        const worldKey = worldPosition ? `world-map-${worldPosition.id}` : '';
+        processedData = ditherSync(`${ditherKey(options, worldKey)}|halftone-light|${lightingBytes ? 1 : 0}`, input, () => processImageData(lit, options));
+      } else if (webgpuUsable() && gpuDitherCovers(state.mode)) {
+        // The GPU dither is async: a newer render supersedes this frame, so a
+        // stale result is dropped instead of overwriting the freshest one.
+        const token = ++ditherToken;
+        processedData = await ditherAsync(ditherKey(options), lit.data, () => processImageDataAsync(lit, options));
+        if (token !== ditherToken) return;
       } else {
-        // Lighting stays synchronous; the dither itself may go to the GPU.
-        const lit = cloneImageData(sourceData);
-        if (!processedOnlySource) applyLighting(lit.data, lit.width, lit.height, true);
-        if (state.mode === 'none') {
-          // 'none' passes the lit source through unchanged  the dither is
-          // free, so there is nothing worth caching.
-          processedData = processImageData(lit, processedOptions);
-        } else {
-          if (webgpuUsable() && gpuDitherCovers(state.mode)) {
-            // The GPU dither is async: a newer render supersedes this frame, so
-            // a stale result is dropped instead of overwriting the freshest one.
-            const token = ++ditherToken;
-            processedData = await ditherAsync(ditherKey(processedOptions), lit.data, () => processImageDataAsync(lit, processedOptions));
-            if (token !== ditherToken) return;
-          } else {
-            // No WebGPU (or a mode the GPU pass does not cover): the exact
-            // synchronous CPU path  byte-identical to the pre-GPU pipeline.
-            const worldKey = worldPosition ? `world-map-${worldPosition.id}` : '';
-            processedData = ditherSync(ditherKey(processedOptions, worldKey), lit.data, () => processImageData(lit, processedOptions));
-          }
-        }
+        const worldKey = worldPosition ? `world-map-${worldPosition.id}` : '';
+        processedData = ditherSync(ditherKey(options, worldKey), lit.data, () => processImageData(lit, options));
       }
-      renderContext.putImageData(processedData, 0, 0);
+      preparedData = processedData.data;
     }
+
+    renderContext.putImageData(new ImageData(preparedData as Uint8ClampedArray<ArrayBuffer>, width, height), 0, 0);
+    shared.renderedCanvas = nextCanvas;
 
     const previewWidth = width * repeatProcessed;
     const previewHeight = height * repeatProcessed;

@@ -34,6 +34,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { USDLoader } from 'three/addons/loaders/USDLoader.js';
 import { createCanvas } from './canvas';
 import type { ModelFileBundle, WorldAxis } from './modelFiles';
+import { upAxisRotation, withoutFbxUpAxisWarning } from './modelAxis';
 import { applyLodLevel } from './modelLod';
 import { applyDisplacement, applyTextureToMaterial, applyUVChannel, convertToLambertShading, createPixelTexture, disposeModel, fitCameraToObject, forEachMeshIndexed, materialsOf, triangleIndices, type HeightSampler } from './modelScene';
 import { cameraForwardFromQuaternion, normalizeDirection, type DirectionVector } from './sunDirection';
@@ -77,34 +78,10 @@ function configureManager(bundle: ModelFileBundle): LoadingManager {
   return manager;
 }
 
-export function upAxisRotation(worldAxis: WorldAxis): number {
-  return worldAxis === 'blender' ? -Math.PI / 2 : 0;
-}
+export { upAxisRotation } from './modelAxis';
 
 function orientToWorldAxis(object: Object3D, worldAxis: WorldAxis): void {
   object.rotation.set(upAxisRotation(worldAxis), 0, 0);
-}
-
-/** Loads with the three.js FBXLoader's Z-up notice suppressed. The FBXLoader
- * warns (and rotates the root to Y-up) whenever an FBX declares a Z-up axis;
- * loadModel immediately overwrites that rotation via orientToWorldAxis, so the
- * notice describes conversion work that is undone. Filter only that one
- * message and restore console.warn when the load settles. */
-function withoutFbxUpAxisWarning<T>(load: () => Promise<T>): Promise<T> {
-  const original = console.warn;
-  console.warn = ((...args: unknown[]) => {
-    const first = args[0];
-    if (typeof first === 'string' && first.includes('Z-UP coordinate system')) return;
-    original(...args);
-  }) as typeof console.warn;
-  try {
-    return load().finally(() => {
-      console.warn = original;
-    });
-  } catch (error) {
-    console.warn = original;
-    throw error;
-  }
 }
 
 export async function loadModel(

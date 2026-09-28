@@ -1,5 +1,6 @@
 import './style.css';
 import { computeOutputDimensions, createCanvas, createSampleTexture, downloadCanvas, downloadText, drawImageToCanvas, loadImageFile, resampleAndPixelate, type UpscaleMethod } from './lib/canvas';
+import { EXPORT_VIEW_SUFFIX } from './lib/pipeline/viewModes';
 import { clamp } from './lib/math';
 import { CONFIG_FOLDER, disableWebviewContextMenu, initTauriFileStore, openExternalLink, type TauriFileStore } from './lib/tauri';
 import { CUSTOM_PALETTE_STORAGE_KEY, createCustomPalette, deleteCustomPalette, deleteCustomPaletteFile, duplicatePalette, filePaletteFor, isCustomPalette, loadCustomPalettes, loadCustomPalettesFromFiles, matchingPaletteKey, paletteFileName, paletteFromImport, saveCustomPaletteFile, selectOrCreatePalette, serializePaletteHex, updateCustomPalette, upsertCustomPalette, watchPalettesFolder, type CustomPalette } from './lib/customPalettes';
@@ -3522,20 +3523,8 @@ loadConfigInput.addEventListener('change', async () => {
 document.querySelector('#saveButton')!.addEventListener('click', saveConfig);
 document.querySelector('#loadButton')!.addEventListener('click', loadConfig);
 document.querySelector('#resetButton')!.addEventListener('click', reset);
-// Export filenames end with the current view mode, spelled for filenames:
-// Combined / BaseColor / Normal / AO / Lightmap / LightmapAO  same vocabulary
-// as the view toggle, minus its punctuation.
-const EXPORT_VIEW_SUFFIX: Record<PreviewViewMode, string> = {
-  flat: 'Combined',
-  basecolor: 'BaseColor',
-  normals: 'Normal',
-  ao: 'AO',
-  lightmap: 'Lightmap',
-  'lightmap-ao': 'LightmapAO',
-  'uv-stretch': 'UVStretch',
-  directionality: 'Directionality',
-  'texel-variance': 'TexelVariance',
-};
+// Export filenames end with the current view mode, spelled for filenames 
+// shared with the CLI via src/lib/pipeline/viewModes.ts.
 document.querySelector('#exportButton')!.addEventListener('click', async () => {
   // Flush the debounced render first so the export always matches what the
   // processed pane currently shows for the selected view mode. The render may

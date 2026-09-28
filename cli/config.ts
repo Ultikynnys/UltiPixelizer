@@ -12,26 +12,12 @@ import {
   type ConversionConfig,
 } from '../src/lib/presets';
 import { isHexColor, isPalette, paletteCategories, palettes, type Palette } from '../src/lib/palettes';
-import { readFileSync } from 'node:fs';
+import { cliHost } from './host';
 import type { DirectionVector } from '../src/lib/sunDirection';
 import type { PreviewViewMode } from '../src/lib/state';
+import { EXPORT_VIEW_SUFFIX, VIEW_MODES } from '../src/lib/pipeline/viewModes';
 
-export const VIEW_MODES: PreviewViewMode[] = [
-  'flat', 'basecolor', 'normals', 'ao', 'lightmap', 'lightmap-ao', 'uv-stretch', 'directionality', 'texel-variance',
-];
-
-/** Output file suffix per view mode — mirrors `EXPORT_VIEW_SUFFIX` in main.ts. */
-export const EXPORT_VIEW_SUFFIX: Record<PreviewViewMode, string> = {
-  flat: 'Combined',
-  basecolor: 'BaseColor',
-  normals: 'Normal',
-  ao: 'AO',
-  lightmap: 'Lightmap',
-  'lightmap-ao': 'LightmapAO',
-  'uv-stretch': 'UVStretch',
-  directionality: 'Directionality',
-  'texel-variance': 'TexelVariance',
-};
+export { EXPORT_VIEW_SUFFIX, VIEW_MODES };
 
 const ENUM_VALUES: Partial<Record<keyof ConversionConfig, readonly string[]>> = {
   mode: ditherModes,
@@ -104,6 +90,8 @@ export type CliOptions = {
   generateAo: boolean;
   bakeLighting: boolean;
   aoSamples: number;
+  /** Run the AO bake on a headless WebGPU device when available (default true). */
+  gpu: boolean;
   sunDirection: DirectionVector | null;
   sunAzimuth: number | null;
   sunElevation: number | null;
@@ -118,6 +106,7 @@ const DEFAULTS: Omit<CliOptions, 'overrides'> = {
   uvMap: 'uv', lod: 0, worldAxis: 'blender',
   view: 'flat', json: false, dumpConfig: null,
   generateAo: false, bakeLighting: false, aoSamples: 64,
+  gpu: true,
   sunDirection: null, sunAzimuth: null, sunElevation: null,
   help: false,
 };
@@ -210,6 +199,8 @@ export function parseCli(argv: string[]): CliOptions {
       }
       case '--generate-ao': options.generateAo = true; break;
       case '--bake-lighting': options.bakeLighting = true; break;
+      case '--gpu': options.gpu = true; break;
+      case '--no-gpu': options.gpu = false; break;
       case '--ao-samples': options.aoSamples = parseNumber(take(i, arg), arg); i += 1; break;
       case '--sun-direction': {
         const parts = take(i, arg).split(',').map((p) => Number(p.trim()));
@@ -235,7 +226,7 @@ export function parseCli(argv: string[]): CliOptions {
 }
 
 /** Working config: defaults, then preset, then CLI overrides. */
-export function buildConfig(options: CliOptions): { config: ConversionConfig; colors: string[]; paletteLabel: string } {
+export async function buildConfig(options: CliOptions): Promise<{ config: ConversionConfig; colors: string[]; paletteLabel: string }> {
   let config: ConversionConfig = {
     ...defaultConfigValues(),
     paletteKey: 'desert',
@@ -245,13 +236,13 @@ export function buildConfig(options: CliOptions): { config: ConversionConfig; co
   let paletteLabel = 'desert (default)';
 
   if (options.preset) {
-    config = { ...parsePreset(readPresetText(options.preset)) };
+    config = { ...parsePreset(await readPresetText(options.preset)) };
     colors = config.palette.colors;
     paletteLabel = `${config.paletteKey} (preset)`;
   }
 
   if (options.paletteFile) {
-    const custom = loadPaletteFile(options.paletteFile);
+    const custom = await loadPaletteFile(options.paletteFile);
     config.palette = custom;
     colors = custom.colors;
     paletteLabel = `${custom.name} (file)`;
@@ -286,16 +277,16 @@ export function sunDirectionFromAngles(azimuth: number | null, elevation: number
 }
 
 let cachedPresetText: { path: string; text: string } | null = null;
-function readPresetText(path: string): string {
+async function readPresetText(path: string): Promise<string> {
   if (cachedPresetText?.path === path) return cachedPresetText.text;
-  const text = readFileSync(path, 'utf8');
+  const text = await cliHost().readFileText(path);
   cachedPresetText = { path, text };
   return text;
 }
 
 /** Parses a `.hex` or JSON custom palette file. */
-export function loadPaletteFile(path: string): Palette {
-  const text = readFileSync(path, 'utf8');
+export async function loadPaletteFile(path: string): Promise<Palette> {
+  const text = await cliHost().readFileText(path);
   const name = path.replace(/\\/g, '/').split('/').pop()!.replace(/\.[^.]+$/, '');
   const trimmed = text.trim();
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {

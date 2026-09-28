@@ -2,6 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
+mod cli;
+
 /// Desktop app-data storage: settings and palettes live as files in the
 /// installation folder (`resource_dir()`, e.g. next to UltiPixelizer.exe), so
 /// users can see and back them up where the app is installed. Data is
@@ -137,6 +139,16 @@ fn list_app_data(app: tauri::AppHandle, location: String, folder: String) -> Res
 /// navigation guard and the drag-drop handler setting can be attached to the
 /// WebviewWindowBuilder.
 pub fn run() {
+    // Everything after argv[0]. Any argument selects CLI mode; a bare launch
+    // (double-click / desktop entry) passes none and shows the app window.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let cli_mode = !args.is_empty();
+    // GUI-subsystem release builds own no console; borrow the launching shell's
+    // so CLI output is visible. No-op off Windows.
+    if cli_mode {
+        cli::attach_parent_console();
+    }
+
     tauri::Builder::default()
         // Plugins behind the desktop-only behaviors the webview lacks:
         // opener (GitHub/Ko-fi links open in the system browser), dialog +
@@ -145,34 +157,60 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        // Commands behind the install-folder data store (settings, palettes).
+        // Commands behind the install-folder data store (settings, palettes)
+        // plus the headless CLI bridge (cli.rs).
         .invoke_handler(tauri::generate_handler![
             app_storage_dir,
             read_app_data,
             write_app_data,
             remove_app_data,
-            list_app_data
+            list_app_data,
+            cli::cli_args,
+            cli::cli_read_file,
+            cli::cli_write_file,
+            cli::cli_log,
+            cli::cli_error,
+            cli::cli_cwd,
+            cli::cli_exit
         ])
-        .setup(|app| {
-            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-                .title("UltiPixelizer")
-                .inner_size(1440.0, 900.0)
-                .min_inner_size(750.0, 480.0)
-                .resizable(true)
-                // Mirrors the former `dragDropEnabled: false` config: Tauri's
-                // own drop handler intercepts OS file drops on Windows, so it
-                // must be off for HTML5 drag and drop to reach the frontend.
-                .disable_drag_drop_handler()
-                .on_navigation(|url| {
-                    // Pure client-side app: never navigate away from the bundled
-                    // page. This is the hard stop for the webview's default
-                    // action when a file is dropped onto a non-drop area, which
-                    // would otherwise open the file inside the window. Downloads
-                    // use blob:/data: anchors with the download attribute and
-                    // never hit this path.
-                    matches!(url.scheme(), "http" | "https" | "tauri" | "blob" | "data" | "about")
-                })
-                .build()?;
+        .setup(move |app| {
+            // The hidden CLI page reads argv through the `cli_args` command.
+            app.manage(cli::CliArgs(args));
+
+            if cli_mode {
+                // Headless: a hidden window still runs JS (so the shared
+                // pipeline  including WebGPU  works) but never appears. The
+                // page runs the CLI and calls `cli_exit` when it is done.
+                tauri::WebviewWindowBuilder::new(app, "cli", tauri::WebviewUrl::App("cli.html".into()))
+                    .title("UltiPixelizer CLI")
+                    .visible(false)
+                    .skip_taskbar(true)
+                    .disable_drag_drop_handler()
+                    .on_navigation(|url| {
+                        matches!(url.scheme(), "http" | "https" | "tauri" | "blob" | "data" | "about")
+                    })
+                    .build()?;
+            } else {
+                tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+                    .title("UltiPixelizer")
+                    .inner_size(1440.0, 900.0)
+                    .min_inner_size(750.0, 480.0)
+                    .resizable(true)
+                    // Mirrors the former `dragDropEnabled: false` config: Tauri's
+                    // own drop handler intercepts OS file drops on Windows, so it
+                    // must be off for HTML5 drag and drop to reach the frontend.
+                    .disable_drag_drop_handler()
+                    .on_navigation(|url| {
+                        // Pure client-side app: never navigate away from the bundled
+                        // page. This is the hard stop for the webview's default
+                        // action when a file is dropped onto a non-drop area, which
+                        // would otherwise open the file inside the window. Downloads
+                        // use blob:/data: anchors with the download attribute and
+                        // never hit this path.
+                        matches!(url.scheme(), "http" | "https" | "tauri" | "blob" | "data" | "about")
+                    })
+                    .build()?;
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -1,26 +1,52 @@
 /**
- * Headless AO and lighting bakes. Drives the app's synchronous CPU bake cores
- * (`bakeMeshAO` / `bakeMeshLightmap`) — byte-identical to the app's fallback
- * path — with no workers or GPU.
+ * Headless AO and lighting bakes. The AO bake runs on the GPU when a headless
+ * WebGPU device is available (cli/gpu.ts) and falls back to the app's
+ * synchronous CPU bake cores (`bakeMeshAO` / `bakeMeshLightmap`) otherwise.
+ *
+ * The GPU AO path mirrors `bakeMeshAOAsync`'s ladder (src/lib/aoBake.ts) minus
+ * the web-worker branch, which does not exist in Node: serialize the collected
+ * scene, ray-cast on the GPU, fall back to the single-threaded CPU bake on any
+ * GPU failure. It is wired by hand rather than by calling `bakeMeshAOAsync`
+ * so the CLI never emits the app's `[AO bake] ...` console diagnostics on
+ * stdout (they would corrupt `--json`).
  */
 import type { Object3D } from 'three';
-import { bakeMeshAO } from '../src/lib/aoBake';
+import { bakeMeshAO, roundedSamples } from '../src/lib/aoBake';
 import { bakeMeshLightmap } from '../src/lib/lightmapBake';
+import { bakeAOWithGpu } from '../src/lib/aoGpu';
+import { serializeBakeScene } from '../src/lib/aoRaster';
+import { normalMapPayload } from '../src/lib/normal';
+import { webgpuUsable } from '../src/lib/gpuCommon';
 import { getBakeScene } from '../src/lib/bakeSceneCache';
 import type { ConversionConfig } from '../src/lib/presets';
 import type { DecodedImage } from './imageIo';
 import { resampleAndPixelate, type UpscaleMethod } from './resample';
 
-/** AO factor map (255 = unoccluded) as `width*height` bytes. */
-export function bakeAO(
+/** AO factor map (255 = unoccluded) as `width*height` bytes. Uses the GPU when
+ * `useGpu` is set and WebGPU is available, else the exact CPU path. */
+export async function bakeAO(
   scene: Object3D,
   width: number,
   height: number,
   config: ConversionConfig,
   samples: number,
   normalMap: DecodedImage | null,
-): Uint8ClampedArray {
+  useGpu: boolean,
+): Promise<Uint8ClampedArray> {
   const bakeScene = getBakeScene(scene, config.aoDistance) ?? undefined;
+  const normal = normalMapPayload({
+    normalMap: normalMap ?? undefined,
+    normalStrength: config.normalStrength,
+    normalFlipY: config.normalFormat === 'directx',
+  });
+  if (useGpu && bakeScene && webgpuUsable()) {
+    try {
+      const input = serializeBakeScene(bakeScene, roundedSamples(samples), normal);
+      return await bakeAOWithGpu(input, width, height);
+    } catch {
+      // Any GPU failure (device loss, validation) falls through to the CPU bake.
+    }
+  }
   return bakeMeshAO(scene, width, height, {
     samples,
     distance: config.aoDistance,
@@ -61,18 +87,4 @@ export function normalMapAtBakeResolution(
   upscale: UpscaleMethod,
 ): DecodedImage {
   return resampleAndPixelate(normal, width, height, pixelation, upscale);
-}
-
-/** Expands a grayscale AO factor map to RGBA (r=g=b=factor, a=255). */
-export function factorsToRgba(factors: Uint8ClampedArray, width: number, height: number): Uint8ClampedArray {
-  const rgba = new Uint8ClampedArray(width * height * 4);
-  for (let i = 0; i < width * height; i += 1) {
-    const value = factors[i];
-    const offset = i * 4;
-    rgba[offset] = value;
-    rgba[offset + 1] = value;
-    rgba[offset + 2] = value;
-    rgba[offset + 3] = 255;
-  }
-  return rgba;
 }

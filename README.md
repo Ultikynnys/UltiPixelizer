@@ -54,26 +54,23 @@ Open the live app at [ultikynnys.github.io/UltiPixelizer](https://ultikynnys.git
 
 ## Headless CLI
 
-UltiPixelizer also runs headless  the same dither **and bake** pipeline,
-palettes, and settings format as the web app, with no browser or GPU. Build it
-once:
+UltiPixelizer is also a CLI  no separate download or Node install. Running the
+executable with any argument runs the same dither **and bake** pipeline and
+settings format as the app, off-screen (in a hidden webview), reusing the app
+bundle so the CLI adds no extra dependency or binary:
 
 ```bash
-npm install
-npm run build:cli          # -> dist-cli/ultipixelizer.mjs
+# The installed app (Windows) or the AppImage/deb (Linux)
+UltiPixelizer -i texture.png -o out.png --palette gameboy --mode floyd --resolution 128
 ```
 
-Then dither any texture to a pixel-art PNG:
+With no arguments the app opens its window as usual. AO bakes run on the GPU
+(via the webview's WebGPU) and fall back to the CPU path; pass `--no-gpu` to
+force the CPU bake.
 
-```bash
-node dist-cli/ultipixelizer.mjs --input texture.png --output out.png --palette gameboy --mode floyd --resolution 128
-```
-
-Or, once the package is linked (`npm link`), via the `ultipixelizer` bin:
-
-```bash
-ultipixelizer -i texture.png -o out.png -p ultipixelizer-settings.json
-```
+To build it from source, use the Tauri CLI so production asset embedding is on:
+`npm run tauri build` (or `npm run build` then `npx tauri build`). A bare
+`cargo build --release` stays in dev mode and expects the Vite dev server.
 
 ### Output texture type = view mode
 
@@ -103,7 +100,7 @@ validation as the app (`--help` lists them all)  e.g. `--ao-bias`, `--ao-power`,
 
 ```bash
 # Bake AO + a lightmap from a model, then export the combined texture
-node dist-cli/ultipixelizer.mjs \
+UltiPixelizer \
   -i texture.png --model prop.fbx --normal texture_Normal.png \
   --generate-ao --bake-lighting \
   --sun-azimuth 120 --sun-elevation 35 --sun-intensity 1.4 --ambient-intensity 0.3 \
@@ -115,7 +112,7 @@ Key options:
 | Option | Meaning |
 | --- | --- |
 | `-i, --input <file>` | Source base texture (`.png` / `.jpg` / `.jpeg`) |
-| `-o, --output <file>` | Output PNG (default `<input>_<View>.png`) |
+| `-o, --output <file>` | Output PNG (default `<stem>_<View>.png`, where `<stem>` is the model's name when `--model` is set, else the input's) |
 | `-p, --preset <file>` | Load an app settings/preset JSON |
 | `--palette <key>` / `--palette-file <file>` | Built-in palette, or custom JSON/`.hex` |
 | `--normal <file>` / `--ao <file>` / `--lightmap <file>` | Map inputs |
@@ -123,6 +120,7 @@ Key options:
 | `--model <file>` | Model for bakes (`.fbx` / `.obj` / `.gltf` / `.glb`) |
 | `--uv-map`, `--lod`, `--world-axis` | Model preparation |
 | `--generate-ao` / `--bake-lighting` | Bake from the model (fallback quad if none) |
+| `--gpu` / `--no-gpu` | AO bake on the GPU, or force the CPU path |
 | `--sun-azimuth` / `--sun-elevation` / `--sun-direction x,y,z` | Sun angle |
 | `--dump-config [<file>]` | Write the current settings as a preset JSON and exit |
 | `--json` | Machine-readable result summary |
@@ -131,7 +129,7 @@ Key options:
 ```bash
 # Batch a folder to GameBoy-color thumbnails
 for f in textures/*.png; do
-  node dist-cli/ultipixelizer.mjs -i "$f" --palette gameboy -r 64
+  UltiPixelizer -i "$f" --palette gameboy -r 64
 done
 ```
 

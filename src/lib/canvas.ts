@@ -1,4 +1,19 @@
 import { saveBlobViaTauri, saveTextViaTauri } from './tauri';
+import {
+  computeOutputDimensions,
+  factorRgba,
+  pixelate as corePixelate,
+  resampleAndPixelate as coreResampleAndPixelate,
+  resize as coreResize,
+  resizeNearest as coreResizeNearest,
+  type PixelBuffer,
+  type UpscaleMethod,
+} from './pipeline/pixel';
+
+// Re-exported so every existing `./canvas` import keeps working; the single
+// definition now lives in the shared resample core.
+export { computeOutputDimensions };
+export type { UpscaleMethod };
 
 export function cloneImageData(source: ImageData): ImageData {
   return new ImageData(new Uint8ClampedArray(source.data), source.width, source.height, { colorSpace: source.colorSpace });
@@ -53,47 +68,39 @@ export function computeContainRect(containerWidth: number, containerHeight: numb
   return { left: (containerWidth - width) / 2, top: (containerHeight - height) / 2, width, height, scale };
 }
 
-/** Resamples the source to the requested pixel-grid width, scaling the height
- * to preserve the aspect ratio (1px floor). Shared by the renderer's output
- * dimensions and the bake sizes, so the dithered texture and the AO/lightmap
- * bakes always agree on the target size. */
-export function computeOutputDimensions(resolution: number, source: { width: number; height: number }): { width: number; height: number } {
-  return { width: resolution, height: Math.max(1, Math.round(resolution * source.height / source.width)) };
+/** Output dimensions and the upscale method are defined once in the shared
+ * resample core (`./pipeline/pixel`) and re-exported above. */
+
+/** Reads a CanvasImageSource into a PixelBuffer at its native size, so the
+ * shared resample core (DOM-free) can operate on it. */
+function toBuffer(image: CanvasImageSource & { width: number; height: number }): PixelBuffer {
+  return { data: imagePixels(image, image.width, image.height), width: image.width, height: image.height };
 }
 
-/** Upscale method for the pixelized pipeline: nearest keeps source pixels
- * crisp (hard blocks, the default), bilinear smooths the scale with the
- * browser's filtered resample (soft blocks). */
-export type UpscaleMethod = 'nearest' | 'bilinear';
-
-/** Resizes an image to the given size with the chosen upscale method. Always
- * returns a fresh canvas at the target size, so callers can rely on canvas
- * APIs (toBlob, getContext) regardless of the source. */
+/** Resizes an image to the given size. Downscales use the shared core's area
+ * box filter; upscales use the chosen method. Always returns a fresh canvas at
+ * the target size, so callers can rely on canvas APIs (toBlob, getContext)
+ * regardless of the source. */
 export function resizeImage(
   image: CanvasImageSource & { width: number; height: number },
   width: number,
   height: number,
   method: UpscaleMethod = 'nearest',
 ): HTMLCanvasElement {
-  const { canvas, context } = createCanvas(width, height);
-  if (!context) throw new Error('Canvas is unavailable.');
-  context.imageSmoothingEnabled = method === 'bilinear';
-  context.drawImage(image, 0, 0, width, height);
-  return canvas;
+  const out = coreResize(toBuffer(image), width, height, method);
+  return pixelsToCanvas(out.data, out.width, out.height);
 }
 
 /** Nearest-neighbor (pixelized) resize of an image to the given size 
- * smoothing disabled so source pixels stay crisp, matching the dithered
- * pipeline's pixelated look. Always returns a fresh canvas at the target
- * size, so callers can rely on canvas APIs (toBlob, getContext) regardless of
- * the source. Used to pixelize the normal map for the dithered viewport and
- * export, since a normal map can't be palette-dithered. */
+ * smoothing bypassed so source pixels stay crisp, matching the dithered
+ * pipeline's pixelated look. Always returns a fresh canvas at the target size. */
 export function resizeNearest(
   image: CanvasImageSource & { width: number; height: number },
   width: number,
   height: number,
 ): HTMLCanvasElement {
-  return resizeImage(image, width, height, 'nearest');
+  const out = coreResizeNearest(toBuffer(image), width, height);
+  return pixelsToCanvas(out.data, out.width, out.height);
 }
 
 /** Draws an image at the given size and returns its RGBA pixel data. Shared by
@@ -139,17 +146,7 @@ export function factorsToCanvas(
   height: number,
   fill: (value: number, index: number) => number | null = (value) => value,
 ): HTMLCanvasElement {
-  const pixels = new Uint8ClampedArray(width * height * 4);
-  for (let i = 0; i < factors.length; i += 1) {
-    const value = fill(factors[i], i);
-    if (value === null) continue;
-    const offset = i * 4;
-    pixels[offset] = value;
-    pixels[offset + 1] = value;
-    pixels[offset + 2] = value;
-    pixels[offset + 3] = 255;
-  }
-  return pixelsToCanvas(pixels, width, height);
+  return pixelsToCanvas(factorRgba(width, height, (i) => (i < factors.length ? fill(factors[i], i) : null)), width, height);
 }
 
 export function processLitImageData(
@@ -171,19 +168,13 @@ export function processLitImageData(
  * clamped to at least 1px so the image never collapses entirely. */
 export function pixelateCanvas(canvas: HTMLCanvasElement, percent: number, method: UpscaleMethod = 'nearest'): HTMLCanvasElement {
   if (percent <= 0) return canvas;
-  const { width, height } = canvas;
-  const scale = 1 - percent / 100;
-  const smallWidth = Math.max(1, Math.round(width * scale));
-  const smallHeight = Math.max(1, Math.round(height * scale));
-  const small = resizeNearest(canvas, smallWidth, smallHeight);
-  return resizeImage(small, width, height, method);
+  const out = corePixelate({ data: imagePixels(canvas, canvas.width, canvas.height), width: canvas.width, height: canvas.height }, percent, method);
+  return pixelsToCanvas(out.data, out.width, out.height);
 }
 
 /** Nearest-neighbor resample to the given size followed by the downscale +
- * upscale pixelization filter  the processed normals map's pipeline, shared by
- * the 2D normals inspection, the processed viewport push, and the bake inputs.
- * The resample stays nearest (crisp map values); the pixelization's
- * upscale-back step honors the chosen upscale method. */
+ * upscale pixelization filter. Delegates to the shared core so the app and CLI
+ * pixelize identically. */
 export function resampleAndPixelate(
   image: CanvasImageSource & { width: number; height: number },
   width: number,
@@ -191,7 +182,8 @@ export function resampleAndPixelate(
   percent: number,
   method: UpscaleMethod = 'nearest',
 ): HTMLCanvasElement {
-  return pixelateCanvas(resizeNearest(image, width, height), percent, method);
+  const out = coreResampleAndPixelate(toBuffer(image), width, height, percent, method);
+  return pixelsToCanvas(out.data, out.width, out.height);
 }
 
 function mulberry32(seed: number): () => number {

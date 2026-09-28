@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
   base: './',
@@ -11,6 +12,14 @@ export default defineConfig({
   },
   build: {
     target: 'es2022',
+    rollupOptions: {
+      // Two entry points: the visible app (`index.html`) and the headless CLI
+      // page (`cli.html`) the desktop binary loads into a hidden window.
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        cli: fileURLToPath(new URL('./cli.html', import.meta.url)),
+      },
+    },
   },
   test: {
     environment: 'node',

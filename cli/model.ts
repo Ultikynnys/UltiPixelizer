@@ -5,8 +5,6 @@
  * `fs`-read buffers, so no `File`, `URL`, or fetch is involved. FBX/OBJ/glTF/GLB
  * are supported; USDZ (which needs a WASM reader) errors clearly.
  */
-import { readFileSync } from 'node:fs';
-import { extname } from 'node:path';
 import { ImageLoader, Object3D, Texture } from 'three';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -14,6 +12,9 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { applyUVChannel, getFallbackQuadScene } from '../src/lib/modelScene';
 import { applyLodLevel, prepareModelLods } from '../src/lib/modelLod';
 import type { WorldAxis } from '../src/lib/modelFiles';
+import { upAxisRotation, withoutFbxUpAxisWarning } from '../src/lib/modelAxis';
+import { cliHost } from './host';
+import { extname } from './path';
 
 export type ModelPrepOptions = {
   worldAxis: WorldAxis;
@@ -28,11 +29,6 @@ export type ModelPrep = {
   uvMissingMeshes: number;
   meshCount: number;
 };
-
-/** up-axis correction: Blender is Z-up (rotate -90° about X), Maya is Y-up. */
-function upAxisRotation(worldAxis: WorldAxis): number {
-  return worldAxis === 'blender' ? -Math.PI / 2 : 0;
-}
 
 /**
  * The bakes need geometry only — never the model's own materials/textures. three's
@@ -51,37 +47,22 @@ function stubTextureLoading(): void {
   };
 }
 
-function toArrayBuffer(buffer: Buffer): ArrayBuffer {
-  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
-}
-
-/** Runs `parse` with the FBXLoader's Z-up notice filtered: it describes a
- * rotation `prepareModel` immediately overwrites via the world-axis setting. */
-function withoutFbxUpAxisWarning<T>(work: () => T): T {
-  const original = console.warn;
-  console.warn = ((...args: unknown[]) => {
-    if (typeof args[0] === 'string' && args[0].includes('Z-UP coordinate system')) return;
-    original(...args);
-  }) as typeof console.warn;
-  try {
-    return work();
-  } finally {
-    console.warn = original;
-  }
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 /** Loads a model file into a three.js scene graph. */
 export async function loadModel(path: string): Promise<Object3D> {
   const ext = extname(path).toLowerCase().replace('.', '');
-  const buffer = readFileSync(path);
+  const buffer = await cliHost().readFileBytes(path);
   const baseDir = path.replace(/\\/g, '/').replace(/[^/]*$/, '');
   stubTextureLoading();
 
   switch (ext) {
     case 'fbx':
-      return withoutFbxUpAxisWarning(() => new FBXLoader().parse(toArrayBuffer(buffer), baseDir));
+      return withoutFbxUpAxisWarning(async () => new FBXLoader().parse(toArrayBuffer(buffer), baseDir));
     case 'obj':
-      return new OBJLoader().parse(buffer.toString('utf8'));
+      return new OBJLoader().parse(new TextDecoder().decode(buffer));
     case 'glb':
     case 'gltf':
       return await new Promise<Object3D>((resolve, reject) => {

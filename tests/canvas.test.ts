@@ -115,13 +115,16 @@ describe('canvas drawing helpers', () => {
   });
 
   it('resizes with the chosen upscale method (nearest crisp, bilinear smoothed)', () => {
-    const source = pixelCanvas([200, 100, 50, 255]);
-    // The method toggles the canvas smoothing flag: nearest keeps source
-    // pixels hard, bilinear lets the browser filter the scale.
-    const nearest = resizeImage(source, 2, 1, 'nearest') as unknown as FakeCanvas;
-    const bilinear = resizeImage(source, 2, 1, 'bilinear') as unknown as FakeCanvas;
-    expect(nearest.context.imageSmoothingEnabled).toBe(false);
-    expect(bilinear.context.imageSmoothingEnabled).toBe(true);
+    const source = new FakeCanvas();
+    source.width = 2;
+    source.height = 1;
+    source.context.pixels.set([0, 0, 0, 255, 255, 255, 255, 255]);
+    // 2×1 -> 4×1: nearest duplicates the two source pixels; bilinear ramps
+    // between them (the shared resample core, not a canvas smoothing flag).
+    const nearest = Array.from((resizeImage(asSourceImage(source), 4, 1, 'nearest') as unknown as FakeCanvas).context.pixels);
+    const bilinear = Array.from((resizeImage(asSourceImage(source), 4, 1, 'bilinear') as unknown as FakeCanvas).context.pixels);
+    expect(nearest).toEqual([0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255]);
+    expect(bilinear).toEqual([0, 0, 0, 255, 64, 64, 64, 255, 191, 191, 191, 255, 255, 255, 255, 255]);
   });
 
   it('throws a friendly error when pixels cannot be read', () => {
@@ -321,10 +324,10 @@ describe('pixelateCanvas', () => {
       10, 10, 10, 255, 20, 20, 20, 255,
       30, 30, 30, 255, 40, 40, 40, 255,
     ]);
-    // 50% downscales the 2×2 to 1×1 (the top-left pixel), then upscales back:
-    // the whole canvas collapses to that single pixel.
+    // 50% downscales the 2×2 to 1×1 with nearest sampling, then upscales back:
+    // the whole canvas collapses to the single sampled pixel.
     const pixelated = pixelateCanvas(canvas as unknown as HTMLCanvasElement, 50) as unknown as FakeCanvas;
-    expect(Array.from(pixelated.context.pixels)).toEqual(new Array(4).fill([10, 10, 10, 255]).flat());
+    expect(Array.from(pixelated.context.pixels)).toEqual(new Array(4).fill([40, 40, 40, 255]).flat());
   });
 
   it('resampleAndPixelate resamples to the target size then pixelizes', () => {
@@ -342,14 +345,14 @@ describe('pixelateCanvas', () => {
     const plain = resampleAndPixelate(source as unknown as HTMLCanvasElement, 4, 4, 0) as unknown as FakeCanvas;
     expect(Array.from(plain.context.pixels)).toEqual(Array.from(source.context.pixels));
 
-    // 50%: downscale the 4×4 to 2×2 (each 2×2 block's top-left), then upscale
-    // back: 2×2 chunky blocks at full resolution.
+    // 50%: downscale the 4×4 to 2×2 with nearest sampling (the odd rows/cols),
+    // then upscale back: 2×2 chunky blocks at full resolution.
     const blocked = resampleAndPixelate(source as unknown as HTMLCanvasElement, 4, 4, 50) as unknown as FakeCanvas;
     expect(Array.from(blocked.context.pixels)).toEqual([
-      10, 10, 10, 255, 10, 10, 10, 255, 20, 20, 20, 255, 20, 20, 20, 255,
-      10, 10, 10, 255, 10, 10, 10, 255, 20, 20, 20, 255, 20, 20, 20, 255,
-      30, 30, 30, 255, 30, 30, 30, 255, 40, 40, 40, 255, 40, 40, 40, 255,
-      30, 30, 30, 255, 30, 30, 30, 255, 40, 40, 40, 255, 40, 40, 40, 255,
+      13, 13, 13, 255, 13, 13, 13, 255, 23, 23, 23, 255, 23, 23, 23, 255,
+      13, 13, 13, 255, 13, 13, 13, 255, 23, 23, 23, 255, 23, 23, 23, 255,
+      33, 33, 33, 255, 33, 33, 33, 255, 43, 43, 43, 255, 43, 43, 43, 255,
+      33, 33, 33, 255, 33, 33, 33, 255, 43, 43, 43, 255, 43, 43, 43, 255,
     ]);
   });
 });
