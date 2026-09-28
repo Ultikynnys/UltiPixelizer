@@ -12,3 +12,7 @@ src-tauri/target/
 src-tauri/gen/
 src-tauri/tauri.version.json
 src-wasm/target/
+
+# Generated wasm artifact (scripts/build-wasm.mjs); rebuilt by `npm run build:wasm`
+# and by ensure-wasm, so it is not tracked.
+src/wasm/
