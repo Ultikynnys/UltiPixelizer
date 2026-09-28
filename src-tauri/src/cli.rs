@@ -11,7 +11,7 @@
 //! `cli_log` / `cli_error`, and finally calls `cli_exit` so the process returns
 //! the pipeline's exit code.
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 /// Command-line arguments (everything after argv[0]), captured at startup and
 /// handed to the hidden CLI webview on request.
@@ -71,9 +71,15 @@ pub fn cli_cwd() -> Result<String, String> {
         .map_err(|error| format!("Could not resolve the working directory: {}", error))
 }
 
-/// Ends the CLI run, exiting the process with `code`.
+/// Ends the CLI run: destroys the hidden webview first so Chromium unregisters
+/// its window class cleanly (otherwise it logs "Failed to unregister class
+/// Chrome_WidgetWin_0" on stderr as the process exits  tauri#7606), then exits
+/// with `code`.
 #[tauri::command]
 pub fn cli_exit(app: AppHandle, code: i32) {
+    if let Some(window) = app.get_webview_window("cli") {
+        let _ = window.destroy();
+    }
     app.exit(code);
 }
 
