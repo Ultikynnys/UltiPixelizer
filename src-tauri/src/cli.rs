@@ -83,6 +83,56 @@ pub fn cli_exit(app: AppHandle, code: i32) {
     app.exit(code);
 }
 
+pub fn run_batch(args: &[String]) -> i32 {
+    let json = args.iter().any(|arg| arg == "--json");
+    let prepared = (|| {
+        let options = crate::cli_batch::parse(args)?;
+        let jobs = crate::cli_batch::discover(&options)?;
+        let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+        Ok::<_, String>((options, jobs, executable))
+    })();
+    let (options, jobs, executable) = match prepared {
+        Ok(value) => value,
+        Err(error) => {
+            if json {
+                cli_log(format!("{}\n", serde_json::json!({ "error": error, "exitCode": 2 })));
+            } else {
+                cli_error(format!("error: {error}\n"));
+            }
+            return 2;
+        }
+    };
+    if !options.json {
+        cli_error(format!("Converting {} files with up to {} parallel jobs.\n", jobs.len(), options.jobs.min(jobs.len())));
+    }
+    let results = crate::cli_batch::execute(&options, &jobs, &executable);
+    let failed = results.iter().filter(|result| result.code != 0).count();
+    if options.json {
+        let files: Vec<_> = results.iter().map(|result| serde_json::json!({
+            "input": result.job.input,
+            "output": result.job.output,
+            "exitCode": result.code,
+            "result": serde_json::from_str::<serde_json::Value>(&result.stdout).ok(),
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        })).collect();
+        cli_log(format!("{}\n", serde_json::json!({
+            "total": results.len(), "succeeded": results.len() - failed,
+            "failed": failed, "jobs": options.jobs.min(jobs.len()), "files": files,
+        })));
+    } else {
+        for result in &results {
+            cli_log(format!("{}: {} -> {}\n", if result.code == 0 { "OK" } else { "FAILED" },
+                result.job.input.display(), result.job.output.display()));
+            if !result.stderr.is_empty() {
+                cli_error(format!("{}: {}\n", result.job.input.display(), result.stderr.trim_end()));
+            }
+        }
+        cli_log(format!("Batch complete: {} succeeded, {failed} failed.\n", results.len() - failed));
+    }
+    if failed == 0 { 0 } else { 1 }
+}
+
 /// Attaches the process to the console it was launched from so `println!` /
 /// `eprintln!` reach the terminal.
 ///

@@ -126,12 +126,39 @@ Key options:
 | `--json` | Machine-readable result summary |
 | `--list-palettes` / `--list-modes` / `--list-views` | Discover values |
 
+### Parallel folder conversion
+
 ```bash
-# Batch a folder to GameBoy-color thumbnails
-for f in textures/*.png; do
-  UltiPixelizer -i "$f" --palette gameboy -r 64
-done
+UltiPixelizer --input-dir textures --output-dir converted --recursive --jobs 4 --palette gameboy -r 64
+
+# One structured summary, including per-file results and failures
+UltiPixelizer --input-dir textures --output-dir converted-json --jobs 2 --json
 ```
+
+Folder conversion uses independent child processes, so CPU-heavy conversions
+actually run in parallel. `--jobs` defaults to the available CPU count capped at
+4; use `--jobs 1` to minimize memory usage. Each active job starts a hidden
+webview, so small images may be dominated by startup overhead.
+
+PNG/JPEG inputs are discovered before conversion starts. `--recursive` includes
+subfolders, preserving their relative paths in the destination. Symlinks are
+skipped and the output tree is excluded. The destination must not equal or
+contain the input folder. Existing output files and name collisions (such as
+`image.png` and `image.jpg`) are rejected before any conversions launch.
+Batch output names use the input image stem and selected view suffix, even when
+a shared `--model` is supplied.
+
+Settings, presets, and any explicitly supplied model/maps apply to every file;
+companion models or maps are not automatically paired. Do not combine batch
+flags with single-file `--input`/`--output`, `--dump-config`, or list commands.
+Individual failures do not stop other files. Exit status is 0 for complete
+success, 1 for conversion failures, or 2 for batch argument/discovery errors.
+`--json` prints one batch object containing counts and per-file exit codes,
+parsed conversion results, stdout, and stderr.
+
+Parallel batching does not turn CPU dithering or lightmap baking into GPU work.
+Only AO baking attempts WebGPU, with CPU fallback; concurrent AO jobs share
+hardware resources, so lower `--jobs` if GPU memory becomes constrained.
 
 Preset values are used as-is; any flag you pass on the command line overrides
 the corresponding preset field. The `world` pattern space (which needs per-texel

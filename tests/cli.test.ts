@@ -65,6 +65,17 @@ async function run(args: string[]): Promise<{ code: number; stdout: string; stde
   }
 }
 
+describe('batch CLI help', () => {
+  it('documents parallel folder conversion even with batch arguments', async () => {
+    const result = await run(['--input-dir', 'textures', '--output-dir', 'converted', '--jobs', '2', '--help']);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('--input-dir');
+    expect(result.stdout).toContain('--output-dir');
+    expect(result.stdout).toContain('--recursive');
+    expect(result.stdout).toContain('Parallel processes');
+  });
+});
+
 describe('computeOutputDimensions', () => {
   it('preserves aspect ratio at the target width', () => {
     expect(computeOutputDimensions(128, { width: 256, height: 128 })).toEqual({ width: 128, height: 64 });

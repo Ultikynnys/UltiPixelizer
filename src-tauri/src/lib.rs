@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use tauri::Manager;
 
 mod cli;
+mod cli_batch;
 
 /// Desktop app-data storage: settings and palettes live as files in the
 /// installation folder (`resource_dir()`, e.g. next to UltiPixelizer.exe), so
@@ -147,6 +148,10 @@ pub fn run() {
     // so CLI output is visible. No-op off Windows.
     if cli_mode {
         cli::attach_parent_console();
+    }
+
+    if cli_batch::requested(&args) && !args.iter().any(|arg| matches!(arg.as_str(), "--help" | "-h")) {
+        std::process::exit(cli::run_batch(&args));
     }
 
     tauri::Builder::default()

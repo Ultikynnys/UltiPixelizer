@@ -50,6 +50,15 @@ Input / output:
   -p, --preset <file>         Load an UltiPixelizer settings/preset JSON
       --palette <key>         Built-in palette key (see --list-palettes)
       --palette-file <file>   Custom palette (.json or .hex color list)
+
+Folder conversion (desktop executable):
+      --input-dir <dir>      Convert all PNG/JPEG files in a folder
+      --output-dir <dir>     Required destination; preserves subfolders
+      --recursive            Include nested folders (skips symlinks)
+      --jobs <n>             Parallel processes [CPU count, capped at 4]
+                             Existing outputs/collisions are rejected
+
+Additional map inputs:
       --normal <file>         Normal map input (used by bakes + Normals view)
       --ao <file>             Pre-baked AO map input
       --lightmap <file>       Pre-baked lightmap input
@@ -118,7 +127,7 @@ export async function runCli(argv: string[]): Promise<number> {
 
   let options: CliOptions;
   try {
-    options = parseCli(argv);
+    options = parseCli(argv.some((arg) => arg === '--help' || arg === '-h') ? ['--help'] : argv);
   } catch (error) {
     if (error instanceof CliError) { host.error(`error: ${error.message}\n`); await host.flush(); return 2; }
     throw error;
