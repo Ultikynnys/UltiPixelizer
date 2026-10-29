@@ -5,9 +5,12 @@ import {
   BAKE_PAD_TEXELS,
   castBakeRay,
   collectBakeScene,
+  createTileCoverage,
   dilateUVBake,
   rasterizeBake,
+  rasterizeBakeBand,
   rasterizeBakedPixels,
+  rasterizeLastWriter,
   rasterizeWorldPositions,
   type BakeTriangle,
 } from '../src/lib/bakeGeometry';
@@ -157,6 +160,25 @@ describe('rasterizeWorldPositions', () => {
     expect(Array.from(result.normals.slice(3, 6))).toEqual([0, 0, 0]);
   });
 
+  it('interpolates overlapping UV islands once, keeping the last triangle', () => {
+    const scene = new Object3D();
+    const first = uvTriangle();
+    const second = uvTriangle();
+    second.position.set(2, 0, 0);
+    scene.add(first, second);
+    const bakeScene = collectBakeScene(scene);
+    expect(bakeScene.triangles).toHaveLength(2);
+    const result = rasterizeWorldPositions(bakeScene, 4, 4);
+    expect(result.coverage.reduce((sum, flag) => sum + flag, 0)).toBeGreaterThan(0);
+    // The second island wins every texel it shares with the first, which is the
+    // value last-writer order produced before the raster started skipping texels
+    // an already-walked triangle claimed.
+    for (let pixel = 0; pixel < result.coverage.length; pixel += 1) {
+      if (!result.coverage[pixel]) continue;
+      expect(result.positions[pixel * 3]).toBeGreaterThanOrEqual(2);
+    }
+  });
+
   it('rejects invalid dimensions and missing vertex references', () => {
     const scene = collectBakeScene(new Object3D().add(uvTriangle()));
     expect(() => rasterizeWorldPositions(scene, 0, 2)).toThrow('positive integers');
@@ -203,6 +225,118 @@ describe('rasterizeBake', () => {
   });
 });
 
+describe('rasterizeLastWriter', () => {
+  it('writes each covered texel once, from the last triangle in order', () => {
+    const triangle: BakeTriangle = { uv: [[0, 0], [1, 0], [0, 1]], verts: [0, 1, 2] };
+    const mask = new Uint8Array(8 * 8);
+    const writes = new Map<number, number[]>();
+    rasterizeLastWriter(mask, 8, 8, [triangle, triangle, triangle], (_px, _py, _w0, _w1, _w2, _triangle, triangleIndex, index) => {
+      writes.set(index, [...(writes.get(index) ?? []), triangleIndex]);
+    });
+    const covered = mask.reduce((sum, flag) => sum + flag, 0);
+    expect(covered).toBeGreaterThan(0);
+    // Overlapping triangles must not write a texel once per covering triangle.
+    expect(writes.size).toBe(covered);
+    for (const triangleIndices of writes.values()) {
+      expect(triangleIndices).toEqual([2]);
+    }
+  });
+});
+
+describe('createTileCoverage', () => {
+  it('keeps a tile open until every texel is resolved, then reports it resolved', () => {
+    const tiles = createTileCoverage(64, 32);
+    for (let py = 0; py < 31; py += 1) {
+      for (let px = 0; px < 32; px += 1) tiles.resolve(px, py);
+    }
+    // One texel short of the tile: a raster must keep testing its remaining texels.
+    expect(tiles.isResolved(0)).toBe(false);
+    for (let px = 0; px < 32; px += 1) tiles.resolve(px, 31);
+    expect(tiles.isResolved(0)).toBe(true);
+    // The second tile column is untouched.
+    expect(tiles.isResolved(1)).toBe(false);
+  });
+
+  it('resolves clipped edge tiles against their real texel count', () => {
+    const tiles = createTileCoverage(40, 4);
+    for (let py = 0; py < 4; py += 1) {
+      for (let px = 0; px < 32; px += 1) tiles.resolve(px, py);
+    }
+    expect(tiles.isResolved(0)).toBe(true);
+    expect(tiles.isResolved(1)).toBe(false);
+    // The right edge tile holds 8x4 texels, not a full 32x32 square.
+    for (let py = 0; py < 4; py += 1) {
+      for (let px = 32; px < 40; px += 1) tiles.resolve(px, py);
+    }
+    expect(tiles.isResolved(1)).toBe(true);
+  });
+});
+
+describe('rasterizeBakeBand', () => {
+  function stackedTriangles(count: number): { triangleUVs: Float32Array; triangleVerts: Uint32Array } {
+    const triangleUVs = new Float32Array(count * 6);
+    const triangleVerts = new Uint32Array(count * 3);
+    for (let i = 0; i < count; i += 1) {
+      triangleUVs.set([0, 0, 1, 0, 0, 1], i * 6);
+      triangleVerts.set([i * 3, i * 3 + 1, i * 3 + 2], i * 3);
+    }
+    return { triangleUVs, triangleVerts };
+  }
+
+  it('shades each covered texel once and keeps the last triangle covering it', () => {
+    const { triangleUVs, triangleVerts } = stackedTriangles(8);
+    const written = new Uint8Array(8 * 8);
+    const writes = new Map<number, number[]>();
+    rasterizeBakeBand(8, 8, 0, 8, triangleUVs, triangleVerts, written, (_px, _py, _w0, _w1, _w2, index, triangleIndex) => {
+      writes.set(index, [...(writes.get(index) ?? []), triangleIndex]);
+    });
+    const covered = written.reduce((sum, flag) => sum + flag, 0);
+    expect(covered).toBeGreaterThan(0);
+    // Overlapping islands must not be shaded once per covering triangle.
+    expect(writes.size).toBe(covered);
+    for (const triangleIndices of writes.values()) {
+      expect(triangleIndices).toEqual([7]);
+    }
+  });
+
+  it('clips the raster to the requested row band', () => {
+    const { triangleUVs, triangleVerts } = stackedTriangles(1);
+    const written = new Uint8Array(4 * 4);
+    const rows: number[] = [];
+    rasterizeBakeBand(4, 8, 2, 6, triangleUVs, triangleVerts, written, (_px, py) => {
+      rows.push(py);
+    });
+    expect(rows.length).toBeGreaterThan(0);
+    for (const py of rows) {
+      expect(py).toBeGreaterThanOrEqual(2);
+      expect(py).toBeLessThan(6);
+    }
+    expect(written.reduce((sum, flag) => sum + flag, 0)).toBeGreaterThan(0);
+  });
+
+  it('clips triangles whose UVs span several texture tiles', () => {
+    // A UDIM-style layout: 0..3 in u and 0..2 in v, of which only the 0..1
+    // texture tile exists. Every texel of that tile is shaded exactly once.
+    const written = new Uint8Array(8 * 8);
+    let writes = 0;
+    rasterizeBakeBand(8, 8, 0, 8, new Float32Array([0, 0, 3, 0, 0, 2]), new Uint32Array([0, 1, 2]), written, () => {
+      writes += 1;
+    });
+    expect(writes).toBeGreaterThan(0);
+    expect(writes).toBe(written.reduce((sum, flag) => sum + flag, 0));
+  });
+
+  it('reports progress over unique rows even when islands overlap', () => {
+    const { triangleUVs, triangleVerts } = stackedTriangles(4);
+    const reported: number[] = [];
+    rasterizeBakeBand(8, 8, 0, 8, triangleUVs, triangleVerts, new Uint8Array(8 * 8), () => {}, (rows) => {
+      reported.push(rows);
+    });
+    expect(reported.length).toBeGreaterThan(0);
+    expect(Math.max(...reported)).toBeLessThanOrEqual(8);
+  });
+});
+
 describe('rasterizeBakedPixels', () => {
   const triangle: BakeTriangle = { uv: [[0, 0], [1, 0], [0, 1]], verts: [0, 1, 2] };
 
@@ -215,6 +349,23 @@ describe('rasterizeBakedPixels', () => {
     // A corner far from the island keeps the bright 255 fill (texel (7,0) sits
     // above the diagonal edge, far beyond the two pad rings).
     expect(result[7]).toBe(255);
+  });
+
+  it('shades overlapping islands once, keeping the last triangle', () => {
+    // Two stacked copies of the full-UV quad, so no texel is left unwritten and
+    // the island padding cannot mask which triangle reached a texel.
+    const islands: BakeTriangle[] = [
+      { uv: [[0, 0], [1, 0], [1, 1]], verts: [0, 1, 2] },
+      { uv: [[0, 0], [1, 1], [0, 1]], verts: [0, 1, 2] },
+      { uv: [[0, 0], [1, 0], [1, 1]], verts: [0, 1, 2] },
+      { uv: [[0, 0], [1, 1], [0, 1]], verts: [0, 1, 2] },
+    ];
+    const result = rasterizeBakedPixels(8, 8, islands, 1, (pixels, _px, _py, _w0, _w1, _w2, _triangle, triangleIndex, offset) => {
+      pixels[offset] = triangleIndex;
+    });
+    for (const value of result) {
+      expect(value === 2 || value === 3).toBe(true);
+    }
   });
 
   it('keeps every texel bright when nothing is rasterized', () => {

@@ -1,5 +1,5 @@
 import { BufferAttribute, Object3D } from 'three';
-import { rasterizeBake } from './bakeGeometry';
+import { createTileCoverage, rasterizeBake, type BakeRasterOptions } from './bakeGeometry';
 import { forEachMeshIndexed, forEachTriangle } from './modelScene';
 
 /** Shared label text for the UV-overlap highlight in both the 2D and 3D views. */
@@ -18,7 +18,9 @@ export type UVTriangle = {
 export type UVOverlapResult = {
   width: number;
   height: number;
-  /** Number of triangles covering each texel (saturated at 255). */
+  /** Per-texel triangle count, saturated at 2: 0 = uncovered, 1 = covered by a
+   * single triangle, 2 = covered by two or more (the only distinction the mask
+   * and the highlight need, and what lets the counting raster skip tiles). */
   counts: Uint8Array;
   /** mesh traversal index -> overlapping triangle indices. */
   overlapping: Map<number, number[]>;
@@ -56,15 +58,18 @@ export function collectUVTriangles(scene: Object3D): UVTriangle[] {
  * Rasterizes triangle UVs into a `width × height` grid, invoking `mark` for
  * every texel whose center falls inside the triangle. Thin wrapper over the
  * shared barycentric rasterizer  the overlap detector only needs the covered
- * texel coordinates, not the barycentric weights.
+ * texel coordinates, not the barycentric weights. `options` pass straight
+ * through to the shared rasterizer (the detector uses only `coverage`); returns
+ * false when `mark` stopped the walk.
  */
 export function rasterizeUVCoverage(
   width: number,
   height: number,
   triangles: UVTriangle[],
-  mark: (px: number, py: number) => void,
-): void {
-  rasterizeBake(width, height, triangles, (px, py) => mark(px, py));
+  mark: (px: number, py: number) => boolean | void,
+  options?: BakeRasterOptions,
+): boolean {
+  return rasterizeBake(width, height, triangles, (px, py) => mark(px, py), options);
 }
 
 /**
@@ -76,18 +81,23 @@ export function rasterizeUVCoverage(
 export function computeUVOverlap(scene: Object3D, width: number, height: number): UVOverlapResult {
   const triangles = collectUVTriangles(scene);
   const counts = new Uint8Array(width * height);
+  // A texel stops changing once two triangles cover it, so the counting pass
+  // can skip a tile whose texels all reached 2. A UV layout that stacks its
+  // islands costs one texel visit per (triangle, texel) without this, which is
+  // what made a large overlapping map freeze the UI for half a minute.
+  const coverage = createTileCoverage(width, height);
   rasterizeUVCoverage(width, height, triangles, (px, py) => {
     const index = py * width + px;
-    if (counts[index] < 255) counts[index] += 1;
-  });
+    if (counts[index] >= 2) return;
+    counts[index] += 1;
+    if (counts[index] === 2) coverage.resolve(px, py);
+  }, { coverage });
 
   const overlapping = new Map<number, number[]>();
   for (const triangle of triangles) {
-    let overlaps = false;
-    rasterizeUVCoverage(width, height, [triangle], (px, py) => {
-      if (counts[py * width + px] >= 2) overlaps = true;
-    });
-    if (!overlaps) continue;
+    // The first shared texel decides the triangle, so stop scanning there.
+    const completed = rasterizeUVCoverage(width, height, [triangle], (px, py) => counts[py * width + px] < 2);
+    if (completed) continue;
     const list = overlapping.get(triangle.meshIndex) ?? [];
     list.push(triangle.triangleIndex);
     overlapping.set(triangle.meshIndex, list);

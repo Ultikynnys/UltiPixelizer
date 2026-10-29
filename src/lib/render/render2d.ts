@@ -7,7 +7,7 @@ import { DEFAULT_WORLDSPACE_SCALE } from '../defaults';
 import { webgpuUsable } from '../gpuCommon';
 import { gpuDitherCovers, processImageDataAsync } from '../gpuDither';
 import { applyLightmap } from '../lightmap';
-import { rasterizeBake, rasterizeWorldPositions, type BakeScene, type WorldPositionMap } from '../bakeGeometry';
+import { rasterizeLastWriter, rasterizeWorldPositions, type BakeScene, type WorldPositionMap } from '../bakeGeometry';
 import { getBakeScene } from '../bakeSceneCache';
 import { computeTexelVarianceData, computeUVStretchData, recolorUVStretchData, type UVStretchData } from '../texelDensity';
 import { createBoundedLru } from '../lru';
@@ -36,8 +36,8 @@ export function renderUVStretchCanvas(data: UVStretchData, width: number, height
   const { canvas, context } = createCanvas(width, height);
   if (!context) return canvas;
   const image = context.createImageData(width, height);
-  rasterizeBake(width, height, data.faces, (px, py, _w0, _w1, _w2, face) => {
-    const offset = (py * width + px) * 4;
+  rasterizeLastWriter(new Uint8Array(width * height), width, height, data.faces, (_px, _py, _w0, _w1, _w2, face, _triangleIndex, index) => {
+    const offset = index * 4;
     image.data[offset] = face.color[0];
     image.data[offset + 1] = face.color[1];
     image.data[offset + 2] = face.color[2];

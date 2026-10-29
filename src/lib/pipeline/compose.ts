@@ -18,7 +18,7 @@ import type { Object3D } from 'three';
 import { processImageData, type ProcessOptions } from '../dither';
 import { aoMultiplier, applyAO, redChannelFactors } from '../ao';
 import { applyLightmap } from '../lightmap';
-import { rasterizeBake, type WorldPositionMap } from '../bakeGeometry';
+import { rasterizeLastWriter, type WorldPositionMap } from '../bakeGeometry';
 import { computeTexelVarianceData, computeUVStretchData, recolorUVStretchData, type UVStretchData } from '../texelDensity';
 import type { ConversionConfig } from '../presets';
 import type { PreviewViewMode } from '../state';
@@ -60,8 +60,8 @@ function rgbaFrom(factors: (i: number) => number, width: number, height: number)
 
 function rasterizeFaces(data: UVStretchData, width: number, height: number): Uint8ClampedArray {
   const out = new Uint8ClampedArray(width * height * 4);
-  rasterizeBake(width, height, data.faces, (px, py, _w0, _w1, _w2, face) => {
-    const offset = (py * width + px) * 4;
+  rasterizeLastWriter(new Uint8Array(width * height), width, height, data.faces, (_px, _py, _w0, _w1, _w2, face, _triangleIndex, index) => {
+    const offset = index * 4;
     out[offset] = face.color[0];
     out[offset + 1] = face.color[1];
     out[offset + 2] = face.color[2];

@@ -30,6 +30,16 @@ describe('UV overlap detection', () => {
     expect(result.overlapping.get(0)).toEqual([0, 1]);
   });
 
+  it('saturates counts at 2 and flags every triangle of a stacked layout', () => {
+    const scene = new Scene();
+    for (let index = 0; index < 5; index += 1) scene.add(triMesh([[0, 0], [1, 0], [0, 1]]));
+    const result = computeUVOverlap(scene, 8, 8);
+    expect(Math.max(...result.counts)).toBe(2);
+    for (const meshIndex of [0, 1, 2, 3, 4]) {
+      expect(result.overlapping.get(meshIndex)).toEqual([0]);
+    }
+  });
+
   it('leaves disjoint UVs unflagged', () => {
     const scene = new Scene();
     scene.add(

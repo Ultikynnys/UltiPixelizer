@@ -319,23 +319,133 @@ function rayBoxIntersects(ray: Ray, box: Box3, near: number, far: number): boole
   return tmin <= far && tmax >= near;
 }
 
+/** Side of the coverage-skip tile grid, in texels. A triangle is walked tile by
+ * tile over its clamped bbox, and a tile whose texels are all resolved is
+ * skipped with one flag test instead of one barycentric test per texel. The
+ * worst case for a UV layout is a map covered many times over (large UV islands
+ * or overlapping islands, which a UDIM-style layout produces everywhere): the
+ * first few triangles resolve the covered texels and every further triangle then
+ * costs a handful of tile checks instead of a full-map walk. */
+const COVERAGE_TILE = 32;
+
 /**
- * Rasterizes triangles into a `width × height` grid, invoking `writePixel`
- * with the barycentric weights for every covered pixel. Generic over triangle
- * shape  the bake (BakeTriangle) and UV-overlap (UVTriangle) rasterizers are
- * the same math. UV (0,0) is the texture bottom-left; the canvas is top-left,
- * so V is flipped here. The flat serialized-scene sibling is
- * `rasterizeBakeBand` (band-clipped, progress-aware); both share one
- * barycentric core.
+ * Per-tile accounting of resolved texels, shared by the UV rasterizers. What
+ * "resolved" means belongs to the caller: the bake rasters resolve a texel once
+ * a triangle has claimed it (every other triangle loses the last-writer contest
+ * for that texel and cannot change it), while the UV-overlap counter resolves
+ * one once a second triangle covers it (its mask only distinguishes 0, 1, and
+ * 2+).
+ *
+ * A tile is resolved once all of its texels are, clipped right and bottom edge
+ * tiles against their real texel count. Each texel must be resolved exactly
+ * once: a duplicate resolve can only leave a tile unresolved (a lost skip),
+ * never resolve one whose texels are still pending.
  */
+export type TileCoverage = {
+  /** Tile side in texels. */
+  readonly size: number;
+  readonly columns: number;
+  /** Records one resolved texel; coordinates are texel indices inside the grid. */
+  resolve: (px: number, py: number) => void;
+  /** Whether every texel of tile `row * columns + column` is resolved. */
+  isResolved: (tile: number) => boolean;
+};
+
+/** Builds an unresolved tile grid for a `width × height` raster. */
+export function createTileCoverage(width: number, height: number): TileCoverage {
+  const size = COVERAGE_TILE;
+  const columns = Math.ceil(width / size);
+  const rows = Math.ceil(height / size);
+  const unresolved = new Uint32Array(columns * rows);
+  const resolved = new Uint8Array(columns * rows);
+  for (let row = 0; row < rows; row += 1) {
+    const rowTexels = Math.min(size, height - row * size);
+    for (let column = 0; column < columns; column += 1) {
+      unresolved[row * columns + column] = rowTexels * Math.min(size, width - column * size);
+    }
+  }
+  return {
+    size,
+    columns,
+    resolve(px: number, py: number): void {
+      const tile = ((py / size) | 0) * columns + ((px / size) | 0);
+      if (resolved[tile]) return;
+      const remaining = unresolved[tile] - 1;
+      unresolved[tile] = remaining;
+      if (remaining === 0) resolved[tile] = 1;
+    },
+    isResolved(tile: number): boolean {
+      return resolved[tile] === 1;
+    },
+  };
+}
+
+/**
+ * Last-writer claim gate shared by the bake rasters. A raster that keeps the
+ * last triangle covering each texel (the UV bakes overwrite as they go) walks
+ * its triangles back to front, so the first claim a texel receives comes from
+ * the triangle forward order would have kept and every remaining, earlier
+ * triangle skips it. That is what turns the per-texel shading cost of an
+ * overlapping UV layout from once per covering triangle into once per texel.
+ *
+ * Returns the texel's row-major index inside the raster, or -1 when another
+ * triangle already owns the texel. Claiming a texel also advances the tile grid,
+ * which is what lets whole tiles drop out of the walk.
+ */
+function createTexelClaims(mask: Uint8Array, width: number, rowOrigin: number, coverage: TileCoverage): (px: number, py: number) => number {
+  return (px, py) => {
+    const row = py - rowOrigin;
+    const index = row * width + px;
+    if (mask[index]) return -1;
+    mask[index] = 1;
+    coverage.resolve(px, row);
+    return index;
+  };
+}
+
+/** Shared barycentric core: walks one pixel rectangle of the triangle and
+ * invokes `perPixel` for every pixel center that falls inside it. Returns false
+ * when `perPixel` stopped the walk by returning false, which is how a caller
+ * abandons the rest of a triangle. */
+function rasterizePixelRect(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+  denominator: number,
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number,
+  perPixel: (px: number, py: number, w0: number, w1: number, w2: number) => boolean | void,
+  onRow?: (py: number) => void,
+): boolean {
+  for (let py = minY; py <= maxY; py += 1) {
+    onRow?.(py);
+    for (let px = minX; px <= maxX; px += 1) {
+      const x = px + 0.5;
+      const y = py + 0.5;
+      const w0 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / denominator;
+      const w1 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denominator;
+      const w2 = 1 - w0 - w1;
+      if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+      if (perPixel(px, py, w0, w1, w2) === false) return false;
+    }
+  }
+  return true;
+}
+
 /** Shared barycentric core for the two UV rasterizers: clips the triangle's
- * screen-space bbox to `[0, width − 1] × [yStart, yEnd − 1]`, tests the
- * denominator, and invokes `perPixel` for every pixel whose center falls
- * inside the triangle. `onRow` fires once per visited row (before its pixels)
- * so the band rasterizer can track progress. Both `rasterizeBake` and
- * `rasterizeBakeBand` funnel through here, so the UV-overlap detector and
- * every bake raster share one bbox clamp and one w0/w1/w2 expression and
- * can't drift. */
+ * screen-space bbox to the texture and band bounds, tests the denominator, and
+ * invokes `perPixel` for every pixel whose center falls inside the triangle.
+ * `onRow` fires once per visited row (before its pixels) so the band rasterizer
+ * can track progress. With `coverage` the bbox is walked tile by tile and the
+ * tiles the caller has resolved are skipped. Both `rasterizeBake` and
+ * `rasterizeBakeBand` funnel through here, so the UV-overlap detector and every
+ * bake raster share one bbox clamp and one w0/w1/w2 expression and can't drift.
+ * Returns false when `perPixel` stopped the walk. */
 function rasterizeTrianglePixels(
   ax: number,
   ay: number,
@@ -346,27 +456,39 @@ function rasterizeTrianglePixels(
   width: number,
   yStart: number,
   yEnd: number,
-  perPixel: (px: number, py: number, w0: number, w1: number, w2: number) => void,
+  perPixel: (px: number, py: number, w0: number, w1: number, w2: number) => boolean | void,
   onRow?: (py: number) => void,
-): void {
+  coverage?: TileCoverage,
+): boolean {
   const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
   const maxX = Math.min(width - 1, Math.ceil(Math.max(ax, bx, cx)));
   const minY = Math.max(yStart, Math.floor(Math.min(ay, by, cy)));
   const maxY = Math.min(yEnd - 1, Math.ceil(Math.max(ay, by, cy)));
+  if (maxX < minX || maxY < minY) return true;
   const denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
-  if (denominator === 0) return;
-  for (let py = minY; py <= maxY; py += 1) {
-    onRow?.(py);
-    for (let px = minX; px <= maxX; px += 1) {
-      const x = px + 0.5;
-      const y = py + 0.5;
-      const w0 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / denominator;
-      const w1 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denominator;
-      const w2 = 1 - w0 - w1;
-      if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-      perPixel(px, py, w0, w1, w2);
+  if (denominator === 0) return true;
+  if (!coverage) {
+    return rasterizePixelRect(ax, ay, bx, by, cx, cy, denominator, minX, maxX, minY, maxY, perPixel, onRow);
+  }
+  const { size, columns, isResolved } = coverage;
+  const firstTileColumn = Math.floor(minX / size);
+  const lastTileColumn = Math.floor(maxX / size);
+  const firstTileRow = Math.floor((minY - yStart) / size);
+  const lastTileRow = Math.floor((maxY - yStart) / size);
+  for (let tileRow = firstTileRow; tileRow <= lastTileRow; tileRow += 1) {
+    const tileTop = yStart + tileRow * size;
+    const rowFrom = Math.max(minY, tileTop);
+    const rowTo = Math.min(maxY, tileTop + size - 1);
+    for (let tileColumn = firstTileColumn; tileColumn <= lastTileColumn; tileColumn += 1) {
+      if (isResolved(tileRow * columns + tileColumn)) continue;
+      const tileLeft = tileColumn * size;
+      const columnFrom = Math.max(minX, tileLeft);
+      const columnTo = Math.min(maxX, tileLeft + size - 1);
+      const completed = rasterizePixelRect(ax, ay, bx, by, cx, cy, denominator, columnFrom, columnTo, rowFrom, rowTo, perPixel, onRow);
+      if (!completed) return false;
     }
   }
+  return true;
 }
 
 /** Maps one normalized model UV into the top-left-origin texture-pixel space
@@ -385,8 +507,8 @@ export type WorldPositionMap = {
 };
 
 /** Interpolates collected world-space bake vertices into UV texture space.
- * Overlapping UV triangles intentionally follow the bake raster's existing
- * last-writer behavior. */
+ * Overlapping UV triangles keep the last triangle's values, as before, but each
+ * covered texel is interpolated once (see `rasterizeLastWriter`). */
 export function rasterizeWorldPositions(scene: Pick<BakeScene, 'vertices' | 'triangles'>, width: number, height: number): WorldPositionMap {
   if (!Number.isInteger(width) || width <= 0 || !Number.isInteger(height) || height <= 0) {
     throw new Error('World-position raster dimensions must be positive integers.');
@@ -394,12 +516,11 @@ export function rasterizeWorldPositions(scene: Pick<BakeScene, 'vertices' | 'tri
   const positions = new Float32Array(width * height * 3);
   const normals = new Float32Array(width * height * 3);
   const coverage = new Uint8Array(width * height);
-  rasterizeBake(width, height, scene.triangles, (px, py, w0, w1, w2, triangle) => {
+  rasterizeLastWriter(coverage, width, height, scene.triangles, (_px, _py, w0, w1, w2, triangle, _triangleIndex, pixel) => {
     const va = scene.vertices[triangle.verts[0]];
     const vb = scene.vertices[triangle.verts[1]];
     const vc = scene.vertices[triangle.verts[2]];
     if (!va || !vb || !vc) throw new Error('Bake triangle references a missing world-space vertex.');
-    const pixel = py * width + px;
     const offset = pixel * 3;
     positions[offset] = va.position.x * w0 + vb.position.x * w1 + vc.position.x * w2;
     positions[offset + 1] = va.position.y * w0 + vb.position.y * w1 + vc.position.y * w2;
@@ -407,21 +528,50 @@ export function rasterizeWorldPositions(scene: Pick<BakeScene, 'vertices' | 'tri
     normals[offset] = va.normal.x * w0 + vb.normal.x * w1 + vc.normal.x * w2;
     normals[offset + 1] = va.normal.y * w0 + vb.normal.y * w1 + vc.normal.y * w2;
     normals[offset + 2] = va.normal.z * w0 + vb.normal.z * w1 + vc.normal.z * w2;
-    coverage[pixel] = 1;
   });
   return { positions, normals, coverage };
 }
 
-export function rasterizeBake<T extends { uv: readonly [readonly [number, number], readonly [number, number], readonly [number, number]] }>(
+/** Anything the triangle-major rasterizers can walk: three UV corners. */
+export type RasterTriangle = {
+  uv: readonly [readonly [number, number], readonly [number, number], readonly [number, number]];
+};
+
+/** Options for the triangle-major UV rasterizers. */
+export type BakeRasterOptions = {
+  /** Tile grid the walk consults to skip tiles whose texels are all resolved. */
+  coverage?: TileCoverage;
+  /** Walks the triangles last-first, for callers that keep the last triangle
+   * covering each texel: paired with a claim gate over the caller's own mask,
+   * every texel is claimed and shaded once, by the triangle forward order would
+   * have kept. */
+  lastWriter?: boolean;
+};
+
+/**
+ * Rasterizes triangles into a `width × height` grid, invoking `writePixel`
+ * with the barycentric weights for every covered pixel. Generic over triangle
+ * shape  the bake (BakeTriangle) and UV-overlap (UVTriangle) rasterizers are
+ * the same math. UV (0,0) is the texture bottom-left; the canvas is top-left,
+ * so V is flipped here. The flat serialized-scene sibling is
+ * `rasterizeBakeBand` (band-clipped, progress-aware); both share one
+ * barycentric core. Returns false when `writePixel` stopped the walk by
+ * returning false.
+ */
+export function rasterizeBake<T extends RasterTriangle>(
   width: number,
   height: number,
   triangles: readonly T[],
-  writePixel: (px: number, py: number, w0: number, w1: number, w2: number, triangle: T, triangleIndex: number) => void,
-): void {
-  for (let triangleIndex = 0; triangleIndex < triangles.length; triangleIndex += 1) {
+  writePixel: (px: number, py: number, w0: number, w1: number, w2: number, triangle: T, triangleIndex: number) => boolean | void,
+  options?: BakeRasterOptions,
+): boolean {
+  const { coverage, lastWriter } = options ?? {};
+  const triangleCount = triangles.length;
+  for (let step = 0; step < triangleCount; step += 1) {
+    const triangleIndex = lastWriter ? triangleCount - 1 - step : step;
     const triangle = triangles[triangleIndex];
     const [a, b, c] = triangle.uv.map((uv) => uvToTexturePoint(uv, width, height));
-    rasterizeTrianglePixels(
+    const completed = rasterizeTrianglePixels(
       a[0],
       a[1],
       b[0],
@@ -432,8 +582,38 @@ export function rasterizeBake<T extends { uv: readonly [readonly [number, number
       0,
       height,
       (px, py, w0, w1, w2) => writePixel(px, py, w0, w1, w2, triangle, triangleIndex),
+      undefined,
+      coverage,
     );
+    if (!completed) return false;
   }
+  return true;
+}
+
+/**
+ * Runs a triangle-major UV raster that keeps the last triangle covering each
+ * texel: `mask` records the claimed texels (1 = written) and every triangle only
+ * sees the texels still unclaimed, so overlapping islands, repeated UV tiles, or
+ * a UV set that maps many triangles over the whole texture cost one write per
+ * texel instead of one per covering triangle, and the surviving write is the
+ * triangle forward order would have kept. `writePixel` receives the texel's
+ * row-major index. Shared by the UV bakes' siblings (world positions, the
+ * UV-stretch views), which all overwrite as they rasterize.
+ */
+export function rasterizeLastWriter<T extends RasterTriangle>(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  triangles: readonly T[],
+  writePixel: (px: number, py: number, w0: number, w1: number, w2: number, triangle: T, triangleIndex: number, index: number) => void,
+): void {
+  const coverage = createTileCoverage(width, height);
+  const claim = createTexelClaims(mask, width, 0, coverage);
+  rasterizeBake(width, height, triangles, (px, py, w0, w1, w2, triangle, triangleIndex) => {
+    const index = claim(px, py);
+    if (index < 0) return;
+    writePixel(px, py, w0, w1, w2, triangle, triangleIndex, index);
+  }, { coverage, lastWriter: true });
 }
 
 /**
@@ -445,6 +625,15 @@ export function rasterizeBake<T extends { uv: readonly [readonly [number, number
  * construction. `written` marks covered texels (band-local row-major index);
  * `perTexel` receives the barycentric weights plus the triangle offsets;
  * `onRowsComplete` reports unique rows touched for progress.
+ *
+ * Triangles are walked back to front through the shared last-writer claim gate
+ * (see `createTexelClaims`) and the tile grid that gate feeds (see
+ * `TileCoverage`), so every covered texel is shaded once, by the triangle the
+ * forward-order raster would have ended with. A UV layout whose islands overlap,
+ * or that maps many triangles over the whole texture the way baking-tool UV sets
+ * and UDIM-style layouts do, therefore costs one texel shade per texel instead
+ * of one per covering triangle. Entries set in `written` on entry read as texels
+ * an already-walked triangle claimed, so they are left untouched.
  */
 export function rasterizeBakeBand(
   width: number,
@@ -501,7 +690,9 @@ export function rasterizeBakeBand(
       }
     : undefined;
 
-  for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex += 1) {
+  const coverage = createTileCoverage(width, bandHeight);
+  const claim = createTexelClaims(written, width, yStart, coverage);
+  for (let triangleIndex = triangleCount - 1; triangleIndex >= 0; triangleIndex -= 1) {
     const uvOffset = triangleIndex * 6;
     const vertOffset = triangleIndex * 3;
     const v0 = triangleVerts[vertOffset] * 6;
@@ -518,11 +709,12 @@ export function rasterizeBakeBand(
       yStart,
       yEnd,
       (px, py, w0, w1, w2) => {
-        const index = (py - yStart) * width + px;
-        written[index] = 1;
+        const index = claim(px, py);
+        if (index < 0) return;
         perTexel(px, py, w0, w1, w2, index, triangleIndex, uvOffset, vertOffset, v0, v1, v2);
       },
       onRow,
+      coverage,
     );
   }
   if (onRowsComplete && rowsDone > lastReported) onRowsComplete(rowsDone);
@@ -544,7 +736,8 @@ export function blankBakeBuffers(width: number, height: number, channels: number
  * texels and dilating the UV islands' edges outward afterward. Every UV-space
  * bake (AO, lightmap) goes through here so the mark-then-pad pipeline stays
  * identical. `writePixel` receives the target buffer and the per-texel pixel
- * offset so callers write their channel layout directly.
+ * offset so callers write their channel layout directly; overlapping islands
+ * reach it once per texel, from the last triangle covering that texel.
  */
 export function rasterizeBakedPixels(
   width: number,
@@ -564,9 +757,8 @@ export function rasterizeBakedPixels(
   ) => void,
 ): Uint8ClampedArray {
   const { pixels, written } = blankBakeBuffers(width, height, channels);
-  rasterizeBake(width, height, triangles, (px, py, w0, w1, w2, triangle, triangleIndex) => {
-    written[py * width + px] = 1;
-    writePixel(pixels, px, py, w0, w1, w2, triangle, triangleIndex, (py * width + px) * channels);
+  rasterizeLastWriter(written, width, height, triangles, (px, py, w0, w1, w2, triangle, triangleIndex, index) => {
+    writePixel(pixels, px, py, w0, w1, w2, triangle, triangleIndex, index * channels);
   });
   dilateUVBake(pixels, written, width, height, channels);
   return pixels;
