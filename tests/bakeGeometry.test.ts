@@ -326,6 +326,40 @@ describe('rasterizeBakeBand', () => {
     expect(writes).toBe(written.reduce((sum, flag) => sum + flag, 0));
   });
 
+  it('writes nothing for islands that live entirely outside the texture', () => {
+    // The bake covers the single 0..1 texture, so geometry on another tile (or
+    // at negative UVs) is not wrapped onto it.
+    const written = new Uint8Array(8 * 8);
+    const offsets: Array<[number, number]> = [[1, 0], [0, -1], [-2, -2]];
+    for (const [du, dv] of offsets) {
+      const triangleUVs = new Float32Array([du, dv, du + 1, dv, du, dv + 1]);
+      rasterizeBakeBand(8, 8, 0, 8, triangleUVs, new Uint32Array([0, 1, 2]), written, () => {
+        throw new Error('an off-texture island must not be shaded.');
+      });
+    }
+    expect(written.every((flag) => flag === 0)).toBe(true);
+  });
+
+  it('shades only the part of an island that falls inside the texture', () => {
+    // A unit quad shifted to v -0.5..0.5: half of it sits below the texture, so
+    // exactly the four bottom rows of the map are covered, all eight columns.
+    const quad = new Float32Array([
+      0, -0.5, 1, -0.5, 1, 0.5,
+      0, -0.5, 1, 0.5, 0, 0.5,
+    ]);
+    const verts = new Uint32Array([0, 1, 2, 0, 1, 2]);
+    const written = new Uint8Array(8 * 8);
+    const rows = new Set<number>();
+    const columns = new Set<number>();
+    rasterizeBakeBand(8, 8, 0, 8, quad, verts, written, (px, py) => {
+      rows.add(py);
+      columns.add(px);
+    });
+    expect(written.reduce((sum, flag) => sum + flag, 0)).toBe(32);
+    expect([...rows].sort((a, b) => a - b)).toEqual([4, 5, 6, 7]);
+    expect([...columns].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
   it('reports progress over unique rows even when islands overlap', () => {
     const { triangleUVs, triangleVerts } = stackedTriangles(4);
     const reported: number[] = [];
